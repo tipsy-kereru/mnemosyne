@@ -1,0 +1,22 @@
+# Core dependencies
+networkx>=3.2.1
+sqlalchemy>=2.0.25
+
+# NLP and parsing (optional - installed on demand)
+# spacy>=3.7.2
+# https://spacy.io/usage
+
+# Code parsing (optional)
+# tree-sitter>=0.21.0
+# tree-sitter-python>=0.21.0
+# tree-sitter-javascript>=0.21.0
+
+# Local SLM models (optional - for semantic extraction)
+# gliner>=0.2.0
+# transformers>=4.37.0
+# torch>=2.1.0  # CPU version, use torch+CUDA for GPU
+
+# Utilities
+uuid>=1.30
+python-dateutil>=2.8.2
+pyyaml>=6.0.1
