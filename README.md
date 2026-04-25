@@ -7,26 +7,26 @@ Based on research from Google's Gemini knowledge graph architecture, this system
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    RAW SOURCE LAYER (Immutable)                      │
-│         ~/agent-memory/core/raw/{daily,coding,legal}                 │
+│         ~/agent-memory/mnemosyne/raw/{daily,coding,legal}             │
 └────────────────────────────┬────────────────────────────────────────┘
                              │ Extraction Pipeline (never modifies)
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    WIKI LAYER (Knowledge Binary)                     │
-│         ~/agent-memory/core/wiki/{daily,coding,legal}                │
+│         ~/agent-memory/mnemosyne/wiki/{daily,coding,legal}            │
 │         Human-readable Markdown + [[wiki-links]]                     │
 └────────────────────────────┬────────────────────────────────────────┘
                              │ Schema Governance
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                 SCHEMA LAYER (CLAUDE.md / AGENTS.md)                 │
-│         ~/agent-memory/core/schema/{domain}.md                       │
+│         ~/agent-memory/mnemosyne/schema/{domain}.md                   │
 └────────────────────────────┬────────────────────────────────────────┘
                              │ Graph Database
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │              KNOWLEDGE GRAPH (SQLite + NetworkX)                     │
-│         ~/agent-memory/core/graph/{entities,relations}.db            │
+│         ~/agent-memory/mnemosyne/graph/{entities,relations}.db        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -38,18 +38,52 @@ Based on research from Google's Gemini knowledge graph architecture, this system
 | **Coding** | `function`, `class`, `module`, `api`, `bug`, `feature`, `test`, `dependency` | Code search, dependency tracking, bug correlation |
 | **Legal** | `statute`, `clause`, `case`, `party`, `obligation`, `deadline`, `contract` | Compliance, contract analysis, precedent lookup |
 
+## Installation
+
+```bash
+# Basic install (core dependencies only)
+pip install -e .
+
+# With deterministic extraction (tree-sitter, spacy)
+pip install -e ".[deterministic]"
+
+# With semantic extraction (GLiNER2, torch)
+pip install -e ".[semantic]"
+
+# Development setup
+pip install -e ".[dev]"
+
+# Everything
+pip install -e ".[all]"
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `mnemosyne --version` | Show package version |
+| `mnemosyne query --stats` | Query graph statistics |
+| `mnemosyne extract ~/path` | Extract entities from source |
+| `mnemosyne-query --stats` | Graph query CLI (standalone) |
+| `mnemosyne-extract --help` | Extraction CLI (standalone) |
+| `python -m mnemosyne.graph.knowledge_graph --stats` | Module-based CLI |
+
 ## Quick Start
 
 ```bash
-# Install dependencies
-cd ~/agent-memory
-pip install -r requirements.txt
+# Install the package
+pip install -e .
 
-# Extract knowledge from raw sources
-python -m core.extraction.pipeline --domain all
+# Or with all optional dependencies
+pip install -e ".[all]"
 
 # Query the knowledge graph
-python -m core.graph.query --entity "function:parse_config"
+mnemosyne-query --stats
+python -m mnemosyne.graph.knowledge_graph --query "search:parse_config"
+
+# Extract knowledge
+mnemosyne-extract ~/my-project --domain coding
+python -m mnemosyne.extraction.deterministic.code_parser ~/my-project
 
 # Start Joplin plugin
 cd joplin-plugin/knowledge-graph
@@ -59,21 +93,25 @@ npm install && npm run build
 ## Directory Structure
 
 ```
-agent-memory/
-├── core/
-│   ├── raw/              # Immutable source documents
-│   ├── wiki/             # Extracted knowledge (markdown + wiki-links)
-│   ├── schema/           # Domain schemas (CLAUDE.md, AGENTS.md)
+mnemosyne-knowledge-graph/
+├── mnemosyne/            # Main Python package
+│   ├── __init__.py       # Package root with version and public API
+│   ├── cli.py            # Main CLI entry point
+│   ├── graph/            # Graph database + query engine
+│   │   ├── cli.py        # Graph query CLI
+│   │   ├── knowledge_graph.py
+│   │   └── scope_manager.py
 │   ├── extraction/       # Extraction pipelines
+│   │   ├── cli.py        # Extraction CLI
 │   │   ├── deterministic/  # Tree-sitter, SpaCy (zero-LLM)
 │   │   ├── semantic/       # GLiNER2, REBEL (local SLM)
 │   │   └── synthesis/      # High-level synthesis (optional LLM)
-│   └── graph/            # Graph database + query engine
-├── joplin-plugin/        # Joplin plugin for Obsidian-like experience
-├── agents/               # Agent-specific memory configs
-│   ├── daily-life/
-│   ├── coding/
-│   └── legal/
+│   ├── raw/              # Immutable source documents
+│   ├── wiki/             # Extracted knowledge (markdown + wiki-links)
+│   └── schema/           # Domain schemas
+├── tests/                # Test suite
+├── joplin-plugin/        # Joplin plugin (TypeScript)
+├── pyproject.toml        # PEP 621 package configuration
 └── CLAUDE.md             # Main system prompt
 ```
 
