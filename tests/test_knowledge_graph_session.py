@@ -11,8 +11,8 @@ from datetime import datetime
 
 import pytest
 
-from core.graph.knowledge_graph import KnowledgeGraph, Scope, Entity, Relation
-from core.graph.scope_manager import ScopeManager
+from mnemosyne.graph.knowledge_graph import KnowledgeGraph, Scope, Entity, Relation
+from mnemosyne.graph.scope_manager import ScopeManager
 
 
 @pytest.fixture

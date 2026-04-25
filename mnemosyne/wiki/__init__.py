@@ -1,0 +1,3 @@
+"""
+Wiki subpackage for mnemosyne.
+"""

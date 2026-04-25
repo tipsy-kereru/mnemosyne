@@ -1,0 +1,3 @@
+"""
+Synthesis subpackage for mnemosyne.
+"""

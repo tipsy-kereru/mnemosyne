@@ -1,3 +1,10 @@
+# DEPRECATED: Use pyproject.toml instead.
+# This file is kept for reference only. Install with: pip install -e .
+#
+# To install core dependencies:   pip install -e .
+# To install dev dependencies:     pip install -e ".[dev]"
+# To install all optional deps:    pip install -e ".[all]"
+
 # Core dependencies
 networkx>=3.2.1
 sqlalchemy>=2.0.25
@@ -17,6 +24,5 @@ sqlalchemy>=2.0.25
 # torch>=2.1.0  # CPU version, use torch+CUDA for GPU
 
 # Utilities
-uuid>=1.30
 python-dateutil>=2.8.2
 pyyaml>=6.0.1

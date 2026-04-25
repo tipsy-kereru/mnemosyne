@@ -22,7 +22,7 @@ Knowledge Graph (SQLite + NetworkX)
 
 ```
 ~/agent-memory/
-├── core/
+├── mnemosyne/
 │   ├── raw/                    # Immutable source documents
 │   │   ├── daily/
 │   │   ├── coding/
@@ -81,43 +81,43 @@ Knowledge Graph (SQLite + NetworkX)
 
 ```bash
 # Extract code entities from a directory (zero LLM)
-python -m core.extraction.deterministic.code_parser ~/my-project --format wiki
+python -m mnemosyne.extraction.deterministic.code_parser ~/my-project --format wiki
 
 # Extract with session scope
-python -m core.extraction.deterministic.code_parser ~/my-project --scope-id impl-session --source-channel vscode
+python -m mnemosyne.extraction.deterministic.code_parser ~/my-project --scope-id impl-session --source-channel vscode
 
 # Extract semantic entities using local SLM
-python -m core.extraction.semantic.slm_extractor --text "John works at Google" --entities PERSON ORGANIZATION
+python -m mnemosyne.extraction.semantic.slm_extractor --text "John works at Google" --entities PERSON ORGANIZATION
 
 # Extract semantic entities with session scope
-python -m core.extraction.semantic.slm_extractor --text "John works at Google" --entities PERSON ORGANIZATION --scope-id session-1 --source-channel discord
+python -m mnemosyne.extraction.semantic.slm_extractor --text "John works at Google" --entities PERSON ORGANIZATION --scope-id session-1 --source-channel discord
 
 # Run full pipeline
-python -m core.extraction.pipeline --domain coding --source ~/my-project
+python -m mnemosyne.extraction.pipeline --domain coding --source ~/my-project
 ```
 
 ### Knowledge Graph Query
 
 ```bash
 # Query entities
-python -m core.graph.knowledge_graph --query "entity:function[parse_config]"
+python -m mnemosyne.graph.knowledge_graph --query "entity:function[parse_config]"
 
 # Query relations
-python -m core.graph.knowledge_graph --query "relation:calls"
+python -m mnemosyne.graph.knowledge_graph --query "relation:calls"
 
 # Find path between entities
-python -m core.graph.knowledge_graph --query "path:get_user,authenticate"
+python -m mnemosyne.graph.knowledge_graph --query "path:get_user,authenticate"
 
 # Session-aware queries
-python -m core.graph.knowledge_graph --query "entity:function[*]@session:impl-session"
-python -m core.graph.knowledge_graph --query "entity:task[*]@project:snake-game"
-python -m core.graph.knowledge_graph --query "relation:calls@session:s1@channel:code"
+python -m mnemosyne.graph.knowledge_graph --query "entity:function[*]@session:impl-session"
+python -m mnemosyne.graph.knowledge_graph --query "entity:task[*]@project:snake-game"
+python -m mnemosyne.graph.knowledge_graph --query "relation:calls@session:s1@channel:code"
 
 # Search
-python -m core.graph.knowledge_graph --query "search:authentication"
+python -m mnemosyne.graph.knowledge_graph --query "search:authentication"
 
 # Stats
-python -m core.graph.knowledge_graph --stats
+python -m mnemosyne.graph.knowledge_graph --stats
 ```
 
 ### Joplin Plugin

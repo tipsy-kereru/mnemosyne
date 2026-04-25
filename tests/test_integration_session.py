@@ -12,8 +12,8 @@ from typing import List
 
 import pytest
 
-from core.extraction.deterministic.code_parser import CodeEntity, TreeSitterExtractor
-from core.extraction.semantic.slm_extractor import (
+from mnemosyne.extraction.deterministic.code_parser import CodeEntity, TreeSitterExtractor
+from mnemosyne.extraction.semantic.slm_extractor import (
     ExtractedEntity,
     ExtractedRelation,
     GLiNER2Extractor,

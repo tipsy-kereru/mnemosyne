@@ -1,0 +1,3 @@
+"""
+Extraction subpackage for mnemosyne.
+"""

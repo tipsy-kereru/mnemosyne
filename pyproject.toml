@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "mnemosyne-kg"
+version = "0.1.0"
+description = "Local-first, zero-API-cost knowledge memory system for AI agents"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Seung Hyun Myung"}]
+dependencies = [
+    "networkx>=3.2.1",
+    "sqlalchemy>=2.0.25",
+    "python-dateutil>=2.8.2",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+deterministic = [
+    "tree-sitter>=0.21.0",
+    "tree-sitter-python>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "spacy>=3.7.2",
+]
+semantic = [
+    "gliner>=0.2.0",
+    "transformers>=4.37.0",
+    "torch>=2.1.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+]
+all = ["mnemosyne-kg[deterministic,semantic,dev]"]
+
+[project.urls]
+Repository = "https://github.com/user/mnemosyne-knowledge-graph"
+Documentation = "https://github.com/user/mnemosyne-knowledge-graph#readme"
+Issues = "https://github.com/user/mnemosyne-knowledge-graph/issues"
+
+[project.scripts]
+mnemosyne = "mnemosyne.cli:main"
+mnemosyne-query = "mnemosyne.graph.cli:main"
+mnemosyne-extract = "mnemosyne.extraction.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mnemosyne*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

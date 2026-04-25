@@ -10,8 +10,8 @@ from datetime import datetime
 
 import pytest
 
-from core.graph.knowledge_graph import KnowledgeGraph, Scope, Entity
-from core.graph.scope_manager import ScopeManager
+from mnemosyne.graph.knowledge_graph import KnowledgeGraph, Scope, Entity
+from mnemosyne.graph.scope_manager import ScopeManager
 
 
 @pytest.fixture
