@@ -6,7 +6,7 @@
 (function() {
   // Wiki link pattern
   const WIKI_LINK_PATTERN = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-  
+
   // Entity link pattern: entity:type:name
   const ENTITY_PATTERN = /^entity:(\w+):(.+)$/;
   
@@ -18,9 +18,7 @@
     // Find text nodes
     const walker = document.createTreeWalker(
       element,
-      NodeFilter.SHOW_TEXT,
-      null,
-      false
+      NodeFilter.SHOW_TEXT
     );
 
     const textNodes: Text[] = [];
@@ -95,8 +93,8 @@
       
       // Make it clickable
       span.addEventListener('click', () => {
-        if (window.joplin) {
-          window.joplin.commands.execute('openNote', path);
+        if ((window as any).joplin) {
+          (window as any).joplin.commands.execute('openNote', path);
         }
       });
     }
@@ -106,8 +104,8 @@
       span.style.cursor = 'pointer';
       span.addEventListener('click', () => {
         // Trigger knowledge graph search
-        if (window.joplin && window.joplin.plugins) {
-          window.joplin.plugins.current.postMessage({
+        if ((window as any).joplin && (window as any).joplin.plugins) {
+          (window as any).joplin.plugins.current.postMessage({
             name: 'wikiLinkClicked',
             args: { path, alias }
           });
@@ -219,7 +217,7 @@
     // Watch for new content
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
+        for (const node of Array.from(mutation.addedNodes)) {
           if (node instanceof HTMLElement) {
             processWikiLinks(node);
           }
