@@ -47,22 +47,31 @@ def main(argv=None):
 
         extractor = TreeSitterExtractor()
         if path.is_file():
-            entities = extractor.extract_file(
+            result = extractor.extract_file_full(
                 path,
                 scope_id=args.scope_id,
                 source_channel=args.source_channel,
             )
+            entities = result.entities
         else:
             entities = extractor.extract_directory(
                 path,
                 scope_id=args.scope_id,
                 source_channel=args.source_channel,
             )
+            result = None
 
         if args.format == "json":
             print(json.dumps([asdict(e) for e in entities], indent=2))
         else:
-            print(extractor.to_wiki_format(entities))
+            if result is not None:
+                print(extractor.to_wiki_format(
+                    entities,
+                    imports=result.imports,
+                    calls=result.calls,
+                ))
+            else:
+                print(extractor.to_wiki_format(entities))
     else:
         print(f"Domain '{args.domain}' extraction is not yet implemented.")
         sys.exit(1)

@@ -3,11 +3,11 @@ Deterministic Syntax Parsing - Zero LLM Extraction
 Uses Tree-sitter for code AST parsing, SpaCy for natural language
 """
 
+import hashlib
 import re
-import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Any, Optional, Set
+from dataclasses import dataclass
 
 
 @dataclass
@@ -44,6 +44,39 @@ class TreeSitterExtractor:
     
     def __init__(self):
         self.entities: List[CodeEntity] = []
+        self._unavailable_languages: Set[str] = set()
+        self._grammars: Dict[str, Any] = self._load_grammars()
+        self._cache: Dict[str, ParseResult] = {}
+
+    def clear_cache(self) -> None:
+        """Remove all cached ParseResult entries."""
+        self._cache.clear()
+
+    def _load_grammars(self) -> Dict[str, Any]:
+        """Attempt to load tree-sitter grammars for all supported languages.
+
+        Returns a dict mapping language name to tree_sitter.Language for
+        languages whose grammar packages are installed. Languages that fail
+        to load are recorded in ``_unavailable_languages``.
+        """
+        grammars: Dict[str, Any] = {}
+        language_packages = {
+            "python": ("tree_sitter_python", "language"),
+            "javascript": ("tree_sitter_javascript", "language"),
+            "typescript": ("tree_sitter_typescript", "language_typescript"),
+            "tsx": ("tree_sitter_typescript", "language_tsx"),
+            "go": ("tree_sitter_go", "language"),
+            "rust": ("tree_sitter_rust", "language"),
+        }
+        for lang_name, (module_name, attr_name) in language_packages.items():
+            try:
+                module = __import__(module_name)
+                from tree_sitter import Language
+
+                grammars[lang_name] = Language(getattr(module, attr_name)())
+            except (ImportError, Exception):
+                self._unavailable_languages.add(lang_name)
+        return grammars
     
     def extract_file(
         self,
@@ -51,33 +84,172 @@ class TreeSitterExtractor:
         scope_id: Optional[str] = None,
         source_channel: Optional[str] = None,
     ) -> List[CodeEntity]:
-        """Extract entities from a single source file"""
+        """Extract entities from a single source file.
+
+        Returns a list of CodeEntity for backward compatibility. Internally
+        delegates to :meth:`extract_file_full`.
+        """
+        result = self.extract_file_full(file_path, scope_id, source_channel)
+        self.entities.extend(result.entities)
+        return result.entities
+
+    def extract_file_full(
+        self,
+        file_path: Path,
+        scope_id: Optional[str] = None,
+        source_channel: Optional[str] = None,
+    ) -> "ParseResult":
+        """Extract entities, imports, and calls from a single source file.
+
+        Returns a :class:`ParseResult` containing all extracted data and
+        metadata (file path, language, content hash, extraction method).
+
+        When a tree-sitter grammar is available for the detected language,
+        AST-based extraction is used. Otherwise, regex-based fallback
+        extraction is applied.
+        """
+        from mnemosyne.extraction.deterministic.types import ParseResult
+
         suffix = file_path.suffix.lower()
         language = self.SUPPORTED_LANGUAGES.get(suffix)
 
         if not language:
-            return []
+            return ParseResult()
 
-        # For now, use regex-based extraction as tree-sitter fallback
-        # In production, use tree-sitter-python, tree-sitter-javascript, etc.
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
+        content_bytes = file_path.read_bytes()
+        content_hash = hashlib.sha256(
+            f"{file_path}|".encode() + content_bytes,
+        ).hexdigest()
 
-        entities = []
+        # Return cached result if content has not changed
+        if content_hash in self._cache:
+            return self._cache[content_hash]
 
-        if language == 'python':
-            entities = self._extract_python(content, file_path, scope_id, source_channel)
-        elif language in ('javascript', 'typescript'):
-            entities = self._extract_js_ts(content, file_path, language, scope_id, source_channel)
-        elif language == 'go':
-            entities = self._extract_go(content, file_path, scope_id, source_channel)
-        elif language == 'rust':
-            entities = self._extract_rust(content, file_path, scope_id, source_channel)
+        # Try tree-sitter extraction when grammar is available
+        if language in self._grammars:
+            result = self._extract_with_tree_sitter(
+                language, content_bytes, str(file_path),
+                scope_id, source_channel,
+            )
+            result.file_path = str(file_path)
+            result.language = language
+            result.content_hash = content_hash
+            result.extraction_method = "tree-sitter"
+            self._cache[content_hash] = result
+            return result
 
-        self.entities.extend(entities)
-        return entities
+        # Regex fallback for languages without loaded grammars
+        content = content_bytes.decode("utf-8", errors="ignore")
+        entities = self._fallback_extract(
+            language, content, file_path, scope_id, source_channel,
+        )
+        for entity in entities:
+            entity.properties["extraction_method"] = "regex"
+
+        result = ParseResult(
+            entities=entities,
+            file_path=str(file_path),
+            language=language,
+            content_hash=content_hash,
+            extraction_method="regex",
+        )
+        self._cache[content_hash] = result
+        return result
+
+    def _extract_with_tree_sitter(
+        self,
+        language: str,
+        content_bytes: bytes,
+        file_path: str,
+        scope_id: Optional[str],
+        source_channel: Optional[str],
+    ) -> "ParseResult":
+        """Dispatch to the appropriate language extractor for AST parsing."""
+        from mnemosyne.extraction.deterministic.types import ParseResult
+        from tree_sitter import Parser
+
+        grammar = self._grammars[language]
+        parser = Parser(grammar)
+        tree = parser.parse(content_bytes)
+
+        extractor = self._get_language_extractor(language)
+        if extractor is not None:
+            entities = extractor.extract_entities(
+                tree, content_bytes, file_path, scope_id, source_channel,
+            )
+            imports = extractor.extract_imports(
+                tree, content_bytes, file_path, scope_id, source_channel,
+            )
+            calls = extractor.extract_calls(
+                tree, content_bytes, file_path, scope_id, source_channel,
+            )
+            return ParseResult(
+                entities=entities,
+                imports=imports,
+                calls=calls,
+            )
+
+        # If no dedicated extractor, return empty result
+        return ParseResult()
+
+    def _get_language_extractor(self, language: str) -> Any:
+        """Return the language extractor for the given language, or None."""
+        if language == "python":
+            from mnemosyne.extraction.deterministic.languages.python_extractor import (
+                PythonExtractor,
+            )
+            if not hasattr(self, "_python_extractor"):
+                self._python_extractor = PythonExtractor()
+            return self._python_extractor
+        elif language in ("javascript", "typescript", "tsx"):
+            from mnemosyne.extraction.deterministic.languages.javascript_extractor import (
+                JavaScriptExtractor,
+            )
+            if not hasattr(self, "_js_extractor"):
+                self._js_extractor = JavaScriptExtractor()
+            if self._js_extractor.grammar is not None:
+                return self._js_extractor
+            return None
+        elif language == "go":
+            from mnemosyne.extraction.deterministic.languages.go_extractor import (
+                GoExtractor,
+            )
+            if not hasattr(self, "_go_extractor"):
+                self._go_extractor = GoExtractor()
+            if self._go_extractor.grammar is not None:
+                return self._go_extractor
+            return None
+        elif language == "rust":
+            from mnemosyne.extraction.deterministic.languages.rust_extractor import (
+                RustExtractor,
+            )
+            if not hasattr(self, "_rust_extractor"):
+                self._rust_extractor = RustExtractor()
+            if self._rust_extractor.grammar is not None:
+                return self._rust_extractor
+            return None
+        return None
+
+    def _fallback_extract(
+        self,
+        language: str,
+        content: str,
+        file_path: Path,
+        scope_id: Optional[str],
+        source_channel: Optional[str],
+    ) -> List[CodeEntity]:
+        """Regex-based fallback extraction for languages without AST grammars."""
+        if language == "python":
+            return self._fallback_extract_python(content, file_path, scope_id, source_channel)
+        elif language in ("javascript", "typescript"):
+            return self._fallback_extract_js_ts(content, file_path, language, scope_id, source_channel)
+        elif language == "go":
+            return self._fallback_extract_go(content, file_path, scope_id, source_channel)
+        elif language == "rust":
+            return self._fallback_extract_rust(content, file_path, scope_id, source_channel)
+        return []
     
-    def _extract_python(
+    def _fallback_extract_python(
         self,
         content: str,
         file_path: Path,
@@ -126,7 +298,7 @@ class TreeSitterExtractor:
 
         return entities
     
-    def _extract_js_ts(
+    def _fallback_extract_js_ts(
         self,
         content: str,
         file_path: Path,
@@ -176,7 +348,7 @@ class TreeSitterExtractor:
 
         return entities
     
-    def _extract_go(
+    def _fallback_extract_go(
         self,
         content: str,
         file_path: Path,
@@ -224,7 +396,7 @@ class TreeSitterExtractor:
 
         return entities
     
-    def _extract_rust(
+    def _fallback_extract_rust(
         self,
         content: str,
         file_path: Path,
@@ -310,8 +482,19 @@ class TreeSitterExtractor:
 
         return all_entities
     
-    def to_wiki_format(self, entities: List[CodeEntity]) -> str:
-        """Convert extracted entities to wiki markdown format"""
+    def to_wiki_format(
+        self,
+        entities: List[CodeEntity],
+        imports: Optional[List] = None,
+        calls: Optional[List] = None,
+    ) -> str:
+        """Convert extracted entities to wiki markdown format.
+
+        When *imports* or *calls* are provided (as lists of ImportEntity or
+        CallRelation), additional Import Graph and Call Graph sections are
+        appended.  Passing neither (or empty lists) preserves the original
+        entities-only output for backward compatibility.
+        """
         lines = ["# Code Entities\n"]
 
         by_type = {}
@@ -332,6 +515,28 @@ class TreeSitterExtractor:
                     if value:
                         lines.append(f"- **{key}**: {value}")
                 lines.append("")
+
+        # Import Graph section
+        if imports:
+            lines.append("\n## Import Graph\n")
+            for imp in imports:
+                local_tag = " (local)" if imp.is_local else ""
+                names = ", ".join(imp.imported_names) if imp.imported_names else "*"
+                lines.append(
+                    f"- [[import:{imp.module_path}]] -> {names}{local_tag}"
+                    f" (`{imp.source_file}:{imp.line_number}`)"
+                )
+            lines.append("")
+
+        # Call Graph section
+        if calls:
+            lines.append("\n## Call Graph\n")
+            for call in calls:
+                lines.append(
+                    f"- [[{call.caller_name}]] -> [[{call.callee_name}]]"
+                    f" ({call.call_type}, line {call.callee_line})"
+                )
+            lines.append("")
 
         return '\n'.join(lines)
 
