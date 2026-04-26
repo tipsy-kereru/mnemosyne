@@ -67,6 +67,7 @@ pip install -e ".[all]"
 | `mnemosyne-query --stats` | Graph query CLI (standalone) |
 | `mnemosyne-extract --help` | Extraction CLI (standalone) |
 | `python -m mnemosyne.graph.knowledge_graph --stats` | Module-based CLI |
+| `python -m mnemosyne.extraction.pipeline --domain coding --source ~/path` | Full extraction pipeline |
 
 ## Quick Start
 
@@ -81,9 +82,14 @@ pip install -e ".[all]"
 mnemosyne-query --stats
 python -m mnemosyne.graph.knowledge_graph --query "search:parse_config"
 
-# Extract knowledge
-mnemosyne-extract ~/my-project --domain coding
-python -m mnemosyne.extraction.deterministic.code_parser ~/my-project
+# Extract knowledge using the full pipeline
+python -m mnemosyne.extraction.pipeline --domain coding --source ~/my-project
+
+# Extract with session scope and incremental mode
+python -m mnemosyne.extraction.pipeline --domain coding --source ~/my-project --scope-id my-session --incremental
+
+# Extract using deterministic layer only (tree-sitter AST parsing)
+python -m mnemosyne.extraction.deterministic.code_parser ~/my-project --format wiki
 
 # Start Joplin plugin
 cd joplin-plugin/knowledge-graph
@@ -103,7 +109,10 @@ mnemosyne-knowledge-graph/
 │   │   └── scope_manager.py
 │   ├── extraction/       # Extraction pipelines
 │   │   ├── cli.py        # Extraction CLI
-│   │   ├── deterministic/  # Tree-sitter, SpaCy (zero-LLM)
+│   │   ├── pipeline.py   # End-to-end extraction pipeline
+│   │   ├── pipeline_types.py  # Pipeline type definitions
+│   │   ├── deterministic/  # Tree-sitter AST parsing, SpaCy (zero-LLM)
+│   │   │   └── languages/  # Language-specific extractors (Python, JS, TS, TSX, Go, Rust)
 │   │   ├── semantic/       # GLiNER2, REBEL (local SLM)
 │   │   └── synthesis/      # High-level synthesis (optional LLM)
 │   ├── raw/              # Immutable source documents
@@ -117,8 +126,10 @@ mnemosyne-knowledge-graph/
 
 ## Key Features
 
-- **Zero API Cost**: Deterministic parsing for code, local SLMs for NLP
+- **Zero API Cost**: Tree-sitter AST parsing for code (6 languages), local SLMs for NLP
 - **Knowledge Compounding**: Wiki-layer accumulates knowledge across extractions
 - **Temporal Tracking**: Entities and relations maintain version history
 - **Schema-driven**: Modify `CLAUDE.md` to change graph structure
 - **Joplin Integration**: Obsidian-like wiki-link experience with Joplin
+- **Incremental Extraction**: SHA-256 content hash tracking for efficient updates
+- **Multi-domain Support**: Coding, daily life, and legal knowledge graphs

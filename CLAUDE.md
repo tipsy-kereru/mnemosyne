@@ -80,7 +80,7 @@ Knowledge Graph (SQLite + NetworkX)
 ### Extraction
 
 ```bash
-# Extract code entities from a directory (zero LLM)
+# Extract code entities from a directory using tree-sitter AST parsing (zero LLM)
 python -m mnemosyne.extraction.deterministic.code_parser ~/my-project --format wiki
 
 # Extract with session scope
@@ -92,8 +92,14 @@ python -m mnemosyne.extraction.semantic.slm_extractor --text "John works at Goog
 # Extract semantic entities with session scope
 python -m mnemosyne.extraction.semantic.slm_extractor --text "John works at Google" --entities PERSON ORGANIZATION --scope-id session-1 --source-channel discord
 
-# Run full pipeline
+# Run full extraction pipeline (3-layer: deterministic → semantic → synthesis)
 python -m mnemosyne.extraction.pipeline --domain coding --source ~/my-project
+
+# Run pipeline with session scope and incremental extraction
+python -m mnemosyne.extraction.pipeline --domain coding --source ~/my-project --scope-id my-session --incremental
+
+# Run pipeline with custom report format
+python -m mnemosyne.extraction.pipeline --domain coding --source ~/my-project --report-format json
 ```
 
 ### Knowledge Graph Query
@@ -151,7 +157,9 @@ The system achieves **knowledge compounding** by:
 ## Extraction Pipeline
 
 ### Layer 1: Deterministic Syntax Parsing (Zero LLM)
-- Tree-sitter AST parsing for code
+- Tree-sitter AST parsing for code (Python, JavaScript, TypeScript, TSX, Go, Rust)
+- Protocol-based architecture with language-specific extractors
+- Import graph and call graph extraction
 - SpaCy rule-based for natural language
 - Token reduction: 71.5x vs traditional chunking
 - Cost: $0
@@ -161,6 +169,7 @@ The system achieves **knowledge compounding** by:
 - REBEL for relation extraction
 - Schema-driven custom entity types
 - No fine-tuning required
+- Multi-domain routing (coding, daily, legal)
 
 ### Layer 3: Optional LLM Synthesis (Higher Cost)
 - Llama-3-8B / GPT-4o / Claude for complex queries
@@ -190,7 +199,8 @@ The system achieves **knowledge compounding** by:
 
 ## Limitations
 
-- Deterministic parsing works best for well-structured code
+- Deterministic tree-sitter parsing works best for well-structured code (6 supported languages)
 - Natural language extraction requires SpaCy models
 - Local SLM models need sufficient RAM (8GB+ recommended)
 - Graph queries require exact entity names (use search:* for fuzzy)
+- Pipeline extraction requires domain-specific schemas in CLAUDE.md
