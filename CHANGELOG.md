@@ -5,6 +5,21 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-27
+
+### Fixed
+- Resolved 12 mypy type errors across 4 files (SPEC-QUALITY-001)
+  - Added None guards for optional model fields in slm_extractor.py
+  - Added None guards for tree-sitter node.text in python_extractor.py
+  - Added TYPE_CHECKING import for ParseResult in code_parser.py
+  - Fixed Optional[str] type annotation in knowledge_graph.py
+- Resolved 61 ruff lint errors across mnemosyne/ and tests/ (SPEC-QUALITY-001)
+  - Removed 35 unused imports (auto-fixed via ruff --fix)
+  - Fixed 7 unused variables in test files
+  - Fixed duplicate .ts key to .tsx in SUPPORTED_LANGUAGES
+  - Converted 3 f-strings without placeholders to regular strings
+- Achieved zero-error quality gate: mypy 0, ruff 0, pytest 295/2, jest 21/21
+
 ## [0.2.0] - 2026-04-26
 
 ### Added
