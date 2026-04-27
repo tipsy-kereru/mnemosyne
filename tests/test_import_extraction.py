@@ -7,7 +7,6 @@ local vs external classification.
 
 import pytest
 
-from mnemosyne.extraction.deterministic.code_parser import TreeSitterExtractor
 
 
 @pytest.fixture

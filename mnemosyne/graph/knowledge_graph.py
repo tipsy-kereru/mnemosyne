@@ -4,13 +4,11 @@ SQLite + NetworkX for temporal knowledge graph storage and querying
 """
 
 import json
-import re
 import sqlite3
-import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 import networkx as nx
 
 
@@ -59,11 +57,13 @@ class KnowledgeGraph:
     Temporal knowledge graph with SQLite persistence and NetworkX analysis
     """
     
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            db_path = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+            resolved = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+        else:
+            resolved = Path(db_path)
 
-        self.db_path = Path(db_path)
+        self.db_path = resolved
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -201,7 +201,7 @@ class KnowledgeGraph:
     
     def _build_networkx(self) -> nx.DiGraph:
         """Build NetworkX graph from database"""
-        G = nx.DiGraph()
+        G: nx.DiGraph = nx.DiGraph()
 
         cursor = self.conn.cursor()
 

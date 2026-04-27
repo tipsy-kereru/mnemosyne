@@ -2,16 +2,10 @@
 Tests for ScopeManager: CRUD, hierarchy validation, tree traversal.
 """
 
-import json
-import sqlite3
-import tempfile
-from pathlib import Path
-from datetime import datetime
 
 import pytest
 
-from mnemosyne.graph.knowledge_graph import KnowledgeGraph, Scope, Entity
-from mnemosyne.graph.scope_manager import ScopeManager
+from mnemosyne.graph.knowledge_graph import KnowledgeGraph, Entity
 
 
 @pytest.fixture

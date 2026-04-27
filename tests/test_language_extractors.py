@@ -7,7 +7,6 @@ nested functions, docstrings, McCabe complexity, and extraction_method tagging.
 
 import pytest
 
-from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 
 
 @pytest.fixture

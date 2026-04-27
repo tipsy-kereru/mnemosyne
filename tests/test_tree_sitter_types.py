@@ -5,7 +5,6 @@ Covers: ParseResult, ImportEntity, CallRelation dataclasses and their
 default values, construction, and field access patterns.
 """
 
-import pytest
 
 from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 

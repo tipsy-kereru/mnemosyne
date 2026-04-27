@@ -6,7 +6,7 @@ AST-based extraction to carry entity, import, and call-graph data.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 

@@ -8,10 +8,8 @@ clear_cache(), and caching behavior in extract_directory().
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from mnemosyne.extraction.deterministic.code_parser import TreeSitterExtractor
-from mnemosyne.extraction.deterministic.types import ParseResult
 
 
 class TestParsingCache:

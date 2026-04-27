@@ -316,7 +316,7 @@ class ExtractionPipeline:
             errors.append(ExtractionError(
                 file_path=str(f),
                 error_type="PermissionError",
-                error_message=f"Cannot read file for hashing",
+                error_message="Cannot read file for hashing",
                 layer="discovery",
             ))
 
@@ -779,8 +779,8 @@ class ReportFormatter:
             "",
             "## Statistics",
             "",
-            f"| Metric | Count |",
-            f"|--------|-------|",
+            "| Metric | Count |",
+            "|--------|-------|",
             f"| Files discovered | {report.files_discovered} |",
             f"| Files processed | {report.files_processed} |",
             f"| Files skipped | {report.files_skipped} |",

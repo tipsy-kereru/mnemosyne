@@ -5,10 +5,7 @@ on extraction pipeline (code_parser, slm_extractor).
 TDD RED phase: all tests written BEFORE implementation.
 """
 
-import tempfile
 from dataclasses import asdict
-from pathlib import Path
-from typing import List
 
 import pytest
 

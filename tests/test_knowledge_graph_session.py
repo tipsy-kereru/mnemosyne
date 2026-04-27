@@ -3,16 +3,11 @@ Tests for KnowledgeGraph session features: entities with scope, extended query
 language, backward compatibility, and database migration.
 """
 
-import json
 import sqlite3
-import tempfile
-from pathlib import Path
-from datetime import datetime
 
 import pytest
 
-from mnemosyne.graph.knowledge_graph import KnowledgeGraph, Scope, Entity, Relation
-from mnemosyne.graph.scope_manager import ScopeManager
+from mnemosyne.graph.knowledge_graph import KnowledgeGraph, Entity, Relation
 
 
 @pytest.fixture

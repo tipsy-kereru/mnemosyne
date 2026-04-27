@@ -11,7 +11,6 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from dataclasses import dataclass, field
 
 from mnemosyne.graph.knowledge_graph import Scope
 

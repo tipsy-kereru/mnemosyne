@@ -7,7 +7,6 @@ method vs function call types.
 
 import pytest
 
-from mnemosyne.extraction.deterministic.code_parser import TreeSitterExtractor
 
 
 @pytest.fixture

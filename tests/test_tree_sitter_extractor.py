@@ -5,7 +5,6 @@ Covers: grammar initialization, _grammars dict, _unavailable_languages set,
 idempotent loading, and parser creation.
 """
 
-import pytest
 
 
 class TestGrammarLoading:

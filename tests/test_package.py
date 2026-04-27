@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 try:
-    import tomllib
+    import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:
     import tomli as tomllib  # Python < 3.11 backport
 

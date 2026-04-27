@@ -3,11 +3,16 @@ Deterministic Syntax Parsing - Zero LLM Extraction
 Uses Tree-sitter for code AST parsing, SpaCy for natural language
 """
 
+from __future__ import annotations
+
 import hashlib
 import re
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, TYPE_CHECKING
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from mnemosyne.extraction.deterministic.types import ParseResult
 
 
 @dataclass
@@ -39,7 +44,6 @@ class TreeSitterExtractor:
         '.cpp': 'cpp',
         '.c': 'c',
         '.rb': 'ruby',
-        '.ts': 'typescript',
     }
     
     def __init__(self):
@@ -497,7 +501,7 @@ class TreeSitterExtractor:
         """
         lines = ["# Code Entities\n"]
 
-        by_type = {}
+        by_type: Dict[str, List[CodeEntity]] = {}
         for e in entities:
             by_type.setdefault(e.type, []).append(e)
 
@@ -546,7 +550,7 @@ class SpaCyExtractor:
     
     def __init__(self, model: str = 'en_core_web_sm'):
         try:
-            import spacy
+            import spacy  # type: ignore[import-not-found]
             self.nlp = spacy.load(model)
         except OSError:
             print(f"SpaCy model '{model}' not found. Run: python -m spacy download {model}")

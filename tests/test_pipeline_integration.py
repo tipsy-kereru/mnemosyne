@@ -6,18 +6,13 @@ KnowledgeGraph storage, covering REQ-001 through REQ-008.
 """
 
 import json
-import sqlite3
-from pathlib import Path
 
 import pytest
 
 from mnemosyne.extraction.pipeline import (
-    DomainRouter,
     ExtractionPipeline,
-    IncrementalTracker,
     ReportFormatter,
 )
-from mnemosyne.extraction.pipeline_types import ExtractionReport
 from mnemosyne.graph.knowledge_graph import KnowledgeGraph
 
 
@@ -110,7 +105,7 @@ class TestCodingDomainFullFlow:
             knowledge_graph=kg,
             scope_id="scope-a",
         )
-        report_a = pipeline_a.run()
+        pipeline_a.run()
 
         # Run with scope B.
         pipeline_b = ExtractionPipeline(
@@ -119,7 +114,7 @@ class TestCodingDomainFullFlow:
             knowledge_graph=kg,
             scope_id="scope-b",
         )
-        report_b = pipeline_b.run()
+        pipeline_b.run()
 
         # Entities for scope-a should still be accessible.
         cursor = kg.conn.cursor()
@@ -340,7 +335,7 @@ class TestCLIIntegration:
                     "--incremental",
                     "--no-semantic",
                 ])
-            first_output = sys.stdout.getvalue()
+            sys.stdout.getvalue()
             sys.stdout = io.StringIO()
 
             # Second run: should show skipped files.

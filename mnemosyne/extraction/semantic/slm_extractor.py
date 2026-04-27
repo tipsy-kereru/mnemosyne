@@ -50,7 +50,7 @@ class GLiNER2Extractor:
     def _load_model(self):
         """Load GLiNER2 model (lazy loading)"""
         try:
-            from gliner import GLiNER
+            from gliner import GLiNER  # type: ignore[import-not-found]
             self.model = GLiNER(self.model_name)
         except ImportError:
             print("GLiNER not installed. Run: pip install gliner")
@@ -93,6 +93,8 @@ class GLiNER2Extractor:
         """Use GLiNER2 model for extraction"""
         labels = entity_types if isinstance(entity_types[0], str) else [e['type'] for e in entity_types]
 
+        if self.model is None:
+            raise RuntimeError("GLiNER model not loaded")
         entities = self.model.predict_entities(text, labels, threshold=threshold)
 
         result = []
@@ -163,7 +165,7 @@ class REBELExtractor:
     def _load_model(self):
         """Load REBEL model (lazy loading)"""
         try:
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer  # type: ignore[import-not-found]
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
         except ImportError:
@@ -201,6 +203,8 @@ class REBELExtractor:
     ) -> List[ExtractedRelation]:
         """Use REBEL model for extraction"""
         # Extract relation triples using REBEL methodology
+        if self.tokenizer is None or self.model is None:
+            raise RuntimeError("REBEL model/tokenizer not loaded")
         inputs = self.tokenizer(text, return_tensors="pt", max_length=max_length, truncation=True)
 
         gen_kwargs = {
@@ -211,6 +215,8 @@ class REBELExtractor:
         }
 
         output = self.model.generate(**inputs, **gen_kwargs)
+        if self.tokenizer is None:
+            raise RuntimeError("REBEL tokenizer not loaded")
         decoded = self.tokenizer.batch_decode(output, skip_special_tokens=False)
 
         relations = []

@@ -5,7 +5,6 @@ Covers: basic entity extraction for each language. Tests that need
 unavailable grammars use mock or skip gracefully.
 """
 
-import pytest
 
 
 class TestJavaScriptExtractor:

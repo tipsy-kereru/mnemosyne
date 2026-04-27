@@ -333,7 +333,9 @@ class PythonExtractor:
 
             if module_node:
                 # import X
-                mod = module_node.text.decode("utf-8")
+                node_text = module_node.text
+                assert node_text is not None, "node.text should not be None"
+                mod = node_text.decode("utf-8")
                 key = (mod, mod)
                 if key not in seen:
                     seen.add(key)
@@ -349,8 +351,15 @@ class PythonExtractor:
 
             elif from_module_node:
                 # from X import Y
-                mod = from_module_node.text.decode("utf-8")
-                imported = imported_name_node.text.decode("utf-8") if imported_name_node else ""
+                mod_text = from_module_node.text
+                assert mod_text is not None, "node.text should not be None"
+                mod = mod_text.decode("utf-8")
+                if imported_name_node:
+                    imported_text = imported_name_node.text
+                    assert imported_text is not None, "node.text should not be None"
+                    imported = imported_text.decode("utf-8")
+                else:
+                    imported = ""
                 key = (mod, imported)
                 if key not in seen:
                     seen.add(key)
@@ -366,7 +375,9 @@ class PythonExtractor:
 
             elif relative_node:
                 # from . import X  or  from ..foo import X
-                mod = relative_node.text.decode("utf-8")
+                rel_text = relative_node.text
+                assert rel_text is not None, "node.text should not be None"
+                mod = rel_text.decode("utf-8")
                 key = ("relative", mod)
                 if key not in seen:
                     seen.add(key)

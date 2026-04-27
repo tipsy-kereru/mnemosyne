@@ -7,7 +7,6 @@ a test class, and the corresponding implementation is added to pipeline.py.
 
 import json
 import sqlite3
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -298,8 +297,8 @@ class TestExtractionPipeline:
             scope_id="s1",
         )
         # Run twice -- same content.
-        report1 = pipeline.run()
-        report2 = pipeline.run()
+        pipeline.run()
+        pipeline.run()
         # Entities should be updated, not duplicated.
         entities = kg.get_entities_by_type("function")
         names = [e.name for e in entities]
@@ -338,7 +337,7 @@ class TestExtractionPipeline:
     def test_default_db_path(self):
         """Pipeline can be created without explicit knowledge_graph."""
         # We just verify construction works -- not running it.
-        pipeline = ExtractionPipeline.__new__(ExtractionPipeline)
+        ExtractionPipeline.__new__(ExtractionPipeline)
         # This test is structural; the real default path is tested via CLI.
 
 
@@ -350,7 +349,7 @@ class TestReportFormatter:
 
     @pytest.fixture()
     def sample_report(self):
-        from mnemosyne.extraction.pipeline_types import ExtractionReport, LayerStats
+        from mnemosyne.extraction.pipeline_types import LayerStats
         return ExtractionReport(
             domain="coding",
             source="/tmp/project",
@@ -620,7 +619,6 @@ class TestErrorResilience:
         def fail_extract(*args, **kwargs):
             raise RuntimeError("forced failure")
 
-        original_ts = pipeline.tree_sitter
         monkeypatch.setattr(pipeline.tree_sitter, "extract_file_full", fail_extract)
 
         report = pipeline.run()

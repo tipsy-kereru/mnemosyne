@@ -7,7 +7,6 @@ Also delegated to by ``python -m mnemosyne.graph.knowledge_graph``.
 
 import argparse
 import json
-import sys
 
 
 def main(argv=None):

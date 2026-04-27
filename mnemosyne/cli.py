@@ -5,7 +5,6 @@ Installed as ``mnemosyne`` console_scripts entry point.
 """
 
 import argparse
-import sys
 
 
 def main(argv=None):

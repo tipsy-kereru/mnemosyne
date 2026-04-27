@@ -5,7 +5,7 @@ Provides skeleton extraction for Rust. Gracefully handles missing grammar
 packages by setting grammar to None.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 from mnemosyne.extraction.deterministic.types import CallRelation, ImportEntity

@@ -5,10 +5,7 @@ Covers: ExtractionResult, ExtractionError, LayerStats, ExtractionReport,
 content_hash utility.
 """
 
-import json
-from datetime import datetime
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
