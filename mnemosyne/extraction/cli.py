@@ -62,18 +62,18 @@ def main(argv=None):
             result = None
 
         if args.format == "json":
-            print(json.dumps([asdict(e) for e in entities], indent=2))
+            print(json.dumps([asdict(e) for e in entities], indent=2), file=sys.stdout)
         else:
             if result is not None:
                 print(extractor.to_wiki_format(
                     entities,
                     imports=result.imports,
                     calls=result.calls,
-                ))
+                ), file=sys.stdout)
             else:
-                print(extractor.to_wiki_format(entities))
+                print(extractor.to_wiki_format(entities), file=sys.stdout)
     else:
-        print(f"Domain '{args.domain}' extraction is not yet implemented.")
+        print(f"Domain '{args.domain}' extraction is not yet implemented.", file=sys.stderr)
         sys.exit(1)
 
 
