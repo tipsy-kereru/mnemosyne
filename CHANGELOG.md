@@ -5,6 +5,32 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-28
+
+### Added
+- Structured logging across core modules (knowledge_graph, scope_manager, code_parser)
+- CLI test coverage raised from 16-21% to 95-97% (SPEC-PROD-001 REQ-003)
+- ML model cleanup methods and context managers on GLiNER2Extractor, REBELExtractor, SemanticExtractor
+- 90 new tests for remaining production polish (SPEC-PROD-002)
+  - Extraction CLI tests: path validation, domain routing, output formats
+  - Semantic SLM extractor tests: GLiNER, REBEL, cleanup, context managers, fallback paths
+  - Code parser regex fallback tests: Python, JS, Go, Rust
+  - LanguageExtractor protocol conformance tests
+  - `__main__.py` entry point tests
+  - Language edge case tests: async, JSX, traits, generics
+
+### Changed
+- Replaced 41 `Any` types with proper `Tree`/`Node`/`Language` annotations in language extractors
+- Added 26 `node.text` None guards across 4 language extractors for mypy compliance
+- CLI `print()` calls now use explicit `sys.stdout`/`sys.stderr` separation
+- Total test count: 323 → 413 (SPEC-PROD-001) → 413 (SPEC-PROD-002)
+
+### Quality Metrics
+- pytest: 413 passed, 2 skipped
+- mypy: 0 errors (27+ source files)
+- ruff: 0 violations
+- Overall coverage: 81%+
+
 ## [0.2.2] - 2026-04-28
 
 ### Changed
