@@ -230,7 +230,10 @@ class TestMainCLIExtractArgv:
         """_build_extract_argv assembles path, domain, format correctly."""
         from mnemosyne.cli import _build_extract_argv
 
-        args = MagicMock(path="/tmp/project", domain="coding", format="wiki")
+        args = MagicMock(
+            path="/tmp/project", domain="coding", format="wiki",
+            scope_id=None, source_channel="cli",
+        )
         argv = _build_extract_argv(args)
         assert argv == ["/tmp/project", "--domain", "coding", "--format", "wiki"]
 
@@ -238,7 +241,10 @@ class TestMainCLIExtractArgv:
         """_build_extract_argv handles json format."""
         from mnemosyne.cli import _build_extract_argv
 
-        args = MagicMock(path="/tmp/project", domain="daily", format="json")
+        args = MagicMock(
+            path="/tmp/project", domain="daily", format="json",
+            scope_id=None, source_channel="cli",
+        )
         argv = _build_extract_argv(args)
         assert "--format" in argv
         assert "json" in argv

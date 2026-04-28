@@ -10,12 +10,35 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+EXTRACT_HELP = """\
+Examples:
+  mnemosyne-extract src/main.py
+  mnemosyne-extract src/ --domain coding --format json
+  mnemosyne-extract src/ --format wiki --scope-id session-1
+  mnemosyne-extract src/ --source-channel vscode
+
+Output:
+  --format json  : Array of entity objects
+      [{type, name, language, file_path, line_start, line_end,
+        properties: {parameters, return_type, ...}, scope_id, source_channel}]
+  --format wiki  : Markdown with [[wiki-links]] for knowledge graph integration
+      Sections: Code Entities, Import Graph, Call Graph
+
+Supported languages: Python, JavaScript, TypeScript, TSX, Go, Rust
+
+Scope:
+  --scope-id tags entities with a session/project identifier for scoped queries.
+  --source-channel records the extraction source (vscode, cli, api, etc.).
+"""
+
 
 def main(argv=None):
     """Extraction CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="mnemosyne-extract",
         description="Extract entities and relations from source files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=EXTRACT_HELP,
     )
     parser.add_argument("path", help="File or directory to extract from")
     parser.add_argument(
@@ -30,13 +53,24 @@ def main(argv=None):
         default="json",
         help="Output format (default: json)",
     )
-    parser.add_argument("--scope-id", help="Attach a scope ID to extracted entities")
+    parser.add_argument(
+        "--scope-id",
+        help="Attach a scope ID (e.g. session name) to extracted entities",
+    )
     parser.add_argument(
         "--source-channel", default="cli",
-        help="Source channel tag (default: cli)",
+        help="Tag the extraction source channel (default: cli)",
+    )
+    parser.add_argument(
+        "--examples", action="store_true",
+        help="Show extraction examples and output format details",
     )
 
     args = parser.parse_args(argv)
+
+    if args.examples:
+        print(EXTRACT_HELP.strip())
+        return
 
     path = Path(args.path)
     if not path.exists():
