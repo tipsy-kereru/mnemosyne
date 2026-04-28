@@ -21,7 +21,7 @@ Knowledge Graph (SQLite + NetworkX)
 ## Directory Structure
 
 ```
-~/agent-memory/
+~/mnemosyne/
 ├── mnemosyne/
 │   ├── raw/                    # Immutable source documents
 │   │   ├── daily/
@@ -129,7 +129,7 @@ python -m mnemosyne.graph.knowledge_graph --stats
 ### Joplin Plugin
 
 ```bash
-cd ~/agent-memory/joplin-plugin/knowledge-graph
+cd joplin-plugin/knowledge-graph
 npm install
 npm run build
 # Load the .jpl file in Joplin settings

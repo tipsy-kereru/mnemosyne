@@ -62,7 +62,12 @@ class KnowledgeGraph:
 
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            resolved = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+            _new_path = Path.home() / "mnemosyne" / "graph" / "knowledge.db"
+            _legacy_path = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+            if not _new_path.exists() and _legacy_path.exists():
+                resolved = _legacy_path
+            else:
+                resolved = _new_path
         else:
             resolved = Path(db_path)
 

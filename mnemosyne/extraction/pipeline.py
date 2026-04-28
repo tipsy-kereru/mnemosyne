@@ -236,7 +236,12 @@ class ExtractionPipeline:
             self.kg = knowledge_graph
         else:
             from mnemosyne.graph.knowledge_graph import KnowledgeGraph
-            default_db = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+            _new_path = Path.home() / "mnemosyne" / "graph" / "knowledge.db"
+            _legacy_path = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+            if not _new_path.exists() and _legacy_path.exists():
+                default_db = _legacy_path
+            else:
+                default_db = _new_path
             self.kg = KnowledgeGraph(str(default_db))
 
         self.tracker = IncrementalTracker(self.kg.conn)
@@ -861,9 +866,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.db_path:
         db_path = args.db_path
     else:
-        db_path = str(
-            Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
-        )
+        _new_path = Path.home() / "mnemosyne" / "graph" / "knowledge.db"
+        _legacy_path = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
+        if not _new_path.exists() and _legacy_path.exists():
+            db_path = str(_legacy_path)
+        else:
+            db_path = str(_new_path)
 
     from mnemosyne.graph.knowledge_graph import KnowledgeGraph
     kg = KnowledgeGraph(db_path)
