@@ -5,7 +5,9 @@ Provides skeleton extraction for JS/TS. Gracefully handles missing grammar
 packages by setting grammar to None.
 """
 
-from typing import Any, List, Optional
+from typing import List, Optional
+
+from tree_sitter import Language, Node, Tree
 
 from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 from mnemosyne.extraction.deterministic.types import CallRelation, ImportEntity
@@ -17,13 +19,12 @@ class JavaScriptExtractor:
     language_name: str = "javascript"
 
     def __init__(self) -> None:
-        self.grammar: Optional[Any] = None
+        self.grammar: Optional[Language] = None
         self._load_grammar()
 
     def _load_grammar(self) -> None:
         """Attempt to load the JavaScript tree-sitter grammar."""
         try:
-            from tree_sitter import Language
             import tree_sitter_javascript as tsjs
             self.grammar = Language(tsjs.language())
         except ImportError:
@@ -31,7 +32,7 @@ class JavaScriptExtractor:
 
     def extract_entities(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -48,7 +49,7 @@ class JavaScriptExtractor:
 
     def _walk_entities(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -71,7 +72,7 @@ class JavaScriptExtractor:
                         ):
                             entities.append(CodeEntity(
                                 type="function",
-                                name=name_node.text.decode("utf-8"),
+                                name=(name_node.text or b"").decode("utf-8"),
                                 language="javascript",
                                 file_path=file_path,
                                 line_start=name_node.start_point[0] + 1,
@@ -86,16 +87,16 @@ class JavaScriptExtractor:
 
     def _extract_function(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
         source_channel: Optional[str],
     ) -> CodeEntity:
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<anonymous>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<anonymous>"
         params_node = node.child_by_field_name("parameters")
-        params = params_node.text.decode("utf-8") if params_node else ""
+        params = (params_node.text or b"").decode("utf-8") if params_node else ""
         return CodeEntity(
             type="function",
             name=name,
@@ -113,17 +114,17 @@ class JavaScriptExtractor:
 
     def _extract_class(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
         source_channel: Optional[str],
     ) -> CodeEntity:
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<anonymous>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<anonymous>"
         # Check for extends clause
         parent = node.child_by_field_name("parent")
-        extends = parent.text.decode("utf-8") if parent else None
+        extends = (parent.text or b"").decode("utf-8") if parent else None
         return CodeEntity(
             type="class",
             name=name,
@@ -141,7 +142,7 @@ class JavaScriptExtractor:
 
     def extract_imports(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -155,7 +156,7 @@ class JavaScriptExtractor:
 
     def extract_calls(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,

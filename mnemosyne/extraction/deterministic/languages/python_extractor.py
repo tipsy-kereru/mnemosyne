@@ -8,7 +8,7 @@ import declarations, and call-graph edges from Python source files.
 from typing import Any, Dict, List, Optional
 
 import tree_sitter_python as tspython
-from tree_sitter import Language, Query, QueryCursor
+from tree_sitter import Language, Node, Query, QueryCursor, Tree
 
 from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 from mnemosyne.extraction.deterministic.types import CallRelation, ImportEntity
@@ -50,7 +50,7 @@ class PythonExtractor:
 
     def extract_entities(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -66,7 +66,7 @@ class PythonExtractor:
 
     def _walk_entities(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -120,7 +120,7 @@ class PythonExtractor:
 
     def _handle_decorated(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -139,7 +139,7 @@ class PythonExtractor:
                 dec_name = ""
                 for sub in child.children:
                     if sub.type in ("identifier", "attribute"):
-                        raw = sub.text.decode("utf-8")
+                        raw = (sub.text or b"").decode("utf-8")
                         dec_name = raw.split("(")[0].split(".")[-1].strip()
                         break
                 if dec_name:
@@ -178,7 +178,7 @@ class PythonExtractor:
 
     def _extract_function(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -187,16 +187,16 @@ class PythonExtractor:
     ) -> CodeEntity:
         """Build a CodeEntity from a function_definition node."""
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<unknown>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<unknown>"
 
         params_node = node.child_by_field_name("parameters")
-        params = params_node.text.decode("utf-8") if params_node else ""
+        params = (params_node.text or b"").decode("utf-8") if params_node else ""
 
         ret_node = node.child_by_field_name("return_type")
-        return_type = ret_node.text.decode("utf-8") if ret_node else None
+        return_type = (ret_node.text or b"").decode("utf-8") if ret_node else None
 
         # Detect async from preceding sibling or keyword
-        is_async = "async" in node.text.decode("utf-8")[:30]
+        is_async = "async" in (node.text or b"").decode("utf-8")[:30]
 
         # Extract docstring
         docstring = self._extract_docstring(node)
@@ -233,7 +233,7 @@ class PythonExtractor:
 
     def _extract_class(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -241,7 +241,7 @@ class PythonExtractor:
     ) -> CodeEntity:
         """Build a CodeEntity from a class_definition node."""
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<unknown>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<unknown>"
 
         # Extract base classes from the superclasses field
         bases: List[str] = []
@@ -249,7 +249,7 @@ class PythonExtractor:
         if arg_list:
             for child in arg_list.children:
                 if child.type in ("identifier", "attribute", "subscript"):
-                    bases.append(child.text.decode("utf-8"))
+                    bases.append((child.text or b"").decode("utf-8"))
 
         docstring = self._extract_docstring(node)
 
@@ -275,7 +275,7 @@ class PythonExtractor:
             source_channel=source_channel,
         )
 
-    def _extract_docstring(self, node: Any) -> Optional[str]:
+    def _extract_docstring(self, node: Node) -> Optional[str]:
         """Extract docstring from the first statement of a function/class body."""
         body = node.child_by_field_name("body")
         if not body or not body.children:
@@ -284,7 +284,7 @@ class PythonExtractor:
         if first.type == "expression_statement" and first.children:
             inner = first.children[0]
             if inner.type == "string":
-                text = inner.text.decode("utf-8")
+                text = (inner.text or b"").decode("utf-8")
                 # Strip triple-quote delimiters
                 for q in ('"""', "'''"):
                     if text.startswith(q) and text.endswith(q):
@@ -299,7 +299,7 @@ class PythonExtractor:
 
     def extract_imports(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -399,7 +399,7 @@ class PythonExtractor:
 
     def extract_calls(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -413,7 +413,7 @@ class PythonExtractor:
 
     def _walk_calls(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -425,7 +425,7 @@ class PythonExtractor:
         for child in node.children:
             if child.type == "function_definition":
                 name_node = child.child_by_field_name("name")
-                fn_name = name_node.text.decode("utf-8") if name_node else "<anonymous>"
+                fn_name = (name_node.text or b"").decode("utf-8") if name_node else "<anonymous>"
                 body = child.child_by_field_name("body")
                 if body:
                     self._walk_calls(
@@ -472,9 +472,9 @@ class PythonExtractor:
                 )
 
     @staticmethod
-    def _callee_name(call_node: Any) -> str:
+    def _callee_name(call_node: Node) -> str:
         """Extract the callee name from a call node."""
         func = call_node.child_by_field_name("function")
         if func:
-            return func.text.decode("utf-8")
+            return (func.text or b"").decode("utf-8")
         return ""

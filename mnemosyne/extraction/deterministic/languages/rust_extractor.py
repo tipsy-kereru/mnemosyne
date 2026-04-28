@@ -5,7 +5,9 @@ Provides skeleton extraction for Rust. Gracefully handles missing grammar
 packages by setting grammar to None.
 """
 
-from typing import Any, List, Optional
+from typing import List, Optional
+
+from tree_sitter import Language, Node, Tree
 
 from mnemosyne.extraction.deterministic.code_parser import CodeEntity
 from mnemosyne.extraction.deterministic.types import CallRelation, ImportEntity
@@ -17,13 +19,12 @@ class RustExtractor:
     language_name: str = "rust"
 
     def __init__(self) -> None:
-        self.grammar: Optional[Any] = None
+        self.grammar: Optional[Language] = None
         self._load_grammar()
 
     def _load_grammar(self) -> None:
         """Attempt to load the Rust tree-sitter grammar."""
         try:
-            from tree_sitter import Language
             import tree_sitter_rust as tsrust
             self.grammar = Language(tsrust.language())
         except ImportError:
@@ -31,7 +32,7 @@ class RustExtractor:
 
     def extract_entities(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -48,7 +49,7 @@ class RustExtractor:
 
     def _walk_entities(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -72,16 +73,16 @@ class RustExtractor:
 
     def _extract_function(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
         source_channel: Optional[str],
     ) -> CodeEntity:
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<unknown>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<unknown>"
         params_node = node.child_by_field_name("parameters")
-        params = params_node.text.decode("utf-8") if params_node else ""
+        params = (params_node.text or b"").decode("utf-8") if params_node else ""
         return CodeEntity(
             type="function",
             name=name,
@@ -99,14 +100,14 @@ class RustExtractor:
 
     def _extract_struct(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
         source_channel: Optional[str],
     ) -> CodeEntity:
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<unknown>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<unknown>"
         return CodeEntity(
             type="class",
             name=name,
@@ -124,14 +125,14 @@ class RustExtractor:
 
     def _extract_enum(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
         source_channel: Optional[str],
     ) -> CodeEntity:
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<unknown>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<unknown>"
         return CodeEntity(
             type="class",
             name=name,
@@ -149,14 +150,14 @@ class RustExtractor:
 
     def _extract_trait(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
         source_channel: Optional[str],
     ) -> CodeEntity:
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "<unknown>"
+        name = (name_node.text or b"").decode("utf-8") if name_node else "<unknown>"
         return CodeEntity(
             type="class",
             name=name,
@@ -174,7 +175,7 @@ class RustExtractor:
 
     def _extract_impl(
         self,
-        node: Any,
+        node: Node,
         source: bytes,
         file_path: str,
         scope_id: Optional[str],
@@ -191,7 +192,7 @@ class RustExtractor:
 
     def extract_imports(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,
@@ -204,7 +205,7 @@ class RustExtractor:
 
     def extract_calls(
         self,
-        tree: Any,
+        tree: Tree,
         source: bytes,
         file_path: str,
         scope_id: Optional[str] = None,

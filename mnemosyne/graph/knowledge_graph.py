@@ -4,12 +4,15 @@ SQLite + NetworkX for temporal knowledge graph storage and querying
 """
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -56,7 +59,7 @@ class KnowledgeGraph:
     """
     Temporal knowledge graph with SQLite persistence and NetworkX analysis
     """
-    
+
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
             resolved = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
@@ -75,7 +78,7 @@ class KnowledgeGraph:
         # Wire ScopeManager after DB is initialized
         from mnemosyne.graph.scope_manager import ScopeManager
         self.scope_manager = ScopeManager(self.conn)
-    
+
     def _init_db(self):
         """Initialize database schema with session support"""
         cursor = self.conn.cursor()
@@ -198,7 +201,7 @@ class KnowledgeGraph:
         cursor = self.conn.cursor()
         result = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
         return [row['name'] for row in result]
-    
+
     def _build_networkx(self) -> nx.DiGraph:
         """Build NetworkX graph from database"""
         G: nx.DiGraph = nx.DiGraph()
@@ -228,7 +231,7 @@ class KnowledgeGraph:
             )
 
         return G
-    
+
     def add_entity(self, entity: Entity, scope_id: Optional[str] = None,
                    source_channel: str = 'legacy') -> Entity:
         """Add a new entity to the graph"""
@@ -241,35 +244,40 @@ class KnowledgeGraph:
         entity.scope_id = scope_id
         entity.source_channel = source_channel
 
-        cursor.execute('''
-            INSERT INTO entities (id, type, name, properties, created_at, updated_at, version, scope_id, source_channel)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            entity.id,
-            entity.type,
-            entity.name,
-            json.dumps(entity.properties),
-            entity.created_at,
-            entity.updated_at,
-            entity.version,
-            entity.scope_id,
-            entity.source_channel
-        ))
+        try:
+            cursor.execute('''
+                INSERT INTO entities (id, type, name, properties, created_at, updated_at, version, scope_id, source_channel)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                entity.id,
+                entity.type,
+                entity.name,
+                json.dumps(entity.properties),
+                entity.created_at,
+                entity.updated_at,
+                entity.version,
+                entity.scope_id,
+                entity.source_channel
+            ))
 
-        # Record history
-        cursor.execute('''
-            INSERT INTO entity_history (entity_id, type, name, properties, changed_at, change_type, version)
-            VALUES (?, ?, ?, ?, ?, 'created', ?)
-        ''', (
-            entity.id,
-            entity.type,
-            entity.name,
-            json.dumps(entity.properties),
-            now,
-            entity.version
-        ))
+            # Record history
+            cursor.execute('''
+                INSERT INTO entity_history (entity_id, type, name, properties, changed_at, change_type, version)
+                VALUES (?, ?, ?, ?, ?, 'created', ?)
+            ''', (
+                entity.id,
+                entity.type,
+                entity.name,
+                json.dumps(entity.properties),
+                now,
+                entity.version
+            ))
 
-        self.conn.commit()
+            self.conn.commit()
+        except sqlite3.Error:
+            logger.error("Failed to add entity %s (%s)", entity.id, entity.type)
+            raise
+
         self.nx_graph.add_node(
             entity.id,
             type=entity.type,
@@ -278,9 +286,11 @@ class KnowledgeGraph:
             scope_id=entity.scope_id,
             source_channel=entity.source_channel
         )
+        logger.info("Added entity %s:%s (%s)", entity.type, entity.name, entity.id)
+        logger.debug("Entity %s created with scope_id=%s, channel=%s", entity.id, entity.scope_id, entity.source_channel)
 
         return entity
-    
+
     def add_relation(self, relation: Relation, scope_id: Optional[str] = None,
                      source_channel: str = 'legacy') -> Relation:
         """Add a new relation to the graph"""
@@ -292,22 +302,27 @@ class KnowledgeGraph:
         relation.scope_id = scope_id
         relation.source_channel = source_channel
 
-        cursor.execute('''
-            INSERT INTO relations (id, source_id, target_id, relation_type, properties, created_at, version, scope_id, source_channel)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            relation.id,
-            relation.source_id,
-            relation.target_id,
-            relation.relation_type,
-            json.dumps(relation.properties),
-            relation.created_at,
-            relation.version,
-            relation.scope_id,
-            relation.source_channel
-        ))
+        try:
+            cursor.execute('''
+                INSERT INTO relations (id, source_id, target_id, relation_type, properties, created_at, version, scope_id, source_channel)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                relation.id,
+                relation.source_id,
+                relation.target_id,
+                relation.relation_type,
+                json.dumps(relation.properties),
+                relation.created_at,
+                relation.version,
+                relation.scope_id,
+                relation.source_channel
+            ))
 
-        self.conn.commit()
+            self.conn.commit()
+        except sqlite3.Error:
+            logger.error("Failed to add relation %s: %s -> %s", relation.relation_type, relation.source_id, relation.target_id)
+            raise
+
         self.nx_graph.add_edge(
             relation.source_id,
             relation.target_id,
@@ -316,9 +331,11 @@ class KnowledgeGraph:
             scope_id=relation.scope_id,
             source_channel=relation.source_channel
         )
+        logger.info("Added relation %s: %s -> %s", relation.relation_type, relation.source_id, relation.target_id)
+        logger.debug("Relation %s created with scope_id=%s, channel=%s", relation.id, relation.scope_id, relation.source_channel)
 
         return relation
-    
+
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         """Get entity by ID"""
         cursor = self.conn.cursor()
@@ -354,7 +371,7 @@ class KnowledgeGraph:
             scope_id=row['scope_id'] if 'scope_id' in row.keys() else None,
             source_channel=row['source_channel'] if 'source_channel' in row.keys() else 'legacy'
         ) for row in rows]
-    
+
     def query(self, query_str: str) -> Dict[str, Any]:
         """
         Query the knowledge graph using a simple query language.
@@ -377,6 +394,7 @@ class KnowledgeGraph:
         Example: entity:task[status:active]@project:snake-game@channel:code
         """
         query_str = query_str.strip()
+        logger.info("Executing query: %s", query_str)
 
         # Extract @ modifiers from the query
         base_query, modifiers = self._parse_modifiers(query_str)
@@ -494,7 +512,7 @@ class KnowledgeGraph:
         scope_filter = self._resolve_scope_filter(modifiers)
         if scope_filter is not None:
             if len(scope_filter) == 0:
-                # No matching scope — force no results
+                # No matching scope -- force no results
                 clauses.append(f'{table_alias}.scope_id IS NULL AND 1=0')
             else:
                 # Build IN clause handling NULL for global scope
@@ -560,7 +578,7 @@ class KnowledgeGraph:
 
         tree = build_tree(scope)
         return {'type': 'scope_query', 'scope': tree}
-    
+
     def _query_entity(
         self, query_str: str, modifiers: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
@@ -608,8 +626,9 @@ class KnowledgeGraph:
             'source_channel': row['source_channel'] if 'source_channel' in row.keys() else 'legacy',
         } for row in rows]
 
+        logger.info("Entity query returned %d results", len(entities))
         return {'type': 'entity_query', 'results': entities, 'count': len(entities)}
-    
+
     def _query_relation(
         self, query_str: str, modifiers: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
@@ -654,21 +673,22 @@ class KnowledgeGraph:
             'source_channel': row['source_channel'] if 'source_channel' in row.keys() else 'legacy',
         } for row in rows]
 
+        logger.info("Relation query returned %d results", len(relations))
         return {'type': 'relation_query', 'results': relations, 'count': len(relations)}
-    
+
     def _query_path(self, query_str: str) -> Dict[str, Any]:
         """Find path between two entities"""
         # Parse path(source_name, target_name)
         parts = query_str.replace('path:', '').strip().lstrip('(').rstrip(')').split(',')
         source_name, target_name = parts[0].strip(), parts[1].strip()
-        
+
         # Find entity IDs
         source_id = self._find_entity_id_by_name(source_name)
         target_id = self._find_entity_id_by_name(target_name)
-        
+
         if not source_id or not target_id:
             return {'error': 'Entity not found', 'source': source_name, 'target': target_name}
-        
+
         try:
             path = nx.shortest_path(self.nx_graph, source_id, target_id)
             edges = []
@@ -679,7 +699,7 @@ class KnowledgeGraph:
                     'to': path[i+1],
                     'relation': edge_data.get('relation_type', 'connected_to')
                 })
-            
+
             return {
                 'type': 'path',
                 'path': path,
@@ -688,7 +708,7 @@ class KnowledgeGraph:
             }
         except nx.NetworkXNoPath:
             return {'error': 'No path found', 'source': source_name, 'target': target_name}
-    
+
     def _query_search(
         self, query_str: str, modifiers: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
@@ -723,23 +743,24 @@ class KnowledgeGraph:
             'source_channel': row['source_channel'] if 'source_channel' in row.keys() else 'legacy',
         } for row in rows]
 
+        logger.info("Search query '%s' returned %d results", term, len(entities))
         return {'type': 'search', 'term': term, 'results': entities, 'count': len(entities)}
-    
+
     def _find_entity_id_by_name(self, name: str) -> Optional[str]:
         """Find entity ID by name"""
         cursor = self.conn.cursor()
         row = cursor.execute('SELECT id FROM entities WHERE name = ?', (name,)).fetchone()
         return row['id'] if row else None
-    
+
     def get_entity_history(self, entity_id: str) -> List[Dict[str, Any]]:
         """Get temporal history of an entity"""
         cursor = self.conn.cursor()
         rows = cursor.execute('''
-            SELECT * FROM entity_history 
-            WHERE entity_id = ? 
+            SELECT * FROM entity_history
+            WHERE entity_id = ?
             ORDER BY version DESC
         ''', (entity_id,)).fetchall()
-        
+
         return [{
             'entity_id': row['entity_id'],
             'type': row['type'],
@@ -749,7 +770,7 @@ class KnowledgeGraph:
             'change_type': row['change_type'],
             'version': row['version']
         } for row in rows]
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get graph statistics including scope distribution"""
         cursor = self.conn.cursor()
@@ -793,8 +814,9 @@ class KnowledgeGraph:
                 'by_type': scope_type_counts,
                 'entity_counts_per_scope': entity_scope_counts,
             }
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
             # Scopes table might not exist yet in edge migration cases
+            logger.error("Database error reading scope stats: %s", e)
             stats['scopes'] = {'by_type': {}, 'entity_counts_per_scope': {}}
 
         return stats
@@ -821,7 +843,7 @@ class KnowledgeGraph:
     def get_scope(self, scope_id: str) -> Optional[Scope]:
         """Get a scope by ID. Delegates to ScopeManager."""
         return self.scope_manager.get_scope(scope_id)
-    
+
     def close(self):
         """Close database connection"""
         self.conn.close()

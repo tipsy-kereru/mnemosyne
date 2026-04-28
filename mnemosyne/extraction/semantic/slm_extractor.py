@@ -5,10 +5,13 @@ Runs on CPU or low-VRAM GPU - zero API cost
 """
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,12 +55,11 @@ class GLiNER2Extractor:
         try:
             from gliner import GLiNER  # type: ignore[import-not-found]
             self.model = GLiNER(self.model_name)
+            logger.info("Loaded GLiNER2 model: %s", self.model_name)
         except ImportError:
-            print("GLiNER not installed. Run: pip install gliner")
-            print("Using fallback rule-based extraction")
+            logger.warning("GLiNER not installed. Run: pip install gliner")
         except Exception as e:
-            print(f"Error loading GLiNER2 model: {e}")
-            print("Using fallback rule-based extraction")
+            logger.error("Error loading GLiNER2 model: %s", e)
     
     def extract(
         self,
@@ -149,6 +151,18 @@ class GLiNER2Extractor:
 
         return entities
 
+    def cleanup(self) -> None:
+        """Release loaded model to free memory."""
+        self.model = None
+        logger.info("Cleaned up GLiNER2Extractor resources")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+        return False
+
 
 class REBELExtractor:
     """
@@ -168,10 +182,11 @@ class REBELExtractor:
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer  # type: ignore[import-not-found]
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
+            logger.info("Loaded REBEL model: %s", self.model_name)
         except ImportError:
-            print("Transformers not installed. Run: pip install transformers")
+            logger.warning("Transformers not installed. Run: pip install transformers")
         except Exception as e:
-            print(f"Error loading REBEL model: {e}")
+            logger.error("Error loading REBEL model: %s", e)
     
     def extract(
         self,
@@ -279,6 +294,19 @@ class REBELExtractor:
 
         return relations
 
+    def cleanup(self) -> None:
+        """Release loaded model and tokenizer to free memory."""
+        self.model = None
+        self.tokenizer = None
+        logger.info("Cleaned up REBELExtractor resources")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+        return False
+
 
 class SemanticExtractor:
     """Combined semantic extraction using local SLMs"""
@@ -319,6 +347,21 @@ class SemanticExtractor:
     def _estimate_tokens(self, text: str) -> int:
         """Rough token estimation"""
         return len(text.split()) + len(text) // 4
+
+    def cleanup(self) -> None:
+        """Release all loaded models."""
+        if self.ner is not None:
+            self.ner.cleanup()
+        if self.re is not None:
+            self.re.cleanup()
+        logger.info("Cleaned up SemanticExtractor resources")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+        return False
 
 
 def main():

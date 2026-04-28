@@ -6,6 +6,7 @@ Uses Tree-sitter for code AST parsing, SpaCy for natural language
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set, TYPE_CHECKING
@@ -13,6 +14,8 @@ from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from mnemosyne.extraction.deterministic.types import ParseResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,7 +34,7 @@ class CodeEntity:
 
 class TreeSitterExtractor:
     """Extract code entities using Tree-sitter AST parsing"""
-    
+
     SUPPORTED_LANGUAGES = {
         '.py': 'python',
         '.js': 'javascript',
@@ -45,7 +48,7 @@ class TreeSitterExtractor:
         '.c': 'c',
         '.rb': 'ruby',
     }
-    
+
     def __init__(self):
         self.entities: List[CodeEntity] = []
         self._unavailable_languages: Set[str] = set()
@@ -80,8 +83,9 @@ class TreeSitterExtractor:
                 grammars[lang_name] = Language(getattr(module, attr_name)())
             except (ImportError, Exception):
                 self._unavailable_languages.add(lang_name)
+                logger.warning("Grammar not available for '%s', using regex fallback", lang_name)
         return grammars
-    
+
     def extract_file(
         self,
         file_path: Path,
@@ -95,6 +99,7 @@ class TreeSitterExtractor:
         """
         result = self.extract_file_full(file_path, scope_id, source_channel)
         self.entities.extend(result.entities)
+        logger.info("Extracted %d entities from %s", len(result.entities), file_path)
         return result.entities
 
     def extract_file_full(
@@ -118,6 +123,7 @@ class TreeSitterExtractor:
         language = self.SUPPORTED_LANGUAGES.get(suffix)
 
         if not language:
+            logger.warning("Unsupported language for file %s (suffix: %s)", file_path, suffix)
             return ParseResult()
 
         content_bytes = file_path.read_bytes()
@@ -127,7 +133,10 @@ class TreeSitterExtractor:
 
         # Return cached result if content has not changed
         if content_hash in self._cache:
+            logger.debug("Cache hit for %s (hash=%s)", file_path, content_hash[:12])
             return self._cache[content_hash]
+
+        logger.debug("Cache miss for %s, extracting with language=%s", file_path, language)
 
         # Try tree-sitter extraction when grammar is available
         if language in self._grammars:
@@ -252,7 +261,7 @@ class TreeSitterExtractor:
         elif language == "rust":
             return self._fallback_extract_rust(content, file_path, scope_id, source_channel)
         return []
-    
+
     def _fallback_extract_python(
         self,
         content: str,
@@ -301,7 +310,7 @@ class TreeSitterExtractor:
             ))
 
         return entities
-    
+
     def _fallback_extract_js_ts(
         self,
         content: str,
@@ -351,7 +360,7 @@ class TreeSitterExtractor:
             ))
 
         return entities
-    
+
     def _fallback_extract_go(
         self,
         content: str,
@@ -399,7 +408,7 @@ class TreeSitterExtractor:
             ))
 
         return entities
-    
+
     def _fallback_extract_rust(
         self,
         content: str,
@@ -460,7 +469,7 @@ class TreeSitterExtractor:
             ))
 
         return entities
-    
+
     def extract_directory(
         self,
         dir_path: Path,
@@ -469,6 +478,7 @@ class TreeSitterExtractor:
         source_channel: Optional[str] = None,
     ) -> List[CodeEntity]:
         """Recursively extract entities from all matching files"""
+        logger.info("Starting directory extraction from %s", dir_path)
         all_entities = []
 
         for file_path in dir_path.rglob('*'):
@@ -482,10 +492,11 @@ class TreeSitterExtractor:
                         )
                         all_entities.extend(entities)
                     except Exception as e:
-                        print(f"Error extracting {file_path}: {e}")
+                        logger.error("Error extracting %s: %s", file_path, e)
 
+        logger.info("Directory extraction complete: %d entities from %s", len(all_entities), dir_path)
         return all_entities
-    
+
     def to_wiki_format(
         self,
         entities: List[CodeEntity],
@@ -547,23 +558,23 @@ class TreeSitterExtractor:
 
 class SpaCyExtractor:
     """Extract entities from natural language using SpaCy"""
-    
+
     def __init__(self, model: str = 'en_core_web_sm'):
         try:
             import spacy  # type: ignore[import-not-found]
             self.nlp = spacy.load(model)
         except OSError:
-            print(f"SpaCy model '{model}' not found. Run: python -m spacy download {model}")
+            logger.warning("SpaCy model '%s' not found. Run: python -m spacy download %s", model, model)
             self.nlp = None
-    
+
     def extract_entities(self, text: str, custom_types: Optional[Dict[str, str]] = None) -> List[Dict]:
         """Extract named entities from text"""
         if not self.nlp:
             return []
-        
+
         doc = self.nlp(text)
         entities = []
-        
+
         for ent in doc.ents:
             entities.append({
                 'text': ent.text,
@@ -571,7 +582,7 @@ class SpaCyExtractor:
                 'start': ent.start_char,
                 'end': ent.end_char
             })
-        
+
         # Apply custom types if provided (for domain-specific extraction)
         if custom_types:
             for pattern, label in custom_types.items():
@@ -582,17 +593,17 @@ class SpaCyExtractor:
                         'start': match.start(),
                         'end': match.end()
                     })
-        
+
         return entities
-    
+
     def extract_relations(self, text: str) -> List[Dict]:
         """Extract subject-verb-object relations"""
         if not self.nlp:
             return []
-        
+
         doc = self.nlp(text)
         relations = []
-        
+
         for token in doc:
             # Look for subject-verb-object patterns
             if token.dep_ == 'ROOT':
@@ -603,14 +614,14 @@ class SpaCyExtractor:
                         subject = child.text
                     elif child.dep_ in ('dobj', 'pobj', 'attr'):
                         obj = child.text
-                
+
                 if subject and obj:
                     relations.append({
                         'subject': subject,
                         'verb': token.lemma_,
                         'object': obj
                     })
-        
+
         return relations
 
 

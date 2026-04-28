@@ -6,13 +6,15 @@ for efficient tree traversal.
 """
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-
 from mnemosyne.graph.knowledge_graph import Scope
+
+logger = logging.getLogger(__name__)
 
 # Valid scope types and their parent constraints
 _SCOPE_TYPE_PARENT_RULES = {
@@ -78,13 +80,16 @@ class ScopeManager:
         if parent_id is not None:
             parent = self.get_scope(parent_id)
             if parent is None:
+                logger.warning("Parent scope '%s' not found", parent_id)
                 raise ValueError(f"Parent scope '{parent_id}' not found")
             if scope_type == 'topic' and parent.scope_type != 'project':
+                logger.warning("Invalid parent type '%s' for topic scope", parent.scope_type)
                 raise ValueError(
                     f"Topic scopes must have a project as parent, "
                     f"got '{parent.scope_type}'"
                 )
             if scope_type == 'session' and parent.scope_type not in ('topic', 'session'):
+                logger.warning("Invalid parent type '%s' for session scope", parent.scope_type)
                 raise ValueError(
                     f"Session scopes must have a topic or session as parent, "
                     f"got '{parent.scope_type}'"
@@ -109,6 +114,7 @@ class ScopeManager:
         ))
         self.conn.commit()
 
+        logger.info("Created scope %s (%s) with id=%s", name, scope_type, scope_id)
         return Scope(
             id=scope_id,
             parent_id=parent_id,
@@ -150,7 +156,9 @@ class ScopeManager:
             SELECT * FROM ancestors
         ''', (scope_id,)).fetchall()
 
-        return [self._row_to_scope(row) for row in rows]
+        ancestors = [self._row_to_scope(row) for row in rows]
+        logger.debug("get_ancestors(%s) returned %d ancestors", scope_id, len(ancestors))
+        return ancestors
 
     def get_children(self, scope_id: str) -> List[Scope]:
         """Get direct children of a scope."""
@@ -180,7 +188,9 @@ class ScopeManager:
                 (scope.parent_id, scope_id),
             ).fetchall()
 
-        return [self._row_to_scope(row) for row in rows]
+        siblings = [self._row_to_scope(row) for row in rows]
+        logger.debug("get_siblings(%s) returned %d siblings", scope_id, len(siblings))
+        return siblings
 
     def get_descendants(self, scope_id: str) -> List[Scope]:
         """
@@ -201,7 +211,9 @@ class ScopeManager:
             SELECT * FROM descendants
         ''', (scope_id,)).fetchall()
 
-        return [self._row_to_scope(row) for row in rows]
+        descendants = [self._row_to_scope(row) for row in rows]
+        logger.debug("get_descendants(%s) returned %d descendants", scope_id, len(descendants))
+        return descendants
 
     def find_scope_by_name(
         self, name: str, scope_type: Optional[str] = None
@@ -289,6 +301,7 @@ class ScopeManager:
             )
 
         self.conn.commit()
+        logger.info("Deleted scope %s (%s), cascade=%s", scope.name, scope_id, cascade)
         return True
 
     def resolve_visible_scope_ids(self, scope_id: str) -> List[Optional[str]]:
