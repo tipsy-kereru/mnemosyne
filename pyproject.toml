@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mnemosyne-kg"
 version = "0.1.0"
 description = "Local-first, zero-API-cost knowledge memory system for AI agents"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Seung Hyun Myung"}]
 dependencies = [

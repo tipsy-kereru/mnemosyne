@@ -6,7 +6,7 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -60,7 +60,7 @@ class URLFetcher:
     def _slugify(url: str) -> str:
         return re.sub(r"[^a-z0-9]+", "_", url.lower())[:60].strip("_") or "url"
 
-    def _open(self, url: str) -> "urllib.request.addinfourl":
+    def _open(self, url: str) -> urllib.response.addinfourl:  # type: ignore[name-defined]
         req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
         return urllib.request.urlopen(req, timeout=self.timeout)  # noqa: S310
 
@@ -212,7 +212,7 @@ class URLFetcher:
     def _wrap_frontmatter(
         url: str, title: str, body: str, prebuilt: bool = False
     ) -> str:
-        captured = datetime.utcnow().isoformat() + "Z"
+        captured = datetime.now(timezone.utc).isoformat() + "Z"
         # Escape title for YAML by quoting if it contains a colon
         safe_title = title.replace('"', "'")
         frontmatter = (

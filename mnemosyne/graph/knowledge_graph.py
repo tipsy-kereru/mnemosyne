@@ -7,7 +7,7 @@ import json
 import logging
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 import networkx as nx
@@ -241,7 +241,7 @@ class KnowledgeGraph:
                    source_channel: str = 'legacy') -> Entity:
         """Add a new entity to the graph"""
         cursor = self.conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         entity.created_at = now
         entity.updated_at = now
@@ -300,7 +300,7 @@ class KnowledgeGraph:
                      source_channel: str = 'legacy') -> Relation:
         """Add a new relation to the graph"""
         cursor = self.conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         relation.created_at = now
         relation.version = 1

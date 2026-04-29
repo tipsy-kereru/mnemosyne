@@ -10,7 +10,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -79,7 +79,7 @@ class IncrementalTracker:
     ) -> None:
         """Record (or update) extraction tracking entries for *files*."""
         cursor = self.conn.cursor()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         for f in files:
             cursor.execute(
                 """INSERT INTO extraction_tracking (file_path, content_hash, domain, last_extracted_at, entity_count)
@@ -278,7 +278,7 @@ class ExtractionPipeline:
 
     def run(self) -> ExtractionReport:
         """Execute the full extraction pipeline and return a report."""
-        started_at = datetime.utcnow().isoformat()
+        started_at = datetime.now(timezone.utc).isoformat()
         domain = self.router.domain
 
         # 1. Discover files
@@ -372,7 +372,7 @@ class ExtractionPipeline:
                 entity_counts[p] = len(result.entities)
         self.tracker.record_extraction(to_process, hashes, domain, entity_counts)
 
-        completed_at = datetime.utcnow().isoformat()
+        completed_at = datetime.now(timezone.utc).isoformat()
 
         # Detect repeated error patterns.
         warnings = _detect_error_patterns(errors)
@@ -636,7 +636,7 @@ class ExtractionPipeline:
         name_to_id: Dict[str, str] = {}
         entities_stored = 0
         relations_stored = 0
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         # Pass 1: Store entities
         for ent_dict in entities:

@@ -7,7 +7,7 @@ import logging
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -231,7 +231,7 @@ class Ingester:
         kg = self._get_kg()
         added_entities = 0
         added_relations = 0
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         # Build a set of valid entity IDs to validate edges later.
         existing_ids: set[str] = set()
@@ -337,7 +337,7 @@ class Ingester:
                 content_hash = excluded.content_hash,
                 ingested_at = excluded.ingested_at
             """,
-            (str(path), content_hash, datetime.utcnow().isoformat()),
+            (str(path), content_hash, datetime.now(timezone.utc).isoformat()),
         )
         kg.conn.commit()
 
