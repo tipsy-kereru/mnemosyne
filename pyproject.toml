@@ -1,12 +1,12 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemosyne-kg"
 version = "0.1.0"
 description = "Local-first, zero-API-cost knowledge memory system for AI agents"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Seung Hyun Myung"}]
 dependencies = [
