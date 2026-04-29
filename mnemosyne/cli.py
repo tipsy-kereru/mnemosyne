@@ -44,6 +44,28 @@ Output:
 Supported languages (coding domain): Python, JavaScript, TypeScript, TSX, Go, Rust
 """
 
+ADD_EXAMPLES = """
+Examples:
+  mnemosyne add ./notes/meeting.md
+  mnemosyne add https://arxiv.org/abs/2305.10601
+  mnemosyne add --text "John works at Google" --domain daily
+  mnemosyne add ./src/ --domain coding --scope-id session-1
+  mnemosyne add ./report.pdf --domain legal
+
+Output: JSON with {source, entities_added, relations_added, raw_path}
+  --dry-run: shows extraction preview without writing to graph
+"""
+
+UPDATE_EXAMPLES = """
+Examples:
+  mnemosyne update
+  mnemosyne update ~/mnemosyne/raw/coding/
+  mnemosyne update --stats
+  mnemosyne update --domain legal --prune
+
+Output: JSON with {total, changed, new_files, unchanged, errors}
+"""
+
 
 def main(argv=None):
     """Mnemosyne CLI entry point."""
@@ -107,6 +129,84 @@ def main(argv=None):
         help="Show extraction examples and output format details",
     )
 
+    # add subcommand
+    add_parser = subparsers.add_parser(
+        "add",
+        help="Add a file, directory, URL, or text to the knowledge graph",
+        description="Add a file, directory, URL, or text to the knowledge graph",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=ADD_EXAMPLES,
+    )
+    add_parser.add_argument(
+        "target", nargs="?",
+        help="File, directory, or URL to ingest",
+    )
+    add_parser.add_argument(
+        "--text",
+        help="Inline text to ingest instead of a target path or URL",
+    )
+    add_parser.add_argument(
+        "--domain",
+        choices=["coding", "daily", "legal"],
+        default="daily",
+        help="Domain for ingestion (default: daily)",
+    )
+    add_parser.add_argument(
+        "--scope-id",
+        help="Attach a scope ID (e.g. session name) to ingested entities",
+    )
+    add_parser.add_argument(
+        "--source-channel", default="cli",
+        help="Tag the ingestion source channel (default: cli)",
+    )
+    add_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would happen without writing to the knowledge graph",
+    )
+    add_parser.add_argument(
+        "--examples", action="store_true",
+        help="Show ingestion examples and output format details",
+    )
+
+    # update subcommand
+    update_parser = subparsers.add_parser(
+        "update",
+        help="Incrementally update the knowledge graph from changed files",
+        description="Incrementally update the knowledge graph from changed files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=UPDATE_EXAMPLES,
+    )
+    update_parser.add_argument(
+        "path", nargs="?",
+        help="Directory to scan (default: ~/mnemosyne/raw/)",
+    )
+    update_parser.add_argument(
+        "--domain",
+        choices=["coding", "daily", "legal", "auto"],
+        default="auto",
+        help="Domain filter (default: auto)",
+    )
+    update_parser.add_argument(
+        "--scope-id",
+        help="Attach a scope ID to updated entities",
+    )
+    update_parser.add_argument(
+        "--prune", action="store_true",
+        help="Remove cache entries for files that no longer exist",
+    )
+    update_parser.add_argument(
+        "--stats", action="store_true",
+        help="Show stats only, do not re-extract",
+    )
+    update_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would be updated without writing to the knowledge graph",
+    )
+    update_parser.add_argument(
+        "--examples", action="store_true",
+        help="Show update examples and output format details",
+    )
+
     args = parser.parse_args(argv)
 
     if getattr(args, "examples", False):
@@ -114,6 +214,10 @@ def main(argv=None):
             print(QUERY_SYNTAX.strip())
         elif args.command == "extract":
             print(EXTRACT_EXAMPLES.strip())
+        elif args.command == "add":
+            print(ADD_EXAMPLES.strip())
+        elif args.command == "update":
+            print(UPDATE_EXAMPLES.strip())
         return
 
     if args.command is None:
@@ -124,6 +228,10 @@ def main(argv=None):
     elif args.command == "extract":
         from mnemosyne.extraction.cli import main as extract_main
         extract_main(argv=_build_extract_argv(args))
+    elif args.command == "add":
+        _run_add(args)
+    elif args.command == "update":
+        _run_update(args)
     else:
         parser.print_help()
 
@@ -146,6 +254,78 @@ def _build_extract_argv(args):
     if args.source_channel != "cli":
         argv.extend(["--source-channel", args.source_channel])
     return argv
+
+
+def _run_add(args):
+    """Execute the ``mnemosyne add`` subcommand."""
+    import json
+    import sys
+
+    from mnemosyne.ingest.ingester import Ingester
+
+    ingester = Ingester(dry_run=getattr(args, "dry_run", False))
+    target = getattr(args, "target", None)
+    text = getattr(args, "text", None)
+
+    if not target and not text:
+        print("Error: provide a target (file/URL) or --text", file=sys.stderr)
+        sys.exit(1)
+
+    result = ingester.add(
+        target=target or "",
+        domain=args.domain,
+        scope_id=getattr(args, "scope_id", None),
+        source_channel=getattr(args, "source_channel", "cli"),
+        text=text,
+    )
+
+    # Directory ingestion returns a list of results — summarize them.
+    if isinstance(result, list):
+        total_e = sum(r.entities_added for r in result)
+        total_r = sum(r.relations_added for r in result)
+        print(json.dumps({
+            "sources": len(result),
+            "entities_added": total_e,
+            "relations_added": total_r,
+        }))
+    else:
+        out = {
+            "source": result.source,
+            "entities_added": result.entities_added,
+            "relations_added": result.relations_added,
+            "raw_path": str(result.raw_path) if result.raw_path else None,
+        }
+        if getattr(result, "skipped", False):
+            out["skipped"] = True
+            out["skip_reason"] = getattr(result, "skip_reason", None)
+        print(json.dumps(out))
+
+
+def _run_update(args):
+    """Execute the ``mnemosyne update`` subcommand."""
+    import json
+    from pathlib import Path
+
+    from mnemosyne.ingest.update import Updater
+
+    path = Path(args.path) if getattr(args, "path", None) else None
+    domain = getattr(args, "domain", "auto")
+    domain_filter = None if domain == "auto" else domain
+
+    updater = Updater(dry_run=getattr(args, "dry_run", False))
+    stats = updater.update(
+        path=path,
+        domain=domain_filter,
+        scope_id=getattr(args, "scope_id", None),
+        prune=getattr(args, "prune", False),
+    )
+    print(json.dumps({
+        "total": stats.total,
+        "changed": stats.changed,
+        "new_files": stats.new_files,
+        "unchanged": stats.unchanged,
+        "errors": stats.errors,
+    }))
 
 
 if __name__ == "__main__":
