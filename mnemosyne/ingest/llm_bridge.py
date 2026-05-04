@@ -172,7 +172,7 @@ class LLMBridge:
         # Rely on the prompt instructions + _parse_json fence-stripping instead.
         resp = client.chat.completions.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[{"role": "user", "content": prompt}],
         )
         msg = resp.choices[0].message
