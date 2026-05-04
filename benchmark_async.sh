@@ -16,8 +16,16 @@
 # REQ-BENCH-001-001 through REQ-BENCH-001-017 / SPEC-BENCH-001 T2+T3
 set -euo pipefail
 
-PYTHON=${PYTHON:-uv run python}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON=${PYTHON:-uv run python}
+
+# Load .env if present (provides Z_AI_API_KEY, ANTHROPIC_API_KEY, etc.)
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${SCRIPT_DIR}/.env"
+    set +a
+fi
 RESULTS_FILE="${SCRIPT_DIR}/.moon-cell/docs/BENCHMARK_RESULTS.md"
 
 # Thresholds (REQ-BENCH-001-011)
