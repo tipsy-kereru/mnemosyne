@@ -168,22 +168,22 @@ class LLMBridge:
         model = os.environ.get("Z_AI_MODEL", "glm-4.5-air")
         kwargs: dict = {
             "model": model,
-            "max_tokens": 2048,
+            # Higher token budget for reasoning models: GLM-4.5 uses tokens for
+            # internal thinking before emitting the answer in content.
+            "max_tokens": 4096,
             "messages": [{"role": "user", "content": prompt}],
         }
-        # Request JSON mode if supported; GLM-4.5 honours this flag
+        # Request JSON mode; fall back silently if the provider rejects it.
         try:
             resp = client.chat.completions.create(
                 **kwargs, response_format={"type": "json_object"}
             )
-        except Exception:
+        except Exception as exc:
+            logger.debug("z.ai response_format rejected (%s); retrying plain", exc)
             resp = client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
-        content = msg.content or ""
-        # GLM reasoning models put the answer in reasoning_content when content is empty
-        if not content:
-            content = getattr(msg, "reasoning_content", "") or ""
-        return content
+        # content carries the final answer; reasoning_content is the thinking trace.
+        return msg.content or ""
 
     @staticmethod
     def _call_anthropic(prompt: str) -> str:
