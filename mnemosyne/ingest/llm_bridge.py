@@ -144,11 +144,18 @@ class LLMBridge:
             api_key=os.environ.get("Z_AI_API_KEY", ""),
         )
         model = os.environ.get("Z_AI_MODEL", "glm-4.5-air")
-        resp = client.chat.completions.create(
-            model=model,
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        kwargs: dict = {
+            "model": model,
+            "max_tokens": 2048,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        # Request JSON mode if supported; GLM-4.5 honours this flag
+        try:
+            resp = client.chat.completions.create(
+                **kwargs, response_format={"type": "json_object"}
+            )
+        except Exception:
+            resp = client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
         content = msg.content or ""
         # GLM reasoning models put the answer in reasoning_content when content is empty
