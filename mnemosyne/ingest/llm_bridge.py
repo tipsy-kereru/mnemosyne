@@ -57,6 +57,8 @@ class LLMBridge:
         """Auto-detect provider from environment variables."""
         if os.environ.get("MNEMOSYNE_LLM"):
             return os.environ["MNEMOSYNE_LLM"]
+        if os.environ.get("Z_AI_API_KEY"):
+            return "zai"
         if os.environ.get("ANTHROPIC_API_KEY"):
             return "anthropic"
         if os.environ.get("OPENAI_API_KEY"):
@@ -78,7 +80,9 @@ class LLMBridge:
 
         provider = self.provider
         try:
-            if provider == "anthropic":
+            if provider == "zai":
+                raw = self._call_zai(prompt)
+            elif provider == "anthropic":
                 raw = self._call_anthropic(prompt)
             elif provider == "openai":
                 raw = self._call_openai(prompt)
@@ -128,6 +132,22 @@ class LLMBridge:
         return parsed
 
     # -- provider implementations --
+
+    @staticmethod
+    def _call_zai(prompt: str) -> str:
+        import openai  # type: ignore
+
+        client = openai.OpenAI(
+            base_url="https://api.z.ai/api/coding/paas/v4",
+            api_key=os.environ.get("Z_AI_API_KEY", ""),
+        )
+        model = os.environ.get("Z_AI_MODEL", "glm-4-flash")
+        resp = client.chat.completions.create(
+            model=model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.choices[0].message.content or ""
 
     @staticmethod
     def _call_anthropic(prompt: str) -> str:
