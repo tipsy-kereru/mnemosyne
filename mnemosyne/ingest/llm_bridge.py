@@ -141,13 +141,18 @@ class LLMBridge:
             base_url="https://api.z.ai/api/coding/paas/v4",
             api_key=os.environ.get("Z_AI_API_KEY", ""),
         )
-        model = os.environ.get("Z_AI_MODEL", "glm-4-flash")
+        model = os.environ.get("Z_AI_MODEL", "glm-4.5-air")
         resp = client.chat.completions.create(
             model=model,
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.choices[0].message.content or ""
+        msg = resp.choices[0].message
+        content = msg.content or ""
+        # GLM reasoning models put the answer in reasoning_content when content is empty
+        if not content:
+            content = getattr(msg, "reasoning_content", "") or ""
+        return content
 
     @staticmethod
     def _call_anthropic(prompt: str) -> str:

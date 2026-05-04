@@ -53,6 +53,7 @@ class TestLLMBridgeProviderDetection:
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
             "MNEMOSYNE_LLM",
+            "Z_AI_API_KEY",
         ):
             monkeypatch.delenv(key, raising=False)
 
@@ -104,6 +105,7 @@ class TestLLMBridgeExtract:
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
             "MNEMOSYNE_LLM",
+            "Z_AI_API_KEY",
         ):
             monkeypatch.delenv(key, raising=False)
 

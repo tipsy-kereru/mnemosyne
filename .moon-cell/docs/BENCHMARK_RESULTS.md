@@ -21,3 +21,20 @@ See `.moon-cell/specs/SPEC-BENCH-001.md` for threshold rationale and gate criter
 
 **Notes:** Abstract-page URLs are CDN-cached and return in <0.1s each. Re-run B1 with PDF URLs
 (see `benchmark_async.sh` B1 section) for realistic measurement.
+
+## Run: 2026-05-04 21:12:25 NZST
+
+| Benchmark | Measured | Threshold | Result | Notes |
+|---|---|---|---|---|
+| B1 URL fetch ×10 (PDF) | 3.69s | >30s |   ❌ MISS  3.69s ≤ 30s  →  implementation not yet justified
+MISS | arXiv PDF URLs |
+| B2 LLM batch ×5 | skippeds | >60s | SKIP | Requires API key |
+| B4 wiki status | .17s | >1s |   ❌ MISS  .17s ≤ 1s  →  implementation not yet justified
+MISS | 700 pages |
+| B5 wiki lint | .18s | >2s |   ❌ MISS  .18s ≤ 2s  →  implementation not yet justified
+MISS | 700 pages |
+| B6 wiki rebuild dry-run | .14s | >5s |   ❌ MISS  .14s ≤ 5s  →  implementation not yet justified
+MISS | 700 pages |
+
+**Decision:** SPEC-ARCH-ASYNC-001 T3 → DEFERRED | SPEC-WIKI-008 T1 → DEFERRED
+

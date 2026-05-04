@@ -45,8 +45,17 @@ Examples:
 
 # @MX:ANCHOR: [AUTO] add_main is the public CLI entry for "mnemosyne add".
 # @MX:REASON: Wired in pyproject.toml entry points; user-facing fan_in.
+def _load_dotenv() -> None:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+
 def add_main(argv: Optional[Sequence[str]] = None) -> int:
     """Entry point for ``mnemosyne-add``."""
+    _load_dotenv()
     parser = argparse.ArgumentParser(
         prog="mnemosyne-add",
         description="Ingest a file, directory, URL, or inline text.",
@@ -158,6 +167,7 @@ Examples:
 # @MX:REASON: Wired in pyproject.toml entry points; user-facing fan_in.
 def update_main(argv: Optional[Sequence[str]] = None) -> int:
     """Entry point for ``mnemosyne-update``."""
+    _load_dotenv()
     parser = argparse.ArgumentParser(
         prog="mnemosyne-update",
         description="Re-extract changed files since the last ingestion.",

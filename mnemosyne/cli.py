@@ -95,6 +95,11 @@ Output: text by default; pass --format json for automation.
 
 def main(argv=None):
     """Mnemosyne CLI entry point."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     parser = argparse.ArgumentParser(
         prog="mnemosyne",
         description="Mnemosyne Knowledge Graph - Local-first knowledge memory for AI agents",
