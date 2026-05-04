@@ -51,9 +51,11 @@ Examples:
   mnemosyne add --text "John works at Google" --domain daily
   mnemosyne add ./src/ --domain coding --scope-id session-1
   mnemosyne add ./report.pdf --domain legal
+  mnemosyne add ./notes/meeting.md --wiki-root ./wiki
 
-Output: JSON with {source, entities_added, relations_added, raw_path}
+Output: JSON with {source, entities_added, relations_added, raw_path, wiki_paths}
   --dry-run: shows extraction preview without writing to graph
+  --no-wiki: updates the knowledge graph only
 """
 
 UPDATE_EXAMPLES = """
@@ -62,8 +64,32 @@ Examples:
   mnemosyne update ~/mnemosyne/raw/coding/
   mnemosyne update --stats
   mnemosyne update --domain legal --prune
+  mnemosyne update ~/mnemosyne/raw/daily --wiki-root ~/mnemosyne/wiki
 
 Output: JSON with {total, changed, new_files, unchanged, errors}
+"""
+
+WIKI_EXAMPLES = """
+Examples:
+  mnemosyne wiki status --wiki-root ~/mnemosyne/wiki
+  mnemosyne wiki lint --wiki-root ~/mnemosyne/wiki --format json
+  mnemosyne wiki contradictions --db-path ~/mnemosyne/graph/knowledge.db --format json
+  mnemosyne wiki resolve c_abc123 --db-path ~/mnemosyne/graph/knowledge.db --resolution accepted_existing --dry-run
+  mnemosyne wiki prune --db-path ~/mnemosyne/graph/knowledge.db --format json
+  mnemosyne wiki semantic-contradictions --db-path ~/mnemosyne/graph/knowledge.db --write --format json
+  mnemosyne wiki rebuild --wiki-root ~/mnemosyne/wiki --db-path ~/mnemosyne/graph/knowledge.db --dry-run
+  mnemosyne wiki doctor --strict
+
+Write locking:
+  Wiki write commands use a .mnemosyne-wiki.lock file per wiki root.
+  Use --lock-timeout on rebuild if another writer is active.
+
+Editor workflow:
+  The wiki root is editor-neutral Markdown for Joplin/Obsidian-style folders.
+  Generated blocks are rebuildable; put human notes outside MNEMOSYNE markers.
+  Use an explicit --wiki-root for editor vaults; no Joplin token is required.
+
+Output: text by default; pass --format json for automation.
 """
 
 
@@ -164,6 +190,19 @@ def main(argv=None):
         help="Show what would happen without writing to the knowledge graph",
     )
     add_parser.add_argument(
+        "--wiki-root",
+        default=None,
+        help="LLM Wiki root (default: ~/mnemosyne/wiki)",
+    )
+    add_parser.add_argument(
+        "--no-wiki", action="store_true",
+        help="Do not update Markdown LLM Wiki pages",
+    )
+    add_parser.add_argument(
+        "--wiki-excerpts", action="store_true",
+        help="Opt in to bounded, redacted source excerpts in wiki source pages",
+    )
+    add_parser.add_argument(
         "--examples", action="store_true",
         help="Show ingestion examples and output format details",
     )
@@ -203,9 +242,85 @@ def main(argv=None):
         help="Show what would be updated without writing to the knowledge graph",
     )
     update_parser.add_argument(
+        "--wiki-root",
+        default=None,
+        help="LLM Wiki root (default: ~/mnemosyne/wiki)",
+    )
+    update_parser.add_argument(
+        "--no-wiki", action="store_true",
+        help="Do not update Markdown LLM Wiki pages",
+    )
+    update_parser.add_argument(
+        "--wiki-excerpts", action="store_true",
+        help="Opt in to bounded, redacted source excerpts in wiki source pages",
+    )
+    update_parser.add_argument(
         "--examples", action="store_true",
         help="Show update examples and output format details",
     )
+
+    wiki_parser = subparsers.add_parser(
+        "wiki",
+        help="Inspect and maintain the Markdown LLM Wiki",
+        description="Inspect and maintain the Markdown LLM Wiki",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=WIKI_EXAMPLES,
+    )
+    wiki_subparsers = wiki_parser.add_subparsers(dest="wiki_command")
+
+    def add_wiki_common(p):
+        p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
+        p.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
+        p.add_argument("--format", choices=["text", "json"], default="text")
+        p.add_argument("--lock-timeout", type=float, default=10.0, help="Seconds to wait for the wiki write lock on write commands")
+
+    for name, help_text in (
+        ("status", "Show read-only wiki health summary"),
+        ("lint", "Lint wiki links, metadata, and graph drift"),
+        ("contradictions", "List graph-backed contradiction review items"),
+        ("resolve", "Update one conflict's resolution metadata without deleting evidence"),
+        ("prune", "Plan stale wiki/graph reconciliation without deleting evidence"),
+        ("semantic-contradictions", "Opt-in local semantic contradiction discovery"),
+        ("rebuild", "Regenerate generated wiki sections from graph data"),
+        ("doctor", "Run status and lint together"),
+    ):
+        sub = wiki_subparsers.add_parser(name, help=help_text)
+        add_wiki_common(sub)
+        if name == "contradictions":
+            sub.add_argument("--all", action="store_true", help="Include resolved conflicts")
+        if name == "resolve":
+            sub.add_argument("conflict_id", help="Stable conflict ID from `mnemosyne wiki contradictions`")
+            sub.add_argument(
+                "--resolution",
+                required=True,
+                choices=[
+                    "unresolved",
+                    "accepted_existing",
+                    "accepted_incoming",
+                    "superseded",
+                    "ambiguous",
+                ],
+            )
+            sub.add_argument("--note", default=None, help="Optional review note")
+            sub.add_argument("--reviewer", default=None, help="Optional reviewer label")
+            sub.add_argument("--dry-run", action="store_true", help="Preview the metadata update without writing")
+        if name == "prune":
+            sub.add_argument(
+                "--apply-tombstones",
+                action="store_true",
+                help="Write tombstone records without deleting pages or graph facts",
+            )
+        if name == "semantic-contradictions":
+            sub.add_argument("--write", action="store_true", help="Persist review candidates")
+            sub.add_argument(
+                "--include-raw-excerpts",
+                action="store_true",
+                help="Opt in to bounded redacted raw source excerpts for local files",
+            )
+        if name in {"lint", "doctor"}:
+            sub.add_argument("--strict", action="store_true", help="Exit nonzero on warnings too")
+        if name == "rebuild":
+            sub.add_argument("--dry-run", action="store_true", help="Show pages that would be written")
 
     args = parser.parse_args(argv)
 
@@ -218,6 +333,8 @@ def main(argv=None):
             print(ADD_EXAMPLES.strip())
         elif args.command == "update":
             print(UPDATE_EXAMPLES.strip())
+        elif args.command == "wiki":
+            print(WIKI_EXAMPLES.strip())
         return
 
     if args.command is None:
@@ -232,6 +349,8 @@ def main(argv=None):
         _run_add(args)
     elif args.command == "update":
         _run_update(args)
+    elif args.command == "wiki":
+        _run_wiki(args)
     else:
         parser.print_help()
 
@@ -260,10 +379,19 @@ def _run_add(args):
     """Execute the ``mnemosyne add`` subcommand."""
     import json
     import sys
+    from pathlib import Path
 
     from mnemosyne.ingest.ingester import Ingester
 
-    ingester = Ingester(dry_run=getattr(args, "dry_run", False))
+    default_wiki = Path.home() / "mnemosyne" / "wiki"
+    wiki_root = None if getattr(args, "no_wiki", False) else Path(
+        getattr(args, "wiki_root", None) or default_wiki
+    )
+    ingester = Ingester(
+        wiki_root=wiki_root,
+        include_wiki_excerpts=getattr(args, "wiki_excerpts", False),
+        dry_run=getattr(args, "dry_run", False),
+    )
     target = getattr(args, "target", None)
     text = getattr(args, "text", None)
 
@@ -294,6 +422,7 @@ def _run_add(args):
             "entities_added": result.entities_added,
             "relations_added": result.relations_added,
             "raw_path": str(result.raw_path) if result.raw_path else None,
+            "wiki_paths": [str(path) for path in getattr(result, "wiki_paths", [])],
         }
         if getattr(result, "skipped", False):
             out["skipped"] = True
@@ -312,7 +441,15 @@ def _run_update(args):
     domain = getattr(args, "domain", "auto")
     domain_filter = None if domain == "auto" else domain
 
-    updater = Updater(dry_run=getattr(args, "dry_run", False))
+    default_wiki = Path.home() / "mnemosyne" / "wiki"
+    wiki_root = None if getattr(args, "no_wiki", False) else Path(
+        getattr(args, "wiki_root", None) or default_wiki
+    )
+    updater = Updater(
+        wiki_root=wiki_root,
+        include_wiki_excerpts=getattr(args, "wiki_excerpts", False),
+        dry_run=getattr(args, "dry_run", False),
+    )
     stats = updater.update(
         path=path,
         domain=domain_filter,
@@ -326,6 +463,53 @@ def _run_update(args):
         "unchanged": stats.unchanged,
         "errors": stats.errors,
     }))
+
+
+def _run_wiki(args):
+    """Execute the ``mnemosyne wiki`` subcommands."""
+    import sys
+    from pathlib import Path
+
+    from mnemosyne.wiki.cli import main as wiki_main
+
+    argv = []
+    if getattr(args, "wiki_command", None):
+        argv.append(args.wiki_command)
+    if getattr(args, "wiki_root", None):
+        argv.extend(["--wiki-root", args.wiki_root])
+    if getattr(args, "db_path", None):
+        argv.extend(["--db-path", args.db_path])
+    if getattr(args, "format", "text") != "text":
+        argv.extend(["--format", args.format])
+    if getattr(args, "lock_timeout", 10.0) != 10.0:
+        argv.extend(["--lock-timeout", str(args.lock_timeout)])
+    if getattr(args, "all", False):
+        argv.append("--all")
+    if getattr(args, "conflict_id", None):
+        argv.append(args.conflict_id)
+    if getattr(args, "resolution", None):
+        argv.extend(["--resolution", args.resolution])
+    if getattr(args, "note", None):
+        argv.extend(["--note", args.note])
+    if getattr(args, "reviewer", None):
+        argv.extend(["--reviewer", args.reviewer])
+    if getattr(args, "apply_tombstones", False):
+        argv.append("--apply-tombstones")
+    if getattr(args, "write", False):
+        argv.append("--write")
+    if getattr(args, "include_raw_excerpts", False):
+        argv.append("--include-raw-excerpts")
+    if getattr(args, "strict", False):
+        argv.append("--strict")
+    if getattr(args, "dry_run", False):
+        argv.append("--dry-run")
+    if not getattr(args, "wiki_root", None):
+        # Keep the default visible to the delegated CLI while allowing direct tests
+        # to assert against the same default path.
+        argv.extend(["--wiki-root", str(Path.home() / "mnemosyne" / "wiki")])
+    code = wiki_main(argv)
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":

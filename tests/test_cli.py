@@ -527,3 +527,25 @@ class TestGraphCLIQueryPrecedence:
 
         mock_kg.get_stats.assert_called_once()
         mock_kg.query.assert_not_called()
+
+
+def test_main_cli_wiki_help_lists_maintenance_commands(capsys):
+    import pytest
+
+    from mnemosyne.cli import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["wiki", "--help"])
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "status" in captured.out
+    assert "lint" in captured.out
+    assert "contradictions" in captured.out
+    assert "resolve" in captured.out
+    assert "prune" in captured.out
+    assert "semantic-contradictions" in captured.out
+    assert "rebuild" in captured.out
+    assert "doctor" in captured.out
+    assert "editor-neutral Markdown" in captured.out
+    assert "no Joplin token is required" in captured.out
+    assert "--lock-timeout" in captured.out

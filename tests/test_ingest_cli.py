@@ -396,6 +396,37 @@ class TestIngester:
         mock_kg.add_relation.assert_not_called()
         assert isinstance(result, ing_module.IngestResult)
 
+    def test_add_text_updates_llm_wiki_when_configured(self, tmp_path):
+        ext_module = _import_or_skip("mnemosyne.ingest.llm_extractor")
+        ing_module = _import_or_skip("mnemosyne.ingest.ingester")
+
+        parsed = self._make_parsed_result(ext_module)
+
+        with patch("mnemosyne.ingest.ingester.LLMExtractor") as mock_extractor_cls, \
+             patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph") as mock_kg_cls:
+            mock_extractor = MagicMock()
+            mock_extractor.extract_text.return_value = parsed
+            mock_extractor_cls.return_value = mock_extractor
+
+            mock_kg = MagicMock()
+            mock_kg.get_entity.return_value = None
+            mock_kg_cls.return_value = mock_kg
+
+            wiki_root = tmp_path / "wiki"
+            ingester = ing_module.Ingester(wiki_root=wiki_root)
+            result = ingester.add(
+                target="",
+                text="John works at Google",
+                domain="daily",
+                scope_id="demo",
+            )
+
+        assert result.wiki_paths
+        assert (wiki_root / "index.md").exists()
+        assert (wiki_root / "log.md").exists()
+        assert (wiki_root / "entities" / "person" / "john.md").exists()
+        assert "John" in (wiki_root / "index.md").read_text(encoding="utf-8")
+
     def test_add_directory_aggregates_files(self, tmp_path):
         ext_module = _import_or_skip("mnemosyne.ingest.llm_extractor")
         ing_module = _import_or_skip("mnemosyne.ingest.ingester")
@@ -548,3 +579,50 @@ class TestCLIAddCommand:
         args = mock_run.call_args[0][0]
         assert args.path is None
         assert args.domain == "auto"
+
+
+def test_ingester_merges_existing_entities_and_records_history(tmp_path):
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.ingest.ingester import Ingester
+
+    class FakeBridge:
+        def __init__(self):
+            self.calls = 0
+
+        def extract(self, text, schema_hint="", domain="daily"):
+            self.calls += 1
+            role = "engineer" if self.calls == 1 else "architect"
+            return {
+                "nodes": [
+                    {
+                        "id": "alice",
+                        "type": "person",
+                        "label": "Alice",
+                        "properties": {"role": role},
+                    }
+                ],
+                "edges": [],
+            }
+
+    db_path = tmp_path / "kg.db"
+    ingester = Ingester(db_path=db_path, llm_bridge=FakeBridge(), wiki_root=None)
+    first = ingester.add("", text="Alice is an engineer", domain="daily")
+    second = ingester.add("", text="Alice is an architect", domain="daily")
+    ingester.close()
+
+    assert first.entities_added == 1
+    assert second.entities_added == 0
+
+    kg = KnowledgeGraph(str(db_path))
+    entity = kg.get_entity("alice")
+    assert entity is not None
+    assert entity.version == 2
+    assert entity.properties["role"] == "engineer"
+    assert "conflicts" in entity.properties
+    conflict = entity.properties["conflicts"]["role"][0]
+    assert conflict["incoming"] == "architect"
+    assert conflict["resolution"] == "unresolved"
+    assert conflict["source_id"]
+    assert conflict["detected_at"] == conflict["seen_at"]
+    assert len(kg.get_entity_history("alice")) == 2
+    kg.close()

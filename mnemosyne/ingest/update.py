@@ -37,10 +37,14 @@ class Updater:
         self,
         db_path: Optional[Path] = None,
         raw_root: Optional[Path] = None,
+        wiki_root: Optional[Path] = None,
+        include_wiki_excerpts: bool = False,
         dry_run: bool = False,
     ) -> None:
         self.db_path = db_path
         self.raw_root = raw_root or (Path.home() / "mnemosyne" / "raw")
+        self.wiki_root = wiki_root
+        self.include_wiki_excerpts = include_wiki_excerpts
         self.dry_run = dry_run
 
     def update(
@@ -56,7 +60,11 @@ class Updater:
         scan_root.mkdir(parents=True, exist_ok=True)
 
         ingester = Ingester(
-            db_path=self.db_path, raw_root=self.raw_root, dry_run=self.dry_run
+            db_path=self.db_path,
+            raw_root=self.raw_root,
+            wiki_root=self.wiki_root,
+            include_wiki_excerpts=self.include_wiki_excerpts,
+            dry_run=self.dry_run,
         )
         stats = UpdateStats()
         try:
@@ -110,7 +118,12 @@ class Updater:
         scan_root = path.expanduser() if path else self.raw_root
         scan_root.mkdir(parents=True, exist_ok=True)
 
-        ingester = Ingester(db_path=self.db_path, raw_root=self.raw_root, dry_run=True)
+        ingester = Ingester(
+            db_path=self.db_path,
+            raw_root=self.raw_root,
+            wiki_root=None,
+            dry_run=True,
+        )
         stats = UpdateStats()
         try:
             kg = ingester._get_kg()  # noqa: SLF001

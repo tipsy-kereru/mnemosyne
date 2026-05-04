@@ -174,3 +174,12 @@ When the user provides new information:
 2. If exists, update properties
 3. If new, create entity and relations
 4. Save wiki layer for human readability
+
+## Agent Harness
+
+This project uses a Moon Cell harness for SPEC tracking, model routing, and agent team blueprints.
+
+- Harness source of truth: `.moon-cell/`
+- Canonical SPEC index: `.moon-cell/MANIFEST.md`
+- Current context: `.moon-cell/docs/harness/CONTEXT_HANDOFF.md`
+- Task routing: `.moon-cell/docs/harness/TASK_ROUTING.md`

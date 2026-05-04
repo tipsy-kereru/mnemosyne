@@ -7,7 +7,7 @@ import json
 import logging
 import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
+from mnemosyne.timestamps import utc_now_iso
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 import networkx as nx
@@ -241,7 +241,7 @@ class KnowledgeGraph:
                    source_channel: str = 'legacy') -> Entity:
         """Add a new entity to the graph"""
         cursor = self.conn.cursor()
-        now = datetime.now(timezone.utc).isoformat()
+        now = utc_now_iso()
 
         entity.created_at = now
         entity.updated_at = now
@@ -300,7 +300,7 @@ class KnowledgeGraph:
                      source_channel: str = 'legacy') -> Relation:
         """Add a new relation to the graph"""
         cursor = self.conn.cursor()
-        now = datetime.now(timezone.utc).isoformat()
+        now = utc_now_iso()
 
         relation.created_at = now
         relation.version = 1
@@ -339,6 +339,111 @@ class KnowledgeGraph:
         logger.info("Added relation %s: %s -> %s", relation.relation_type, relation.source_id, relation.target_id)
         logger.debug("Relation %s created with scope_id=%s, channel=%s", relation.id, relation.scope_id, relation.source_channel)
 
+        return relation
+
+    def update_entity(self, entity: Entity, source_channel: Optional[str] = None) -> Entity:
+        """Update an existing entity and append temporal history."""
+        cursor = self.conn.cursor()
+        existing = self.get_entity(entity.id)
+        if existing is None:
+            raise KeyError(f"Entity not found: {entity.id}")
+
+        now = utc_now_iso()
+        entity.created_at = existing.created_at
+        entity.updated_at = now
+        entity.version = existing.version + 1
+        entity.scope_id = entity.scope_id if entity.scope_id is not None else existing.scope_id
+        entity.source_channel = source_channel or entity.source_channel or existing.source_channel
+
+        cursor.execute('''
+            UPDATE entities
+            SET type = ?, name = ?, properties = ?, updated_at = ?, version = ?,
+                scope_id = ?, source_channel = ?
+            WHERE id = ?
+        ''', (
+            entity.type,
+            entity.name,
+            json.dumps(entity.properties),
+            entity.updated_at,
+            entity.version,
+            entity.scope_id,
+            entity.source_channel,
+            entity.id,
+        ))
+        cursor.execute('''
+            INSERT INTO entity_history (entity_id, type, name, properties, changed_at, change_type, version)
+            VALUES (?, ?, ?, ?, ?, 'updated', ?)
+        ''', (
+            entity.id,
+            entity.type,
+            entity.name,
+            json.dumps(entity.properties),
+            now,
+            entity.version,
+        ))
+        self.conn.commit()
+
+        self.nx_graph.add_node(
+            entity.id,
+            type=entity.type,
+            name=entity.name,
+            properties=entity.properties,
+            scope_id=entity.scope_id,
+            source_channel=entity.source_channel,
+        )
+        return entity
+
+    def get_relation(self, relation_id: str) -> Optional[Relation]:
+        """Get relation by ID."""
+        row = self.conn.execute(
+            'SELECT * FROM relations WHERE id = ?', (relation_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return Relation(
+            id=row['id'],
+            source_id=row['source_id'],
+            target_id=row['target_id'],
+            relation_type=row['relation_type'],
+            properties=json.loads(row['properties'] or '{}'),
+            created_at=row['created_at'],
+            version=row['version'],
+            scope_id=row['scope_id'] if 'scope_id' in row.keys() else None,
+            source_channel=row['source_channel'] if 'source_channel' in row.keys() else 'legacy',
+        )
+
+    def update_relation(
+        self, relation: Relation, source_channel: Optional[str] = None
+    ) -> Relation:
+        """Update relation metadata without changing endpoints/type."""
+        existing = self.get_relation(relation.id)
+        if existing is None:
+            raise KeyError(f"Relation not found: {relation.id}")
+
+        relation.created_at = existing.created_at
+        relation.version = existing.version + 1
+        relation.scope_id = relation.scope_id if relation.scope_id is not None else existing.scope_id
+        relation.source_channel = source_channel or relation.source_channel or existing.source_channel
+        self.conn.execute('''
+            UPDATE relations
+            SET properties = ?, version = ?, scope_id = ?, source_channel = ?
+            WHERE id = ?
+        ''', (
+            json.dumps(relation.properties),
+            relation.version,
+            relation.scope_id,
+            relation.source_channel,
+            relation.id,
+        ))
+        self.conn.commit()
+        self.nx_graph.add_edge(
+            relation.source_id,
+            relation.target_id,
+            relation_type=relation.relation_type,
+            properties=relation.properties,
+            scope_id=relation.scope_id,
+            source_channel=relation.source_channel,
+        )
         return relation
 
     def get_entity(self, entity_id: str) -> Optional[Entity]:

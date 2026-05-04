@@ -9,7 +9,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from mnemosyne.timestamps import utc_now_iso
 from typing import Dict, List, Any, Optional
 
 from mnemosyne.graph.knowledge_graph import Scope
@@ -95,7 +95,7 @@ class ScopeManager:
                     f"got '{parent.scope_type}'"
                 )
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = utc_now_iso()
         scope_id = uuid.uuid4().hex
         scope_metadata = metadata or {}
 

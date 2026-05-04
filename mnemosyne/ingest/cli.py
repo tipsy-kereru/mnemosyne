@@ -34,6 +34,12 @@ Examples:
 
   # Dry-run (show what would be extracted)
   mnemosyne-add notes.md --dry-run
+
+  # Write the LLM Wiki somewhere other than ~/mnemosyne/wiki
+  mnemosyne-add notes.md --wiki-root ./wiki
+
+  # Opt in to bounded, redacted source excerpts in source pages
+  mnemosyne-add notes.md --wiki-excerpts
 """
 
 
@@ -70,6 +76,22 @@ def add_main(argv: Optional[Sequence[str]] = None) -> int:
         default=None,
         help="Override mnemosyne raw root (default: ~/mnemosyne/raw/).",
     )
+    parser.add_argument(
+        "--wiki-root",
+        dest="wiki_root",
+        default=str(Path.home() / "mnemosyne" / "wiki"),
+        help="Override LLM Wiki root (default: ~/mnemosyne/wiki/).",
+    )
+    parser.add_argument(
+        "--no-wiki",
+        action="store_true",
+        help="Do not update Markdown LLM Wiki pages.",
+    )
+    parser.add_argument(
+        "--wiki-excerpts",
+        action="store_true",
+        help="Opt in to bounded, redacted source excerpts in LLM Wiki source pages.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--examples", action="store_true", help="Show usage examples.")
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -89,6 +111,8 @@ def add_main(argv: Optional[Sequence[str]] = None) -> int:
     ingester = Ingester(
         db_path=Path(args.db_path) if args.db_path else None,
         raw_root=Path(args.raw_root) if args.raw_root else None,
+        wiki_root=None if args.no_wiki else Path(args.wiki_root),
+        include_wiki_excerpts=args.wiki_excerpts,
         dry_run=args.dry_run,
     )
 
@@ -124,6 +148,9 @@ Examples:
 
   # Prune cache entries for files that no longer exist
   mnemosyne-update --prune
+
+  # Update graph and LLM Wiki from a raw source subtree
+  mnemosyne-update ~/mnemosyne/raw/daily --wiki-root ~/mnemosyne/wiki
 """
 
 
@@ -162,6 +189,22 @@ def update_main(argv: Optional[Sequence[str]] = None) -> int:
         default=None,
         help="Override mnemosyne raw root (default: ~/mnemosyne/raw/).",
     )
+    parser.add_argument(
+        "--wiki-root",
+        dest="wiki_root",
+        default=str(Path.home() / "mnemosyne" / "wiki"),
+        help="Override LLM Wiki root (default: ~/mnemosyne/wiki/).",
+    )
+    parser.add_argument(
+        "--no-wiki",
+        action="store_true",
+        help="Do not update Markdown LLM Wiki pages.",
+    )
+    parser.add_argument(
+        "--wiki-excerpts",
+        action="store_true",
+        help="Opt in to bounded, redacted source excerpts in LLM Wiki source pages.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--examples", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -177,6 +220,8 @@ def update_main(argv: Optional[Sequence[str]] = None) -> int:
     updater = Updater(
         db_path=Path(args.db_path) if args.db_path else None,
         raw_root=Path(args.raw_root) if args.raw_root else None,
+        wiki_root=None if args.no_wiki else Path(args.wiki_root),
+        include_wiki_excerpts=args.wiki_excerpts,
         dry_run=args.dry_run,
     )
 

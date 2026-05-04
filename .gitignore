@@ -166,9 +166,10 @@ secret-*.*
 .moai/
 
 # ===========================================
-# Moon Cell Harness (local-only)
+# Moon Cell Harness (tracked — SPEC-HARNESS-001)
 # ===========================================
-.moon-cell/
+# Tracked as harness source of truth. Approved 2026-05-04.
+!.moon-cell/
 
 # ===========================================
 # Node.js (for docs/Nextra)

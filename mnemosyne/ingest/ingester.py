@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from mnemosyne.ingest.llm_extractor import (
+    IngestEntity,
     LLMExtractor,
     ParsedIngestResult,
     is_code_file,
@@ -20,6 +21,7 @@ from mnemosyne.ingest.llm_extractor import (
 from mnemosyne.ingest.url_fetcher import URLFetcher
 
 if TYPE_CHECKING:
+    from mnemosyne.graph.knowledge_graph import Entity
     from mnemosyne.graph.knowledge_graph import KnowledgeGraph
     from mnemosyne.ingest.llm_bridge import LLMBridge
 
@@ -37,6 +39,7 @@ class IngestResult:
     raw_path: Optional[Path] = None
     entities_added: int = 0
     relations_added: int = 0
+    wiki_paths: list[Path] = field(default_factory=list)
     skipped: bool = False
     skip_reason: str = ""
     errors: list[str] = field(default_factory=list)
@@ -51,11 +54,15 @@ class Ingester:
         self,
         db_path: Optional[Path] = None,
         raw_root: Optional[Path] = None,
+        wiki_root: Optional[Path] = None,
+        include_wiki_excerpts: bool = False,
         llm_bridge: Optional["LLMBridge"] = None,
         dry_run: bool = False,
     ) -> None:
         self.db_path = db_path
         self.raw_root = raw_root or (Path.home() / "mnemosyne" / "raw")
+        self.wiki_root = wiki_root
+        self.include_wiki_excerpts = include_wiki_excerpts
         self.dry_run = dry_run
         self._llm_bridge = llm_bridge
         self._kg: Optional[KnowledgeGraph] = None
@@ -170,6 +177,16 @@ class Ingester:
         added_e, added_r = self._store_result(parsed, scope_id, source_channel)
         result.entities_added = added_e
         result.relations_added = added_r
+        result.wiki_paths = self._maintain_wiki(
+            parsed,
+            source=str(path),
+            domain=chosen_domain,
+            scope_id=scope_id,
+            source_channel=source_channel,
+            raw_path=path,
+            original_source=result.source,
+            content_hash=content_hash,
+        )
 
         self._record_hash(path, content_hash)
         return result
@@ -218,6 +235,16 @@ class Ingester:
         added_e, added_r = self._store_result(parsed, scope_id, source_channel)
         result.entities_added = added_e
         result.relations_added = added_r
+        result.wiki_paths = self._maintain_wiki(
+            parsed,
+            source=synthetic_source,
+            domain=domain,
+            scope_id=scope_id,
+            source_channel=source_channel,
+            raw_path=None,
+            original_source=synthetic_source,
+            content_hash=None,
+        )
         return result
 
     def _store_result(
@@ -237,7 +264,10 @@ class Ingester:
         existing_ids: set[str] = set()
 
         for ie in result.entities:
-            if kg.get_entity(ie.id) is not None:
+            existing_entity = kg.get_entity(ie.id)
+            if existing_entity is not None:
+                merged = self._merge_entity(existing_entity, ie, scope_id, source_channel, now)
+                kg.update_entity(merged, source_channel=source_channel)
                 existing_ids.add(ie.id)
                 continue
 
@@ -245,6 +275,7 @@ class Ingester:
             properties["confidence"] = ie.confidence
             properties["confidence_score"] = ie.confidence_score
             properties.setdefault("source_file", ie.source_file)
+            properties.setdefault("source_files", [ie.source_file] if ie.source_file else [])
             properties.setdefault("label", ie.label)
 
             entity = Entity(
@@ -284,14 +315,101 @@ class Ingester:
                 created_at=now,
             )
             try:
-                kg.add_relation(
-                    relation, scope_id=scope_id, source_channel=source_channel
-                )
-                added_relations += 1
+                get_relation = getattr(kg, "get_relation", None)
+                existing_relation = get_relation(rid) if callable(get_relation) else None
+                if getattr(existing_relation, "id", None) != rid:
+                    existing_relation = None
+                if existing_relation is None:
+                    kg.add_relation(
+                        relation, scope_id=scope_id, source_channel=source_channel
+                    )
+                    added_relations += 1
+                else:
+                    relation.properties = self._merge_relation_properties(
+                        existing_relation.properties, relation.properties
+                    )
+                    kg.update_relation(relation, source_channel=source_channel)
             except sqlite3.IntegrityError as exc:
                 logger.debug("Duplicate relation %s: %s", rid, exc)
 
         return added_entities, added_relations
+
+    @staticmethod
+    def _merge_entity(
+        existing: "Entity",
+        incoming: "IngestEntity",
+        scope_id: Optional[str],
+        source_channel: str,
+        now: str,
+    ) -> "Entity":
+        from mnemosyne.graph.knowledge_graph import Entity
+
+        properties = dict(existing.properties)
+        incoming_props = dict(incoming.properties)
+        incoming_props["confidence"] = incoming.confidence
+        incoming_props["confidence_score"] = incoming.confidence_score
+        incoming_props.setdefault("source_file", incoming.source_file)
+        incoming_props.setdefault("label", incoming.label)
+
+        conflicts = dict(properties.get("conflicts") or {})
+        for key, value in incoming_props.items():
+            if value in (None, "", []):
+                continue
+            if key == "source_file":
+                properties.setdefault("source_file", value)
+                continue
+            if key in properties and properties[key] not in (value, None, "", []):
+                conflicts.setdefault(key, [])
+                source_id = hashlib.sha1(str(incoming.source_file or "unknown").encode("utf-8")).hexdigest()[:10]
+                conflict_entry = {
+                    "existing": properties[key],
+                    "incoming": value,
+                    "source_file": incoming.source_file or "unknown",
+                    "source_id": source_id if incoming.source_file else "unknown",
+                    "detected_at": now,
+                    "seen_at": now,
+                    "resolution": "unresolved",
+                }
+                if not any(
+                    isinstance(existing_conflict, dict)
+                    and existing_conflict.get("existing") == conflict_entry["existing"]
+                    and existing_conflict.get("incoming") == conflict_entry["incoming"]
+                    and existing_conflict.get("source_file") == conflict_entry["source_file"]
+                    for existing_conflict in conflicts[key]
+                ):
+                    conflicts[key].append(conflict_entry)
+                continue
+            properties[key] = value
+
+        source_files = list(properties.get("source_files") or [])
+        if incoming.source_file and incoming.source_file not in source_files:
+            source_files.append(incoming.source_file)
+        properties["source_files"] = source_files
+        if conflicts:
+            properties["conflicts"] = conflicts
+
+        return Entity(
+            id=existing.id,
+            type=existing.type,
+            name=existing.name or incoming.label,
+            properties=properties,
+            created_at=existing.created_at,
+            updated_at=now,
+            version=existing.version,
+            scope_id=scope_id or existing.scope_id,
+            source_channel=source_channel or existing.source_channel,
+        )
+
+    @staticmethod
+    def _merge_relation_properties(
+        existing: dict[str, Any], incoming: dict[str, Any]
+    ) -> dict[str, Any]:
+        merged = dict(existing)
+        for key, value in incoming.items():
+            if value in (None, "", []):
+                continue
+            merged[key] = value
+        return merged
 
     @staticmethod
     def _iter_files(root: Path) -> list[Path]:
@@ -362,10 +480,42 @@ class Ingester:
             merged.relations_added += r.relations_added
             if r.errors:
                 merged.errors.extend(r.errors)
+            merged.wiki_paths.extend(r.wiki_paths)
         if not results:
             merged.skipped = True
             merged.skip_reason = "no supported files in directory"
         return merged
+
+    def _maintain_wiki(
+        self,
+        parsed: ParsedIngestResult,
+        *,
+        source: str,
+        domain: str,
+        scope_id: Optional[str],
+        source_channel: str,
+        raw_path: Optional[Path],
+        original_source: Optional[str] = None,
+        content_hash: Optional[str] = None,
+    ) -> list[Path]:
+        """Update the Markdown LLM Wiki when a wiki root was configured."""
+        if self.wiki_root is None or self.dry_run:
+            return []
+        from mnemosyne.wiki.llm_wiki import LLMWikiMaintainer
+
+        update = LLMWikiMaintainer(
+            self.wiki_root, include_excerpts=self.include_wiki_excerpts
+        ).update_from_ingest(
+            parsed,
+            source=source,
+            domain=domain,
+            scope_id=scope_id,
+            source_channel=source_channel,
+            raw_path=raw_path,
+            original_source=original_source,
+            content_hash=content_hash,
+        )
+        return update.paths
 
     def _get_kg(self) -> "KnowledgeGraph":
         if self._kg is None:
@@ -401,6 +551,7 @@ def result_to_dict(result: IngestResult) -> dict[str, Any]:
         "raw_path": str(result.raw_path) if result.raw_path else None,
         "entities_added": result.entities_added,
         "relations_added": result.relations_added,
+        "wiki_paths": [str(path) for path in result.wiki_paths],
         "skipped": result.skipped,
         "skip_reason": result.skip_reason,
         "errors": list(result.errors),
