@@ -35,12 +35,7 @@ ingest = [
     "requests>=2.31.0",
     "anthropic>=0.40.0",
 ]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.1.0",
-]
-all = ["mnemosyne-kg[deterministic,semantic,dev]"]
+all = ["mnemosyne-kg[deterministic,semantic]"]
 
 [project.urls]
 Repository = "https://github.com/user/mnemosyne-knowledge-graph"
@@ -53,6 +48,24 @@ mnemosyne-query = "mnemosyne.graph.cli:main"
 mnemosyne-extract = "mnemosyne.extraction.cli:main"
 mnemosyne-add = "mnemosyne.ingest.cli:add_main"
 mnemosyne-update = "mnemosyne.ingest.cli:update_main"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    # tree-sitter language bindings needed for test_language_protocol and extraction tests
+    "tree-sitter>=0.25.0",
+    "tree-sitter-python>=0.25.0",
+    "tree-sitter-javascript>=0.25.0",
+    "tree-sitter-typescript>=0.21.0",
+    "tree-sitter-go>=0.25.0",
+    "tree-sitter-rust>=0.21.0",
+    "spacy>=3.7.2",
+    # ingest deps needed for URL fetcher and LLM bridge tests
+    "requests>=2.31.0",
+    "anthropic>=0.40.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["mnemosyne*"]
