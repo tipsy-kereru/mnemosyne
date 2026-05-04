@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -105,6 +106,27 @@ class LLMBridge:
             return {"nodes": [], "edges": [], "error": "empty response"}
 
         return self._parse_json(raw)
+
+    async def extract_async(
+        self,
+        text: str,
+        schema_hint: str,
+        domain: str = "daily",
+        semaphore: Optional[asyncio.Semaphore] = None,
+    ) -> dict[str, Any]:
+        """Async variant of :meth:`extract` — runs the blocking call in a thread.
+
+        Pass a shared ``semaphore`` (e.g. ``asyncio.Semaphore(5)``) to cap
+        concurrent LLM API calls and avoid rate limiting.
+        """
+        if semaphore is None:
+            return await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.extract(text, schema_hint, domain)
+            )
+        async with semaphore:
+            return await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.extract(text, schema_hint, domain)
+            )
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any]:

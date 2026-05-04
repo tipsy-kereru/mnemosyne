@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import sqlite3
@@ -109,6 +110,49 @@ class Ingester:
     ) -> list[IngestResult]:
         """Public helper for directory ingestion."""
         return self._add_directory(path, domain, scope_id, source_channel)
+
+    async def add_urls_async(
+        self,
+        urls: list[str],
+        domain: str = "daily",
+        scope_id: Optional[str] = None,
+        source_channel: str = "cli",
+        concurrency: int = 5,
+    ) -> list[IngestResult]:
+        """Fetch and ingest multiple URLs concurrently.
+
+        Uses :meth:`URLFetcher.fetch_async` for parallel downloads capped at
+        ``concurrency`` simultaneous requests.  The graph writes remain
+        sequential (SQLite is not async).
+        """
+        fetcher = self._get_fetcher()
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _fetch_one(url: str) -> tuple[str, Path | None, str]:
+            async with sem:
+                try:
+                    path = await fetcher.fetch_async(
+                        url, domain=domain, raw_dir=self.raw_root / domain
+                    )
+                    return url, path, ""
+                except Exception as exc:  # noqa: BLE001
+                    return url, None, str(exc)
+
+        fetch_results = await asyncio.gather(*[_fetch_one(u) for u in urls])
+
+        results: list[IngestResult] = []
+        for url, raw_path, err in fetch_results:
+            if err or raw_path is None:
+                results.append(
+                    IngestResult(source=url, errors=[err or "fetch returned None"])
+                )
+                continue
+            # Extract + persist synchronously (SQLite is not async-safe across threads)
+            file_result = self._add_file(raw_path, domain, scope_id, source_channel)
+            file_result.source = url
+            file_result.raw_path = raw_path
+            results.append(file_result)
+        return results
 
     # -- private helpers --
 

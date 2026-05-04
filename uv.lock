@@ -916,6 +916,7 @@ deterministic = [
 ]
 ingest = [
     { name = "anthropic" },
+    { name = "httpx" },
     { name = "requests" },
 ]
 semantic = [
@@ -946,6 +947,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", marker = "extra == 'ingest'", specifier = ">=0.40.0" },
     { name = "gliner", marker = "extra == 'semantic'", specifier = ">=0.2.0" },
+    { name = "httpx", marker = "extra == 'ingest'", specifier = ">=0.27.0" },
     { name = "mnemosyne-kg", extras = ["deterministic", "semantic"], marker = "extra == 'all'" },
     { name = "networkx", specifier = ">=3.2.1" },
     { name = "python-dateutil", specifier = ">=2.8.2" },

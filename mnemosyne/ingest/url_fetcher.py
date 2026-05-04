@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import urllib.error
@@ -54,6 +55,72 @@ class URLFetcher:
 
         out_path.write_text(content, encoding="utf-8")
         logger.info("Fetched %s -> %s", url, out_path)
+        return out_path
+
+    async def fetch_async(
+        self,
+        url: str,
+        domain: str = "daily",
+        raw_dir: Optional[Path] = None,
+    ) -> Path:
+        """Async variant of :meth:`fetch` — uses httpx for non-blocking I/O.
+
+        Falls back to running the sync ``fetch()`` in a thread executor when
+        httpx is unavailable.
+        """
+        try:
+            import httpx  # type: ignore
+        except ImportError:
+            return await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.fetch(url, domain, raw_dir)
+            )
+
+        target_dir = raw_dir if raw_dir is not None else (
+            Path.home() / "mnemosyne" / "raw" / domain
+        )
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        slug = self._slugify(url)
+        out_path = target_dir / f"{slug}.md"
+
+        headers = {"User-Agent": self.user_agent}
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=self.timeout
+            ) as client:
+                if "arxiv.org/abs/" in url:
+                    resp = await client.get(url, headers=headers)
+                    resp.raise_for_status()
+                    raw = resp.text
+                    title = self._extract_arxiv_title(raw) or url
+                    abstract = self._extract_arxiv_abstract(raw)
+                    authors = self._extract_arxiv_authors(raw)
+                    body_lines = [f"# {title}"]
+                    if authors:
+                        body_lines += ["", f"**Authors:** {authors}"]
+                    body_lines += ["", "## Abstract", "", abstract or "(no abstract found)"]
+                    content = self._wrap_frontmatter(
+                        url, title, "\n".join(body_lines), prebuilt=True
+                    )
+                elif self._looks_like_pdf(url):
+                    resp = await client.get(url, headers=headers)
+                    resp.raise_for_status()
+                    text = self._extract_pdf_text(resp.content)
+                    title = url.rsplit("/", 1)[-1]
+                    content = self._wrap_frontmatter(url, title, text)
+                else:
+                    resp = await client.get(url, headers=headers)
+                    resp.raise_for_status()
+                    raw = resp.text
+                    text = self._strip_html(raw)[:_MAX_TEXT_LEN]
+                    title = self._extract_title(raw) or url
+                    content = self._wrap_frontmatter(url, title, text)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("fetch_async failed for %s: %s", url, exc)
+            content = self._wrap_frontmatter(url, "(fetch failed)", str(exc))
+
+        out_path.write_text(content, encoding="utf-8")
+        logger.info("fetch_async %s -> %s", url, out_path)
         return out_path
 
     @staticmethod
