@@ -16,7 +16,7 @@
 # REQ-BENCH-001-001 through REQ-BENCH-001-017 / SPEC-BENCH-001 T2+T3
 set -euo pipefail
 
-PYTHON=${PYTHON:-python3}
+PYTHON=${PYTHON:-uv run python}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_FILE="${SCRIPT_DIR}/.moon-cell/docs/BENCHMARK_RESULTS.md"
 
@@ -127,7 +127,7 @@ else
     bash "${SCRIPT_DIR}/scripts/bench/gen_llm_batch.sh" 2>/dev/null
 
     B2_START=$(date +%s%N)
-    mnemosyne add \
+    uv run mnemosyne add \
         /tmp/bench_llm_1.txt \
         /tmp/bench_llm_2.txt \
         /tmp/bench_llm_3.txt \
@@ -155,12 +155,12 @@ banner "Benchmark B4: wiki status  (threshold: >${THRESHOLD_WIKI_STATUS}s, pages
 
 if [[ "$PAGE_COUNT" -lt 500 ]]; then
     echo "  ⚠️  SKIP  ${PAGE_COUNT} pages found — need 500+ for meaningful measurement"
-    echo "  Run:  python3 scripts/bench/gen_large_vault.py  then re-run"
+    echo "  Run:  uv run python scripts/bench/gen_large_vault.py  then re-run"
     SKIP=$((SKIP + 1))
     B4_STATUS="SKIP"
 else
     B4_START=$(date +%s%N)
-    mnemosyne wiki status --wiki-root "$WIKI_ROOT" > /dev/null 2>&1
+    uv run mnemosyne wiki status --wiki-root "$WIKI_ROOT" > /dev/null 2>&1
     B4_ELAPSED_RAW=$(( $(date +%s%N) - B4_START ))
     B4_ELAPSED=$(echo "scale=2; $B4_ELAPSED_RAW / 1000000000" | bc)
 
@@ -180,7 +180,7 @@ if [[ "$PAGE_COUNT" -lt 500 ]]; then
     B5_STATUS="SKIP"
 else
     B5_START=$(date +%s%N)
-    mnemosyne wiki lint --wiki-root "$WIKI_ROOT" > /dev/null 2>&1 || true
+    uv run mnemosyne wiki lint --wiki-root "$WIKI_ROOT" > /dev/null 2>&1 || true
     B5_ELAPSED_RAW=$(( $(date +%s%N) - B5_START ))
     B5_ELAPSED=$(echo "scale=2; $B5_ELAPSED_RAW / 1000000000" | bc)
 
@@ -200,7 +200,7 @@ if [[ "$PAGE_COUNT" -lt 500 ]]; then
     B6_STATUS="SKIP"
 else
     B6_START=$(date +%s%N)
-    mnemosyne wiki rebuild --wiki-root "$WIKI_ROOT" --dry-run > /dev/null 2>&1 || true
+    uv run mnemosyne wiki rebuild --wiki-root "$WIKI_ROOT" --dry-run > /dev/null 2>&1 || true
     B6_ELAPSED_RAW=$(( $(date +%s%N) - B6_START ))
     B6_ELAPSED=$(echo "scale=2; $B6_ELAPSED_RAW / 1000000000" | bc)
 

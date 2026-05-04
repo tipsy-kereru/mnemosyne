@@ -21,9 +21,9 @@ deterministic = [
     "tree-sitter>=0.25.0",
     "tree-sitter-python>=0.25.0",
     "tree-sitter-javascript>=0.25.0",
-    "tree-sitter-typescript>=0.25.0",
+    "tree-sitter-typescript>=0.21.0",
     "tree-sitter-go>=0.25.0",
-    "tree-sitter-rust>=0.25.0",
+    "tree-sitter-rust>=0.21.0",
     "spacy>=3.7.2",
 ]
 semantic = [

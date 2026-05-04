@@ -5,15 +5,19 @@ GLiNER2Extractor, REBELExtractor, SemanticExtractor, cleanup, context managers,
 and fallback paths.
 """
 
+import importlib
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from mnemosyne.extraction.semantic.slm_extractor import (
     GLiNER2Extractor,
     REBELExtractor,
     SemanticExtractor,
 )
+
+_transformers_available = importlib.util.find_spec("transformers") is not None
 
 
 class TestGLiNER2ExtractorFallback:
@@ -139,6 +143,7 @@ class TestGLiNER2ExtractorCleanup:
 class TestREBELExtractorFallback:
     """Test REBELExtractor when model is not installed."""
 
+    @pytest.mark.skipif(_transformers_available, reason="transformers installed — model loads successfully")
     def test_model_none_when_not_installed(self):
         ext = REBELExtractor()
         assert ext.model is None
