@@ -1,22 +1,22 @@
 # Context Handoff
 
 Generated: 2026-04-28 18:43:18 NZST
-Updated: 2026-05-04 13:28:55 NZST
+Updated: 2026-05-04 18:55:27 NZST
 
 ## Current Status
 
-Session 2026-05-04: SPEC-HARNESS-001 completed. `.moon-cell/` tracking policy decided (Option B: `!.moon-cell/` gitignore exception). Root bridge pointer added to `AGENTS.md`. All candidate SPECs resolved except SPEC-WIKI-008.
+Session 2026-05-04: SPEC-BENCH-001 completed. Benchmark harness fully implemented: `scripts/bench/gen_large_vault.py` (500+200 fixture pages), `scripts/bench/gen_llm_batch.sh`, `scripts/bench/clean_fixtures.sh`, extended `benchmark_async.sh` (B1-B6, decision matrix, result recording), and `.moon-cell/docs/BENCHMARK_RESULTS.md`. SPEC-HARNESS-001 completed earlier today. `.moon-cell/` tracking policy: `!.moon-cell/` gitignore exception. AGENTS.md root bridge pointer added. 20 SPECs completed. 465 tests pass.
 
 | Category | Status | Evidence |
 |---|---|---|
-| Completed SPECs | 19 | SPEC-HARNESS-001 completed 2026-05-04 |
-| Active planned SPECs | 1 | SPEC-ARCH-ASYNC-001 (T1/T2 design complete; T3/T4 benchmark-gated — 1.28s < 30s threshold) |
-| Remaining candidate SPECs | 1 | SPEC-WIKI-008 (benchmark-gated; 0 wiki pages currently) |
+| Completed SPECs | 20 | SPEC-BENCH-001 completed 2026-05-04 |
+| Active planned SPECs | 1 | SPEC-ARCH-ASYNC-001 (T3/T4 benchmark-gated on B1 or B2) |
+| Remaining candidate SPECs | 1 | SPEC-WIKI-008 (benchmark-gated; fixtures now available via gen_large_vault.py) |
 | Focused tests | PASS | 85 passed |
 | Full tests | PASS | 465 passed |
 | Static checks | PASS | ruff clean; mypy clean |
-| CLI smoke | PASS | semantic discovery write, status/lint, rebuild/prune flows |
-| Harness tracking | force-add required | `.moon-cell/` remains ignored by `.gitignore`; use `git add -f .moon-cell` |
+| Benchmark harness | READY | Run `bash benchmark_async.sh` after `python3 scripts/bench/gen_large_vault.py` |
+| Harness tracking | auto-tracked | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception (SPEC-HARNESS-001) |
 
 ## SPEC-WIKI-006 Result
 

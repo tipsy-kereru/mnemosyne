@@ -1,7 +1,7 @@
 # Task Routing
 
 Generated: 2026-04-28 18:43:18 NZST
-Updated: 2026-05-04 13:28:55 NZST
+Updated: 2026-05-04 18:55:27 NZST
 
 ## Completed SPECs
 
@@ -31,7 +31,8 @@ Updated: 2026-05-04 13:28:55 NZST
 
 | SPEC ID | Task Type | Status | Owner Role | Reviewer Role | Verification / Evidence |
 |---|---|---|---|---|---|
-| SPEC-ARCH-ASYNC-001 | Async I/O architecture design | planned (T1/T2 complete; T3/T4 benchmark-gated) | Solution Architect / API Reviewer | Test Architect | `.moon-cell/specs/SPEC-ARCH-ASYNC-001.md`; T1/T2 design complete 2026-05-04; T3 gated on benchmark evidence |
+| SPEC-BENCH-001 | Benchmark harness and fixture setup | completed | Test Architect / Performance Architect | Reviewer | `.moon-cell/specs/SPEC-BENCH-001.md`; fixture scripts, extended benchmark_async.sh, BENCHMARK_RESULTS.md created 2026-05-04 |
+| SPEC-ARCH-ASYNC-001 | Async I/O architecture design | planned (T1/T2 complete; T3/T4 benchmark-gated) | Solution Architect / API Reviewer | Test Architect | `.moon-cell/specs/SPEC-ARCH-ASYNC-001.md`; T1/T2 design complete 2026-05-04; T3 gated on B1/B2 benchmark evidence |
 
 ## Candidate SPECs
 

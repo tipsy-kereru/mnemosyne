@@ -1,7 +1,39 @@
 # Moon Cell Harness Changelog
 
 Generated: 2026-04-28 18:43:18 NZST
-Updated: 2026-05-04 13:28:55 NZST
+Updated: 2026-05-04 18:55:27 NZST
+
+## [0.2.6] - 2026-05-04
+
+### Completed
+- SPEC-BENCH-001: Benchmark Harness and Fixture Setup — fully implemented.
+- Fixture generators: `scripts/bench/gen_large_vault.py` (500+200 pages), `scripts/bench/gen_llm_batch.sh` (5 files), `scripts/bench/clean_fixtures.sh` (cleanup).
+- Extended `benchmark_async.sh` with B1 (PDF URLs), B2 (LLM batch, API-key gated), B4 (wiki status), B5 (wiki lint), B6 (wiki rebuild dry-run), threshold env vars, decision matrix, and result recording.
+- Created `.moon-cell/docs/BENCHMARK_RESULTS.md` with initial baseline entry.
+- Updated `BENCHMARK_GUIDE.md` with Quick Start section referencing fixture scripts.
+
+### Evidence
+- Fixture generation: 500 entity + 200 source pages created and cleaned (0 residue verified).
+- `python3 -m pytest -q` → 465 passed.
+- `python3 -m ruff check scripts/bench/` → All checks passed.
+- `git diff mnemosyne/` → empty (DOD-007: harness-only).
+
+### Preserved
+- No product code changed (`mnemosyne/` untouched).
+- Root `AGENTS.md`, `CLAUDE.md` not modified.
+
+## [0.2.5] - 2026-05-04
+
+### Planned
+- SPEC-BENCH-001: Benchmark Harness and Fixture Setup — new SPEC written.
+- Unblocks SPEC-ARCH-ASYNC-001 T3 (async I/O) and SPEC-WIKI-008 T1 (large vault optimization).
+- Covers: fixture generation (500 entity + 200 source pages), extended benchmark_async.sh
+  (B2 LLM batch, B4–B6 vault ops), result recording to BENCHMARK_RESULTS.md,
+  and harness verification.
+
+### Added
+- `.moon-cell/docs/BENCHMARK_GUIDE.md` — benchmark preparation reference document.
+- `.moon-cell/specs/SPEC-BENCH-001.md` — 17 EARS requirements, 4 tasks, 7 DOD checks.
 
 ## [0.2.4] - 2026-05-04
 

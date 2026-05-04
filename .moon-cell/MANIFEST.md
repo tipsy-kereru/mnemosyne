@@ -1,7 +1,7 @@
 # Moon Cell Manifest
 
 Generated: 2026-04-28 18:43:18 NZST
-Updated: 2026-05-04 13:28:55 NZST
+Updated: 2026-05-04 19:47:27 NZST
 
 ## Workspace
 - Harness schema version: 1.9.0
@@ -32,7 +32,10 @@ Updated: 2026-05-04 13:28:55 NZST
 | .moon-cell/specs/SPEC-WIKI-006.md | Optional semantic contradiction discovery SPEC | Solution Architect / AI Safety Reviewer | moon-cell | 2026-05-03 | Completed opt-in local semantic review candidates |
 | .moon-cell/specs/SPEC-WIKI-007.md | Wiki prune/stale/tombstone reconciliation SPEC | Data Lifecycle Architect | moon-cell | 2026-05-03 | Completed non-destructive stale planning and tombstones |
 | .moon-cell/specs/SPEC-WIKI-008.md | Large vault incremental index candidate | Performance Architect | moon-cell | 2026-05-03 | Candidate; benchmark-gated |
-| .moon-cell/specs/SPEC-ARCH-ASYNC-001.md | Async I/O boundary design candidate | Solution Architect | moon-cell | 2026-05-03 | Candidate; design-only before implementation |
+| .moon-cell/specs/SPEC-BENCH-001.md | Benchmark harness and fixture setup | Test Architect | moon-cell | 2026-05-04 | Completed; scripts/bench/ fixture generators + extended benchmark_async.sh |
+| .moon-cell/docs/BENCHMARK_GUIDE.md | Benchmark preparation reference | Test Architect | moon-cell | 2026-05-04 | Updated with Quick Start, fixture scripts, threshold env vars |
+| .moon-cell/docs/BENCHMARK_RESULTS.md | Benchmark run history | Test Architect | moon-cell | 2026-05-04 | Auto-appended by benchmark_async.sh; initial baseline recorded |
+| .moon-cell/specs/SPEC-ARCH-ASYNC-001.md | Async I/O boundary design candidate | Solution Architect | moon-cell | 2026-05-03 | Planned; T1/T2 complete; T3 gated on B1 or B2 PASS |
 | .moon-cell/specs/SPEC-HARNESS-001.md | Root bridge and tracking policy | Harness Engineer | moon-cell | 2026-05-04 | Completed; `!.moon-cell/` gitignore + AGENTS.md pointer |
 
 ## Optional Bridge Artifacts
@@ -66,16 +69,19 @@ Updated: 2026-05-04 13:28:55 NZST
 | SPEC-WIKI-006 | Optional Semantic Contradiction Discovery | completed | .moon-cell/specs/SPEC-WIKI-006.md |
 | SPEC-WIKI-007 | Wiki Prune, Stale Marker, and Tombstone Reconciliation | completed | .moon-cell/specs/SPEC-WIKI-007.md |
 | SPEC-WIKI-008 | Large Vault Incremental Index Optimization | candidate | .moon-cell/specs/SPEC-WIKI-008.md |
-| SPEC-ARCH-ASYNC-001 | Async I/O Feasibility and API Boundary Design | candidate | .moon-cell/specs/SPEC-ARCH-ASYNC-001.md |
-| SPEC-HARNESS-001 | Root Bridge and Moon Cell Tracking Policy | candidate | .moon-cell/specs/SPEC-HARNESS-001.md |
+| SPEC-ARCH-ASYNC-001 | Async I/O Feasibility and API Boundary Design | planned | .moon-cell/specs/SPEC-ARCH-ASYNC-001.md |
+| SPEC-HARNESS-001 | Root Bridge and Moon Cell Tracking Policy | completed | .moon-cell/specs/SPEC-HARNESS-001.md |
+| SPEC-BENCH-001 | Benchmark Harness and Fixture Setup | completed | .moon-cell/specs/SPEC-BENCH-001.md |
 
 ## Current Evidence
 
 | Evidence | Result | Source |
 |---|---|---|
-| Unit/regression tests | 465 passed | `pytest -q` on 2026-05-03 |
-| Static checks | ruff 0, mypy 0 across 37 source files | `ruff check mnemosyne tests`; `mypy mnemosyne` |
-| Wiki CLI smoke | semantic discovery write, status/lint, rebuild, prune dry-run, and prune tombstone write succeeded against temp DB/wiki roots | `python -m mnemosyne wiki ... --format json` |
-| Quality summary | 18 completed SPECs, 3 candidate SPECs, 0 planned SPECs, QG-006 passed | SPEC-WIKI-006 implementation result |
-| Root bridge policy | Root AGENTS.md and CLAUDE.md not modified | Safe refresh decision preserved |
-| Moon Cell tracking | `.moon-cell` staged with `git add -f` despite `.gitignore` | User requested forced tracking for harness artifacts |
+| Unit/regression tests | 465 passed | `pytest -q` on 2026-05-04 |
+| Static checks | ruff 0 across 37 source files + scripts/bench/ | `ruff check mnemosyne tests scripts/bench/` |
+| Wiki CLI smoke | semantic discovery write, status/lint, rebuild, prune dry-run, and prune tombstone write succeeded | `python -m mnemosyne wiki ... --format json` |
+| Benchmark harness | scripts/bench/ fixture generators + extended benchmark_async.sh B1–B6 + BENCHMARK_RESULTS.md | SPEC-BENCH-001 implementation result |
+| Fixture isolation | 500+200 fixture pages generated and fully cleaned; 0 residue | `find ~/mnemosyne/wiki -name "entity_[0-9]*.md" | wc -l` → 0 |
+| Quality summary | 20 completed SPECs, 1 planned SPEC, 1 candidate SPEC | SPEC-BENCH-001 completion 2026-05-04 |
+| Root bridge policy | AGENTS.md has Moon Cell pointer; CLAUDE.md not modified | SPEC-HARNESS-001 decision |
+| Moon Cell tracking | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception | SPEC-HARNESS-001 tracking policy |
