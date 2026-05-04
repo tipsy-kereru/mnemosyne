@@ -58,11 +58,11 @@ result() {
     if (( $(echo "$elapsed > $threshold" | bc -l) )); then
         echo "  ✅ PASS  ${elapsed}s > ${threshold}s  →  implementation justified"
         PASS=$((PASS + 1))
-        echo "PASS"
+        _RESULT="PASS"
     else
         echo "  ❌ MISS  ${elapsed}s ≤ ${threshold}s  →  implementation not yet justified"
         MISS=$((MISS + 1))
-        echo "MISS"
+        _RESULT="MISS"
     fi
 }
 
@@ -109,7 +109,8 @@ PYEOF
 )
 
 echo
-B1_STATUS=$(result "URL fetch ×10 PDF" "$B1_ELAPSED" "$THRESHOLD_URL")
+result "URL fetch ×10 PDF" "$B1_ELAPSED" "$THRESHOLD_URL"
+B1_STATUS=$_RESULT
 B1_VAL="$B1_ELAPSED"
 if [[ "$B1_STATUS" == "PASS" ]]; then ASYNC_PASS=1; fi
 
@@ -117,8 +118,8 @@ if [[ "$B1_STATUS" == "PASS" ]]; then ASYNC_PASS=1; fi
 # REQ-BENCH-001-005 / REQ-BENCH-001-006
 banner "Benchmark B2: LLM batch ingest × 5 files  (threshold: >${THRESHOLD_LLM}s)"
 
-if [[ -z "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}" ]]; then
-    echo "  ⚠️  SKIP  No API key set (ANTHROPIC_API_KEY or OPENAI_API_KEY required)"
+if [[ -z "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${Z_AI_API_KEY:-}" ]]; then
+    echo "  ⚠️  SKIP  No API key set (ANTHROPIC_API_KEY, OPENAI_API_KEY, or Z_AI_API_KEY required)"
     echo "  Run:  bash scripts/bench/gen_llm_batch.sh  then set an API key and re-run"
     SKIP=$((SKIP + 1))
     B2_STATUS="SKIP"
@@ -127,20 +128,17 @@ else
     bash "${SCRIPT_DIR}/scripts/bench/gen_llm_batch.sh" 2>/dev/null
 
     B2_START=$(date +%s%N)
-    uv run mnemosyne add \
-        /tmp/bench_llm_1.txt \
-        /tmp/bench_llm_2.txt \
-        /tmp/bench_llm_3.txt \
-        /tmp/bench_llm_4.txt \
-        /tmp/bench_llm_5.txt \
-        --domain coding 2>&1 | sed 's/^/  /'
+    for i in 1 2 3 4 5; do
+        uv run mnemosyne add /tmp/bench_llm_${i}.txt --domain coding 2>&1 | sed 's/^/  /'
+    done
     B2_ELAPSED_RAW=$(( $(date +%s%N) - B2_START ))
     B2_ELAPSED=$(echo "scale=2; $B2_ELAPSED_RAW / 1000000000" | bc)
 
     rm -f /tmp/bench_llm_{1..5}.txt
 
     echo
-    B2_STATUS=$(result "LLM batch ×5" "$B2_ELAPSED" "$THRESHOLD_LLM")
+    result "LLM batch ×5" "$B2_ELAPSED" "$THRESHOLD_LLM"
+    B2_STATUS=$_RESULT
     B2_VAL="$B2_ELAPSED"
     if [[ "$B2_STATUS" == "PASS" ]]; then ASYNC_PASS=1; fi
 fi
@@ -165,7 +163,8 @@ else
     B4_ELAPSED=$(echo "scale=2; $B4_ELAPSED_RAW / 1000000000" | bc)
 
     echo
-    B4_STATUS=$(result "wiki status (${PAGE_COUNT} pages)" "$B4_ELAPSED" "$THRESHOLD_WIKI_STATUS")
+    result "wiki status (${PAGE_COUNT} pages)" "$B4_ELAPSED" "$THRESHOLD_WIKI_STATUS"
+    B4_STATUS=$_RESULT
     B4_VAL="$B4_ELAPSED"
     if [[ "$B4_STATUS" == "PASS" ]]; then WIKI_PASS=1; fi
 fi
@@ -185,7 +184,8 @@ else
     B5_ELAPSED=$(echo "scale=2; $B5_ELAPSED_RAW / 1000000000" | bc)
 
     echo
-    B5_STATUS=$(result "wiki lint (${PAGE_COUNT} pages)" "$B5_ELAPSED" "$THRESHOLD_WIKI_LINT")
+    result "wiki lint (${PAGE_COUNT} pages)" "$B5_ELAPSED" "$THRESHOLD_WIKI_LINT"
+    B5_STATUS=$_RESULT
     B5_VAL="$B5_ELAPSED"
     if [[ "$B5_STATUS" == "PASS" ]]; then WIKI_PASS=1; fi
 fi
@@ -205,7 +205,8 @@ else
     B6_ELAPSED=$(echo "scale=2; $B6_ELAPSED_RAW / 1000000000" | bc)
 
     echo
-    B6_STATUS=$(result "wiki rebuild dry-run (${PAGE_COUNT} pages)" "$B6_ELAPSED" "$THRESHOLD_WIKI_REBUILD")
+    result "wiki rebuild dry-run (${PAGE_COUNT} pages)" "$B6_ELAPSED" "$THRESHOLD_WIKI_REBUILD"
+    B6_STATUS=$_RESULT
     B6_VAL="$B6_ELAPSED"
     if [[ "$B6_STATUS" == "PASS" ]]; then WIKI_PASS=1; fi
 fi
