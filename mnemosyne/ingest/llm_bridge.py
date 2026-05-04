@@ -28,7 +28,9 @@ Schema hint: {schema_hint}
 Text:
 {text}
 
-Return ONLY valid JSON in this exact format (no markdown fences, no explanation):
+CRITICAL: Your response must be ONLY the raw JSON object below. Do NOT include any text, explanation, reasoning, markdown fences (```), or whitespace before the opening brace. Start your response with {{ and end with }}.
+
+Required format:
 {{"nodes": [{{"id": "slug_entityname", "label": "Human Readable Name", "type": "entity_type", "source_file": ""}}],
   "edges": [{{"source": "node_id", "target": "node_id", "relation": "relation_type",
              "confidence": "EXTRACTED|INFERRED|AMBIGUOUS", "confidence_score": 0.9}}]}}
