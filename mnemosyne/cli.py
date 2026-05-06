@@ -286,6 +286,54 @@ def main(argv=None):
         help="Custom absolute directory path (e.g. /home/user/.claude/skills). Overrides --target",
     )
 
+    # -- hook subcommand --
+    hook_parser = subparsers.add_parser(
+        "hook",
+        help="Manage mnemosyne hooks for AI agents and git",
+        description="Install, remove, or check mnemosyne hooks that auto-sync the "
+        "knowledge graph on file changes. Supports: git, claude, codex, gemini, copilot",
+    )
+    hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
+
+    hook_install = hook_subparsers.add_parser(
+        "install",
+        help="Install hooks for a target platform",
+        description="Install mnemosyne hooks. Without a target, installs git + claude.",
+    )
+    hook_install.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Platform: git, claude, codex, gemini, copilot, or 'all' (default: git+claude)",
+    )
+    hook_install.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing hooks",
+    )
+
+    hook_remove = hook_subparsers.add_parser(
+        "remove",
+        help="Remove hooks for a target platform",
+    )
+    hook_remove.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Platform to remove hooks from",
+    )
+    hook_remove.add_argument(
+        "--all",
+        action="store_true",
+        dest="remove_all",
+        help="Remove hooks from all platforms",
+    )
+
+    hook_subparsers.add_parser(
+        "status",
+        help="Show installed hook status for all platforms",
+    )
+
     wiki_parser = subparsers.add_parser(
         "wiki",
         help="Inspect and maintain the Markdown LLM Wiki",
@@ -380,6 +428,8 @@ def main(argv=None):
         _run_wiki(args)
     elif args.command == "skill":
         _run_skill(args)
+    elif args.command == "hook":
+        _run_hook(args)
     else:
         parser.print_help()
 
@@ -580,6 +630,23 @@ def _run_wiki(args):
     code = wiki_main(argv)
     if code:
         sys.exit(code)
+
+
+def _run_hook(args):
+    """Execute the ``mnemosyne hook`` subcommands."""
+    from mnemosyne.hooks.cli import install, remove, status
+
+    cmd = getattr(args, "hook_command", None)
+    if cmd is None:
+        print("Usage: mnemosyne hook {install|remove|status} [target]")
+        return
+
+    if cmd == "install":
+        install(getattr(args, "target", None), force=getattr(args, "force", False))
+    elif cmd == "remove":
+        remove(getattr(args, "target", None), remove_all=getattr(args, "remove_all", False))
+    elif cmd == "status":
+        status()
 
 
 if __name__ == "__main__":

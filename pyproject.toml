@@ -76,6 +76,7 @@ include = ["mnemosyne*"]
 
 [tool.setuptools.package-data]
 "mnemosyne.skills" = ["*.md"]
+"mnemosyne.hooks" = ["*.sh", "*.py"]
 "mnemosyne.schema" = ["*.md"]
 
 [tool.pytest.ini_options]

@@ -127,8 +127,8 @@ class TestPyprojectToml:
         assert pyproject["project"]["name"] == "mnemosyne-kg"
 
     def test_pyproject_version(self, pyproject):
-        """Package version is 0.1.0."""
-        assert pyproject["project"]["version"] == "0.1.0"
+        """Package version is 0.2.0."""
+        assert pyproject["project"]["version"] == "0.2.0"
 
     def test_pyproject_requires_python(self, pyproject):
         """Requires Python >=3.11."""
