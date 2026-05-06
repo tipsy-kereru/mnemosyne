@@ -166,10 +166,9 @@ secret-*.*
 .moai/
 
 # ===========================================
-# Moon Cell Harness (tracked — SPEC-HARNESS-001)
+# Moon Cell Harness (local-only)
 # ===========================================
-# Tracked as harness source of truth. Approved 2026-05-04.
-!.moon-cell/
+.moon-cell/
 
 # ===========================================
 # Node.js (for docs/Nextra)
@@ -198,4 +197,11 @@ graphify-out
 
 # Claude Code session logs
 *local-command*.txt
+
+# ===========================================
+# Local-only config (not pushed to remote)
+# ===========================================
+CLAUDE.md
+AGENTS.md
+.mcp.json
 
