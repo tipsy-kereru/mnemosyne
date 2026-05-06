@@ -47,7 +47,7 @@ Examples:
 # @MX:REASON: Wired in pyproject.toml entry points; user-facing fan_in.
 def _load_dotenv() -> None:
     try:
-        from dotenv import load_dotenv
+        from dotenv import load_dotenv  # type: ignore[import-not-found]
         load_dotenv()
     except ImportError:
         pass

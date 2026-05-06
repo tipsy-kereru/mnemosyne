@@ -38,7 +38,39 @@ Knowledge Graph (SQLite + NetworkX)
 
 ## Installation
 
+**Requirements:** Python 3.11 or later (3.13 recommended).
+
+### From GitHub (recommended for users)
+
 ```bash
+# Install latest from GitHub
+pip install "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+
+# With ingest extras (LLM extraction, URL fetching)
+pip install "mnemosyne-kg[ingest] @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+
+# With deterministic extraction (tree-sitter, zero LLM)
+pip install "mnemosyne-kg[deterministic] @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+
+# Everything
+pip install "mnemosyne-kg[all] @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+```
+
+After installation, CLI commands are available:
+
+```bash
+mnemosyne --version       # verify install
+mnemosyne add --help      # ingest files, URLs, or text
+mnemosyne query --stats   # graph statistics
+mnemosyne wiki doctor     # wiki health check
+```
+
+### From source (for contributors)
+
+```bash
+git clone https://github.com/tipsy-kereru/mnemosyne.git
+cd mnemosyne
+
 # Core only
 pip install -e .
 
@@ -55,12 +87,23 @@ pip install -e ".[dev]"
 pip install -e ".[all]"
 ```
 
+### Extras
+
+| Extra | Includes | Use Case |
+|-------|----------|----------|
+| `deterministic` | tree-sitter, SpaCy | Zero-LLM code extraction |
+| `semantic` | GLiNER2, torch, transformers | Local SLM entity extraction |
+| `ingest` | requests, anthropic, httpx | URL fetching, LLM-based extraction |
+| `all` | deterministic + semantic | Full local extraction |
+| `dev` (dependency-group) | pytest, ruff, tree-sitter, all ingest deps | Contributing |
+
 ## Quick Start
 
 ```bash
-# 1. Install
-pip install -e ".[all]"        # everything (recommended)
-# or: uv pip install -e ".[all]"
+# 1. Install from GitHub
+pip install "mnemosyne-kg[all] @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+# or from a local clone:
+# pip install -e ".[all]"
 
 # 2. Add a source to the knowledge graph and the LLM Wiki
 mnemosyne add ./notes/meeting.md --domain daily
@@ -451,7 +494,7 @@ mnemosyne-knowledge-graph/
 ├── joplin-plugin/                # Joplin plugin (TypeScript)
 ├── pyproject.toml                # PEP 621 config
 ├── CHANGELOG.md                  # Version history
-└── CLAUDE.md                     # System prompt
+└── MANUAL.md                     # Full user manual
 ```
 
 ## Key Features

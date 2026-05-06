@@ -96,7 +96,7 @@ Output: text by default; pass --format json for automation.
 def main(argv=None):
     """Mnemosyne CLI entry point."""
     try:
-        from dotenv import load_dotenv
+        from dotenv import load_dotenv  # type: ignore[import-not-found]
         load_dotenv()
     except ImportError:
         pass
