@@ -65,6 +65,33 @@ mnemosyne query --stats   # graph statistics
 mnemosyne wiki doctor     # wiki health check
 ```
 
+### Update
+
+```bash
+# pip
+pip install --upgrade "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+
+# uv
+uv pip install --upgrade "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+```
+
+### Install agent skill
+
+Install the `/mnemosyne` skill so AI agents (Claude Code, etc.) can use knowledge graph commands directly:
+
+```bash
+# Default: install to ~/.claude/skills/mnemosyne/
+mnemosyne skill install
+
+# For other agent frameworks
+mnemosyne skill install --target agents    # ./.agents/skills/mnemosyne/
+
+# Custom path
+mnemosyne skill install --path ~/my-agent/skills
+```
+
+After installing, type `/mnemosyne` in Claude Code to ingest, query, extract, and manage your knowledge graph.
+
 ### From source (for contributors)
 
 ```bash
