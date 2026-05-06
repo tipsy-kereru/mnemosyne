@@ -264,6 +264,28 @@ def main(argv=None):
         help="Show update examples and output format details",
     )
 
+    # -- skill subcommand --
+    skill_parser = subparsers.add_parser(
+        "skill",
+        help="Manage agent skill files",
+        description="Install or manage mnemosyne agent skill files for Claude Code and other AI agents",
+    )
+    skill_subparsers = skill_parser.add_subparsers(dest="skill_command")
+
+    skill_install = skill_subparsers.add_parser(
+        "install",
+        help="Install mnemosyne skill to agent skills directory",
+        description="Install the mnemosyne SKILL.md so that AI agents (Claude Code, etc.) can use /mnemosyne",
+    )
+    skill_install.add_argument(
+        "--target", choices=["claude", "agents"], default="claude",
+        help="Target agent framework: 'claude' for ~/.claude/skills/, 'agents' for ./.agents/skills/ (default: claude)",
+    )
+    skill_install.add_argument(
+        "--path",
+        help="Custom absolute directory path (e.g. /home/user/.claude/skills). Overrides --target",
+    )
+
     wiki_parser = subparsers.add_parser(
         "wiki",
         help="Inspect and maintain the Markdown LLM Wiki",
@@ -356,6 +378,8 @@ def main(argv=None):
         _run_update(args)
     elif args.command == "wiki":
         _run_wiki(args)
+    elif args.command == "skill":
+        _run_skill(args)
     else:
         parser.print_help()
 
@@ -468,6 +492,47 @@ def _run_update(args):
         "unchanged": stats.unchanged,
         "errors": stats.errors,
     }))
+
+
+def _run_skill(args):
+    """Execute the ``mnemosyne skill`` subcommands."""
+    import importlib.resources
+    from pathlib import Path
+
+    if args.skill_command is None:
+        print("Usage: mnemosyne skill install [--target claude|agents] [--path DIR]")
+        return
+
+    if args.skill_command == "install":
+        # Read the bundled SKILL.md from package data
+        try:
+            skill_module = importlib.resources.files("mnemosyne.skills")
+            source = skill_module / "SKILL.md"
+            content = source.read_text(encoding="utf-8")
+        except (FileNotFoundError, AttributeError) as exc:
+            print(f"Error: Could not read bundled skill file: {exc}")
+            return
+
+        # Resolve target directory
+        if args.path:
+            skills_dir = Path(args.path)
+        elif args.target == "agents":
+            skills_dir = Path.cwd() / ".agents" / "skills"
+        else:
+            skills_dir = Path.home() / ".claude" / "skills"
+
+        target_file = skills_dir / "mnemosyne" / "SKILL.md"
+
+        # Check if already installed with identical content
+        if target_file.exists() and target_file.read_text(encoding="utf-8") == content:
+            print(f"Already up to date: {target_file}")
+            return
+
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(content, encoding="utf-8")
+        print(f"Installed mnemosyne skill to: {target_file}")
+        print(f"  Trigger: /mnemosyne")
+        print(f"  Agent:   Claude Code (or any skill-compatible AI agent)")
 
 
 def _run_wiki(args):
