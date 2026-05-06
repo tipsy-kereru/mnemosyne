@@ -196,3 +196,6 @@ dist-ssr/
 
 graphify-out
 
+# Claude Code session logs
+*local-command*.txt
+
