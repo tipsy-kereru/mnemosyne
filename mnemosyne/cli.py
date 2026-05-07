@@ -288,6 +288,20 @@ def main(argv=None):
         help="Custom absolute directory path (e.g. /home/user/.claude/skills). Overrides --target",
     )
 
+    skill_update = skill_subparsers.add_parser(
+        "update",
+        help="Update installed mnemosyne skill to latest version",
+        description="Update the mnemosyne SKILL.md to the latest bundled version",
+    )
+    skill_update.add_argument(
+        "--target", choices=["claude", "agents"], default="claude",
+        help="Target agent framework (default: claude)",
+    )
+    skill_update.add_argument(
+        "--path",
+        help="Custom absolute directory path. Overrides --target",
+    )
+
     # -- hook subcommand --
     hook_parser = subparsers.add_parser(
         "hook",
@@ -597,10 +611,10 @@ def _run_skill(args):
     from pathlib import Path
 
     if args.skill_command is None:
-        print("Usage: mnemosyne skill install [--target claude|agents] [--path DIR]")
+        print("Usage: mnemosyne skill {install|update} [--target claude|agents] [--path DIR]")
         return
 
-    if args.skill_command == "install":
+    if args.skill_command in ("install", "update"):
         # Read the bundled SKILL.md from package data
         try:
             skill_module = importlib.resources.files("mnemosyne.skills")
@@ -611,9 +625,9 @@ def _run_skill(args):
             return
 
         # Resolve target directory
-        if args.path:
+        if getattr(args, "path", None):
             skills_dir = Path(args.path)
-        elif args.target == "agents":
+        elif getattr(args, "target", "claude") == "agents":
             skills_dir = Path.cwd() / ".agents" / "skills"
         else:
             skills_dir = Path.home() / ".claude" / "skills"
@@ -627,7 +641,9 @@ def _run_skill(args):
 
         target_file.parent.mkdir(parents=True, exist_ok=True)
         target_file.write_text(content, encoding="utf-8")
-        print(f"Installed mnemosyne skill to: {target_file}")
+
+        verb = "Updated" if args.skill_command == "update" else "Installed"
+        print(f"{verb} mnemosyne skill to: {target_file}")
         print("  Trigger: /mnemosyne")
         print("  Agent:   Claude Code (or any skill-compatible AI agent)")
 
