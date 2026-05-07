@@ -121,6 +121,8 @@ def main(argv=None):
     )
     query_parser.add_argument("--query", help="Query expression (see syntax below)")
     query_parser.add_argument("--stats", action="store_true", help="Show graph statistics as JSON")
+    query_parser.add_argument("--project", help="Query a specific project by name")
+    query_parser.add_argument("--global", action="store_true", dest="global_scope", help="Search across all projects (ignore auto-scope)")
     query_parser.add_argument(
         "--examples", action="store_true",
         help="Show query syntax and examples",
@@ -341,6 +343,47 @@ def main(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=WIKI_EXAMPLES,
     )
+
+    # -- project subcommand --
+    project_parser = subparsers.add_parser(
+        "project",
+        help="Manage project-scoped knowledge graphs",
+        description="Register, list, and migrate project-scoped knowledge graphs",
+    )
+    project_subparsers = project_parser.add_subparsers(dest="project_command")
+
+    project_subparsers.add_parser(
+        "list",
+        help="List all registered projects",
+    )
+
+    project_show = project_subparsers.add_parser(
+        "show",
+        help="Show project details and entity counts",
+    )
+    project_show.add_argument(
+        "identifier",
+        nargs="?",
+        help="Project name or hash (default: current project)",
+    )
+
+    project_register = project_subparsers.add_parser(
+        "register",
+        help="Manually register a project path",
+    )
+    project_register.add_argument("path", help="Path to project root")
+    project_register.add_argument("--name", help="Project name (default: directory basename)")
+
+    project_unregister = project_subparsers.add_parser(
+        "unregister",
+        help="Remove project registration (does not delete entities)",
+    )
+    project_unregister.add_argument("identifier", help="Project name or hash")
+
+    project_subparsers.add_parser(
+        "migrate",
+        help="Back-fill projects table from existing scope_id values",
+    )
     wiki_subparsers = wiki_parser.add_subparsers(dest="wiki_command")
 
     def add_wiki_common(p):
@@ -416,6 +459,7 @@ def main(argv=None):
         parser.print_help()
     elif args.command == "query":
         from mnemosyne.graph.cli import main as graph_main
+        _inject_project_scope(args)
         graph_main(argv=_build_query_argv(args))
     elif args.command == "extract":
         from mnemosyne.extraction.cli import main as extract_main
@@ -430,6 +474,8 @@ def main(argv=None):
         _run_skill(args)
     elif args.command == "hook":
         _run_hook(args)
+    elif args.command == "project":
+        _run_project(args)
     else:
         parser.print_help()
 
@@ -484,6 +530,7 @@ def _run_add(args):
         scope_id=getattr(args, "scope_id", None),
         source_channel=getattr(args, "source_channel", "cli"),
         text=text,
+        auto_scope=True,
     )
 
     # Directory ingestion returns a list of results — summarize them.
@@ -581,8 +628,8 @@ def _run_skill(args):
         target_file.parent.mkdir(parents=True, exist_ok=True)
         target_file.write_text(content, encoding="utf-8")
         print(f"Installed mnemosyne skill to: {target_file}")
-        print(f"  Trigger: /mnemosyne")
-        print(f"  Agent:   Claude Code (or any skill-compatible AI agent)")
+        print("  Trigger: /mnemosyne")
+        print("  Agent:   Claude Code (or any skill-compatible AI agent)")
 
 
 def _run_wiki(args):
@@ -647,6 +694,165 @@ def _run_hook(args):
         remove(getattr(args, "target", None), remove_all=getattr(args, "remove_all", False))
     elif cmd == "status":
         status()
+
+
+def _inject_project_scope(args):
+    """Inject @project: modifier into the query string based on --project or auto-detection."""
+    if getattr(args, "global_scope", False):
+        return
+    if not hasattr(args, "query") or not args.query:
+        return
+
+    project_name = getattr(args, "project", None)
+    if project_name:
+        if "@project:" not in args.query:
+            args.query = f"{args.query}@project:{project_name}"
+        return
+
+    # Auto-detect current project
+    from mnemosyne.graph.project import detect_project
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+
+    result = detect_project()
+    if result is None:
+        return
+
+    _, project_hash = result
+    kg = KnowledgeGraph()
+    try:
+        project = kg.get_project_by_hash(project_hash)
+        if project and "@project:" not in args.query:
+            args.query = f"{args.query}@project:{project['project_name']}"
+    finally:
+        kg.close()
+
+
+def _run_project(args):
+    """Execute the ``mnemosyne project`` subcommands."""
+    import json
+    from pathlib import Path
+
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.graph.project import detect_project
+
+    cmd = getattr(args, "project_command", None)
+    if cmd is None:
+        print("Usage: mnemosyne project {list|show|register|unregister|migrate}")
+        return
+
+    kg = KnowledgeGraph()
+
+    try:
+        if cmd == "list":
+            projects = kg.list_projects()
+            if not projects:
+                print("No projects registered.")
+                return
+            for p in projects:
+                print(f"  {p['project_name']:20s} {p['entity_count']:>4d} entities  {p['project_path']}")
+
+        elif cmd == "show":
+            identifier = getattr(args, "identifier", None)
+            project = None
+            if identifier:
+                project = kg.get_project_by_name(identifier) or kg.get_project_by_hash(identifier)
+            else:
+                result = detect_project()
+                if result:
+                    _, phash = result
+                    project = kg.get_project_by_hash(phash)
+
+            if not project:
+                print("Project not found." if identifier else "No project detected in current directory.")
+                return
+
+            scope_id = project.get("scope_id")
+            entity_count = 0
+            if scope_id:
+                row = kg.conn.execute(
+                    "SELECT COUNT(*) FROM entities WHERE scope_id = ?", (scope_id,)
+                ).fetchone()
+                entity_count = row[0]
+
+            print(json.dumps({
+                "name": project["project_name"],
+                "hash": project["project_hash"],
+                "path": project["project_path"],
+                "scope_id": scope_id,
+                "domain": project.get("domain", "coding"),
+                "entity_count": entity_count,
+                "created_at": project.get("created_at"),
+            }, indent=2))
+
+        elif cmd == "register":
+            path = Path(args.path).resolve()
+            if not path.is_dir():
+                print(f"Error: {args.path} is not a directory")
+                return
+            import hashlib
+            phash = hashlib.sha256(str(path).encode()).hexdigest()
+            name = args.name or path.name
+            scope_id = kg.register_project(
+                project_hash=phash,
+                project_name=name,
+                project_path=str(path),
+            )
+            print(f"Registered project '{name}' with scope_id={scope_id}")
+
+        elif cmd == "unregister":
+            identifier = args.identifier
+            project = kg.get_project_by_name(identifier) or kg.get_project_by_hash(identifier)
+            if not project:
+                print(f"Project '{identifier}' not found.")
+                return
+            if kg.unregister_project(project["project_hash"]):
+                print(f"Unregistered project '{project['project_name']}' (entities preserved)")
+
+        elif cmd == "migrate":
+            _run_project_migrate(kg)
+
+    finally:
+        kg.close()
+
+
+def _run_project_migrate(kg):
+    """Back-fill projects table from existing scope_id values."""
+    import json
+    from mnemosyne.timestamps import utc_now_iso
+
+    cursor = kg.conn.cursor()
+    scope_ids = cursor.execute(
+        "SELECT DISTINCT scope_id FROM entities WHERE scope_id IS NOT NULL"
+    ).fetchall()
+
+    migrated = 0
+    for row in scope_ids:
+        sid = row["scope_id"]
+
+        existing = cursor.execute(
+            "SELECT 1 FROM projects WHERE scope_id = ?", (sid,)
+        ).fetchone()
+        if existing:
+            continue
+
+        scope = kg.get_scope(sid)
+        if scope is None:
+            continue
+
+        now = utc_now_iso()
+        project_name = scope.name
+        project_hash = f"migrated-{sid[:16]}"
+
+        cursor.execute(
+            """INSERT INTO projects
+               (project_hash, project_name, project_path, scope_id, domain, created_at, updated_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (project_hash, project_name, None, sid, "coding", now, now, json.dumps({"migrated": True})),
+        )
+        migrated += 1
+
+    kg.conn.commit()
+    print(f"Migrated {migrated} orphan scope(s) into projects table.")
 
 
 if __name__ == "__main__":

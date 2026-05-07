@@ -79,20 +79,30 @@ class Ingester:
         scope_id: Optional[str] = None,
         source_channel: str = "cli",
         text: Optional[str] = None,
+        auto_scope: bool = False,
     ) -> IngestResult:
-        """Ingest ``target`` (URL, file, dir) or inline ``text``."""
+        """Ingest ``target`` (URL, file, dir) or inline ``text``.
+
+        When *auto_scope* is True and *scope_id* is None, the project
+        context is auto-detected from the target path (or CWD for
+        inline text) and used to scope the ingested entities.
+        """
+        effective_scope = scope_id
+        if auto_scope and scope_id is None:
+            effective_scope = self._resolve_auto_scope(target, text)
+
         if text is not None:
-            return self._add_text(text, domain, scope_id, source_channel)
+            return self._add_text(text, domain, effective_scope, source_channel)
 
         if self._is_url(target):
-            return self._add_url(target, domain, scope_id, source_channel)
+            return self._add_url(target, domain, effective_scope, source_channel)
 
         path = Path(target).expanduser()
         if path.is_dir():
-            results = self._add_directory(path, domain, scope_id, source_channel)
+            results = self._add_directory(path, domain, effective_scope, source_channel)
             return self._merge_results(target, results)
         if path.is_file():
-            return self._add_file(path, domain, scope_id, source_channel)
+            return self._add_file(path, domain, effective_scope, source_channel)
 
         return IngestResult(
             source=target,
@@ -580,6 +590,18 @@ class Ingester:
         if self._fetcher is None:
             self._fetcher = URLFetcher()
         return self._fetcher
+
+    def _resolve_auto_scope(self, target: str, text: Optional[str]) -> Optional[str]:
+        """Auto-detect project scope from target path or CWD."""
+        from mnemosyne.graph.project import resolve_scope_id
+
+        start: Optional[Path] = None
+        if text is None and target:
+            candidate = Path(target).expanduser()
+            if candidate.exists():
+                start = candidate if candidate.is_dir() else candidate.parent
+
+        return resolve_scope_id(self._get_kg(), start=start)
 
     def close(self) -> None:
         """Close any persistent resources."""

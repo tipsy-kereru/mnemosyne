@@ -182,6 +182,26 @@ class KnowledgeGraph:
                 "ALTER TABLE relations ADD COLUMN source_channel TEXT NOT NULL DEFAULT 'legacy'"
             )
 
+        # Projects table for project-scoped knowledge graph
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS projects (
+                project_hash TEXT PRIMARY KEY,
+                project_name TEXT NOT NULL,
+                project_path TEXT,
+                scope_id TEXT REFERENCES scopes(id),
+                domain TEXT NOT NULL DEFAULT 'coding',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}'
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(project_path)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(project_name)'
+        )
+
         # Create session-related indexes
         cursor.execute(
             'CREATE INDEX IF NOT EXISTS idx_entities_scope ON entities(scope_id)'
@@ -957,6 +977,111 @@ class KnowledgeGraph:
     def close(self):
         """Close database connection"""
         self.conn.close()
+
+    # -- Project registry helpers --
+
+    def register_project(
+        self,
+        project_hash: str,
+        project_name: str,
+        project_path: str,
+        domain: str = "coding",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Register a project and return its scope_id. Idempotent."""
+        cursor = self.conn.cursor()
+
+        existing = cursor.execute(
+            "SELECT scope_id FROM projects WHERE project_hash = ?",
+            (project_hash,),
+        ).fetchone()
+        if existing:
+            return existing["scope_id"]
+
+        now = utc_now_iso()
+
+        scope = self.create_scope(
+            scope_type="project",
+            name=project_name,
+            source_channel="auto-detect",
+            metadata=metadata or {},
+        )
+
+        cursor.execute(
+            """INSERT INTO projects
+               (project_hash, project_name, project_path, scope_id, domain, created_at, updated_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                project_hash,
+                project_name,
+                project_path,
+                scope.id,
+                domain,
+                now,
+                now,
+                json.dumps(metadata or {}),
+            ),
+        )
+        self.conn.commit()
+        logger.info("Registered project %s (%s)", project_name, project_hash[:12])
+        return scope.id
+
+    def get_project_by_hash(self, project_hash: str) -> Optional[Dict[str, Any]]:
+        """Get project details by hash."""
+        row = self.conn.execute(
+            "SELECT * FROM projects WHERE project_hash = ?",
+            (project_hash,),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def get_project_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get project details by name."""
+        row = self.conn.execute(
+            "SELECT * FROM projects WHERE project_name = ?",
+            (name,),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def list_projects(self) -> List[Dict[str, Any]]:
+        """List all registered projects with entity counts."""
+        cursor = self.conn.cursor()
+        rows = cursor.execute(
+            """SELECT p.*, COUNT(e.id) AS entity_count
+               FROM projects p
+               LEFT JOIN entities e ON e.scope_id = p.scope_id
+               GROUP BY p.project_hash
+               ORDER BY p.updated_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_project_scope_id(self, project_path: str) -> Optional[str]:
+        """Look up scope_id for a project by its canonical path."""
+        row = self.conn.execute(
+            "SELECT scope_id FROM projects WHERE project_path = ?",
+            (project_path,),
+        ).fetchone()
+        return row["scope_id"] if row else None
+
+    def unregister_project(self, project_hash: str) -> bool:
+        """Remove a project registration (does not delete entities)."""
+        cursor = self.conn.cursor()
+        row = cursor.execute(
+            "SELECT scope_id FROM projects WHERE project_hash = ?",
+            (project_hash,),
+        ).fetchone()
+        if row is None:
+            return False
+        cursor.execute(
+            "DELETE FROM projects WHERE project_hash = ?",
+            (project_hash,),
+        )
+        self.conn.commit()
+        logger.info("Unregistered project %s", project_hash[:12])
+        return True
 
 
 def main():
