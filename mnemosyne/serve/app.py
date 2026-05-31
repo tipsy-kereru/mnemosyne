@@ -176,12 +176,30 @@ def create_server(
     return server
 
 
+def _load_dotenv() -> None:
+    try:
+        from pathlib import Path
+        from dotenv import load_dotenv  # type: ignore[import-not-found]
+        current = Path(__file__).resolve().parent
+        for _ in range(4):
+            env_path = current / ".env"
+            if env_path.exists():
+                load_dotenv(dotenv_path=env_path)
+                break
+            current = current.parent
+        else:
+            load_dotenv()
+    except ImportError:
+        pass
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = 57832,
     db_path: Optional[str] = None,
 ) -> None:
     """Start the HTTP server and block until interrupted."""
+    _load_dotenv()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",

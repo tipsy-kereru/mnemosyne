@@ -96,8 +96,17 @@ Output: text by default; pass --format json for automation.
 def main(argv=None):
     """Mnemosyne CLI entry point."""
     try:
+        from pathlib import Path
         from dotenv import load_dotenv  # type: ignore[import-not-found]
-        load_dotenv()
+        current = Path(__file__).resolve().parent
+        for _ in range(4):
+            env_path = current / ".env"
+            if env_path.exists():
+                load_dotenv(dotenv_path=env_path)
+                break
+            current = current.parent
+        else:
+            load_dotenv()
     except ImportError:
         pass
     parser = argparse.ArgumentParser(

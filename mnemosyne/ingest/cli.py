@@ -47,7 +47,15 @@ Examples:
 # @MX:REASON: Wired in pyproject.toml entry points; user-facing fan_in.
 def _load_dotenv() -> None:
     try:
+        from pathlib import Path
         from dotenv import load_dotenv  # type: ignore[import-not-found]
+        current = Path(__file__).resolve().parent
+        for _ in range(4):
+            env_path = current / ".env"
+            if env_path.exists():
+                load_dotenv(dotenv_path=env_path)
+                return
+            current = current.parent
         load_dotenv()
     except ImportError:
         pass
