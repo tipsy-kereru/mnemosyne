@@ -350,6 +350,25 @@ def main(argv=None):
         help="Show installed hook status for all platforms",
     )
 
+    # -- serve subcommand --
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Start HTTP API server for external tool integration",
+        description="Start a local HTTP API server (stdlib http.server, no external dependencies)",
+    )
+    serve_parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    serve_parser.add_argument(
+        "--port", type=int, default=57832,
+        help="Listen port (default: 57832)",
+    )
+    serve_parser.add_argument(
+        "--db-path", default=None,
+        help="Knowledge graph database path",
+    )
+
     wiki_parser = subparsers.add_parser(
         "wiki",
         help="Inspect and maintain the Markdown LLM Wiki",
@@ -490,6 +509,8 @@ def main(argv=None):
         _run_hook(args)
     elif args.command == "project":
         _run_project(args)
+    elif args.command == "serve":
+        _run_serve(args)
     else:
         parser.print_help()
 
@@ -869,6 +890,17 @@ def _run_project_migrate(kg):
 
     kg.conn.commit()
     print(f"Migrated {migrated} orphan scope(s) into projects table.")
+
+
+def _run_serve(args):
+    """Execute the ``mnemosyne serve`` subcommand."""
+    from mnemosyne.serve.app import serve
+
+    serve(
+        host=args.host,
+        port=args.port,
+        db_path=args.db_path,
+    )
 
 
 if __name__ == "__main__":
