@@ -62,7 +62,7 @@ class LLMBridge:
             return os.environ["MNEMOSYNE_LLM"]
         if os.environ.get("Z_AI_API_KEY"):
             return "zai"
-        if os.environ.get("ANTHROPIC_API_KEY"):
+        if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
             return "anthropic"
         if os.environ.get("OPENAI_API_KEY"):
             return "openai"
@@ -182,7 +182,8 @@ class LLMBridge:
     def _call_anthropic(prompt: str) -> str:
         import anthropic  # type: ignore
 
-        client = anthropic.Anthropic()
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=2048,

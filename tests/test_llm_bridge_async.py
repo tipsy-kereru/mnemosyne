@@ -20,6 +20,7 @@ class TestLLMBridgeAsync:
     def _clear_env(self, monkeypatch):
         for key in (
             "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
             "MNEMOSYNE_LLM",
@@ -121,3 +122,11 @@ class TestLLMBridgeAsync:
         # run_in_executor is thread-based; semaphore caps async entry, not thread count.
         # Verify all 10 calls completed without error.
         assert max_active >= 1
+
+    def test_detect_provider_with_anthropic_auth_token(self, monkeypatch):
+        bridge_module = _import_bridge()
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "fake-token")
+        
+        # Test default auto-detection
+        provider = bridge_module.LLMBridge._detect_provider()
+        assert provider == "anthropic"
