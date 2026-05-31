@@ -228,10 +228,284 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  // ============================================================
+  // SPEC-JOPLIN-003: Wiki-link Autocomplete
+  // ============================================================
+
+  // Autocomplete state
+  let autocompleteDropdown: HTMLDivElement | null = null;
+  let autocompleteItems: string[] = [];
+  let autocompleteSelectedIndex: number = 0;
+  let autocompleteTriggerRange: Range | null = null;
+  let entityCache: Array<{ id: string; type: string; name: string }> = [];
+
+  // Build the autocomplete dropdown element
+  function createAutocompleteDropdown(): HTMLDivElement {
+    const dropdown = document.createElement('div');
+    dropdown.id = 'kg-autocomplete';
+    dropdown.style.cssText = `
+      position: fixed;
+      z-index: 10000;
+      background: #1a1a2e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: sans-serif;
+      font-size: 13px;
+      color: #ccc;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      display: none;
+      min-width: 250px;
+    `;
+    document.body.appendChild(dropdown);
+    return dropdown;
+  }
+
+  // Get the dropdown element (create if needed)
+  function getAutocompleteDropdown(): HTMLDivElement {
+    if (!autocompleteDropdown) {
+      autocompleteDropdown = createAutocompleteDropdown();
+    }
+    return autocompleteDropdown;
+  }
+
+  // Fetch entity list from the plugin via Joplin messaging
+  async function fetchEntityList(): Promise<Array<{ id: string; type: string; name: string }>> {
+    if (entityCache.length > 0) return entityCache;
+
+    try {
+      if ((window as any).joplin && (window as any).joplin.plugins) {
+        const response = await (window as any).joplin.plugins.current.sendMessage({
+          name: 'getEntityList',
+        });
+        if (response && Array.isArray(response)) {
+          entityCache = response;
+          return entityCache;
+        }
+      }
+    } catch {
+      // Plugin communication failed
+    }
+    return [];
+  }
+
+  // Clear the dropdown content safely (no innerHTML)
+  function clearDropdownContent(dropdown: HTMLDivElement): void {
+    while (dropdown.firstChild) {
+      dropdown.removeChild(dropdown.firstChild);
+    }
+  }
+
+  // Show autocomplete dropdown at cursor position
+  function showAutocomplete(items: string[], rect: DOMRect | null): void {
+    const dropdown = getAutocompleteDropdown();
+    clearDropdownContent(dropdown);
+
+    if (items.length === 0 || !rect) {
+      dropdown.style.display = 'none';
+      return;
+    }
+
+    autocompleteItems = items;
+    autocompleteSelectedIndex = 0;
+
+    items.forEach((item, index) => {
+      const div = document.createElement('div');
+      div.style.cssText = `
+        padding: 6px 10px;
+        cursor: pointer;
+        border-bottom: 1px solid #0f3460;
+      `;
+      if (index === 0) {
+        div.style.background = '#0f3460';
+      }
+      div.textContent = item;
+      div.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectAutocompleteItem(index);
+      });
+      div.addEventListener('mouseenter', () => {
+        highlightAutocompleteItem(index);
+      });
+      dropdown.appendChild(div);
+    });
+
+    // Position dropdown near the cursor
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    dropdown.style.display = 'block';
+  }
+
+  // Highlight a specific item in the dropdown
+  function highlightAutocompleteItem(index: number): void {
+    const dropdown = getAutocompleteDropdown();
+    const children = dropdown.children;
+    for (let i = 0; i < children.length; i++) {
+      (children[i] as HTMLElement).style.background = i === index ? '#0f3460' : 'transparent';
+    }
+    autocompleteSelectedIndex = index;
+  }
+
+  // Select an autocomplete item and insert into the editor
+  function selectAutocompleteItem(index: number): void {
+    if (index < 0 || index >= autocompleteItems.length) return;
+
+    const selectedText = autocompleteItems[index];
+    const dropdown = getAutocompleteDropdown();
+    dropdown.style.display = 'none';
+
+    // Insert the completed link into the active editor
+    if (autocompleteTriggerRange) {
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT
+      );
+      let node: Text | null;
+      while ((node = walker.nextNode() as Text)) {
+        const text = node.textContent || '';
+        const openBracket = text.lastIndexOf('[[');
+        if (openBracket !== -1) {
+          const before = text.substring(0, openBracket);
+          const closePos = text.indexOf(']]', openBracket);
+          const after = closePos !== -1 ? text.substring(closePos + 2) : text.substring(text.length);
+          node.textContent = before + `[[${selectedText}]]` + after;
+          break;
+        }
+      }
+    }
+
+    autocompleteTriggerRange = null;
+    autocompleteItems = [];
+  }
+
+  // Hide autocomplete dropdown
+  function hideAutocomplete(): void {
+    const dropdown = getAutocompleteDropdown();
+    dropdown.style.display = 'none';
+    autocompleteItems = [];
+    autocompleteTriggerRange = null;
+  }
+
+  // Handle keyboard navigation in autocomplete
+  function handleAutocompleteKeydown(event: KeyboardEvent): boolean {
+    const dropdown = getAutocompleteDropdown();
+    if (dropdown.style.display !== 'block' || autocompleteItems.length === 0) {
+      return false;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      const newIndex = Math.min(autocompleteSelectedIndex + 1, autocompleteItems.length - 1);
+      highlightAutocompleteItem(newIndex);
+      return true;
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      const newIndex = Math.max(autocompleteSelectedIndex - 1, 0);
+      highlightAutocompleteItem(newIndex);
+      return true;
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      selectAutocompleteItem(autocompleteSelectedIndex);
+      return true;
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      hideAutocomplete();
+      return true;
+    }
+
+    return false;
+  }
+
+  // Listen for [[ trigger in contentEditable areas
+  function setupAutocompleteListeners(): void {
+    document.addEventListener('keydown', (event: KeyboardEvent) => {
+      handleAutocompleteKeydown(event);
+    }, true);
+
+    document.addEventListener('input', async (event: Event) => {
+      const target = event.target as HTMLElement;
+      if (!target || !target.isContentEditable) return;
+
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+
+      const range = selection.getRangeAt(0);
+      const textNode = range.startContainer;
+      if (textNode.nodeType !== Node.TEXT_NODE) return;
+
+      const text = textNode.textContent || '';
+      const cursorPos = range.startOffset;
+
+      // Look for [[ trigger before cursor
+      const beforeCursor = text.substring(0, cursorPos);
+      const openBracket = beforeCursor.lastIndexOf('[[');
+
+      if (openBracket === -1) {
+        hideAutocomplete();
+        return;
+      }
+
+      // Check if there's a closing ]] after the [[
+      const afterOpen = beforeCursor.substring(openBracket + 2);
+      if (afterOpen.includes(']]')) {
+        hideAutocomplete();
+        return;
+      }
+
+      const query = afterOpen.trim();
+
+      // If query is short, wait for more characters
+      if (query.length > 0 && query.length < 2) {
+        hideAutocomplete();
+        return;
+      }
+
+      autocompleteTriggerRange = range.cloneRange();
+
+      // Fetch entities and filter
+      const entities = await fetchEntityList();
+      const queryLower = query.toLowerCase();
+
+      let matches: string[];
+      if (query.length === 0) {
+        matches = entities.slice(0, 15).map(e => `entity:${e.type}:${e.name}`);
+      } else {
+        const filtered = entities.filter(e =>
+          e.name.toLowerCase().includes(queryLower) ||
+          e.type.toLowerCase().includes(queryLower) ||
+          e.id.toLowerCase().includes(queryLower)
+        );
+        matches = filtered.slice(0, 15).map(e => `entity:${e.type}:${e.name}`);
+      }
+
+      // Get cursor position for dropdown placement
+      const rect = range.getBoundingClientRect();
+      showAutocomplete(matches, rect);
+    });
+
+    // Hide autocomplete on click outside
+    document.addEventListener('click', (event: MouseEvent) => {
+      const dropdown = getAutocompleteDropdown();
+      if (dropdown && event.target !== dropdown && !dropdown.contains(event.target as Node)) {
+        hideAutocomplete();
+      }
+    });
+  }
+
+  // Initialize autocomplete
+  function initAutocomplete(): void {
+    setupAutocompleteListeners();
+  }
+
   // Start when DOM is ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+      init();
+      initAutocomplete();
+    });
   } else {
     init();
+    initAutocomplete();
   }
 })();

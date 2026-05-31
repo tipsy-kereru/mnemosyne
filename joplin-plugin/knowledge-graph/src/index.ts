@@ -14,6 +14,7 @@ import { JoplinViewType } from 'joplin-api';
 import { ContentScriptType } from 'joplin/plugins';
 import { MnemosyneClient } from './mnemosyne_client';
 import { ServerManager } from './server_manager';
+import { GraphView, GraphEntity, GraphRelation, GraphData } from './graph_view';
 
 interface WikiLink {
   raw: string;
@@ -198,6 +199,43 @@ class KnowledgeGraphPlugin {
     // Handle markdown rendering - process wiki links
     this.plugin.onCalculateSyntaxHighlight((text: string) => {
       return this.processWikiLinks(text);
+    });
+
+    // Handle messages from content script (autocomplete entity list requests)
+    this.plugin.onMessage(async (message: any) => {
+      if (message.name === 'getEntityList') {
+        // Return entity list for autocomplete
+        let entities: Array<{ id: string; type: string; name: string }>;
+
+        if (this.mnemosyneAvailable) {
+          try {
+            const serverEntities = await this.client.getEntities();
+            entities = serverEntities.map(e => ({
+              id: e.id,
+              type: e.type,
+              name: e.name,
+            }));
+            // Sync to local
+            for (const entity of serverEntities) {
+              this.graphDB.set(entity.id, entity);
+            }
+          } catch {
+            entities = Array.from(this.graphDB.values()).map(e => ({
+              id: e.id,
+              type: e.type,
+              name: e.name,
+            }));
+          }
+        } else {
+          entities = Array.from(this.graphDB.values()).map(e => ({
+            id: e.id,
+            type: e.type,
+            name: e.name,
+          }));
+        }
+
+        return entities;
+      }
     });
   }
 
@@ -496,54 +534,102 @@ class KnowledgeGraphPlugin {
     await linkDialog.open();
   }
 
-  // Show graph view (webview)
+  // Show graph view (D3.js force-directed graph)
   private async showGraphView() {
     const panel = await this.plugin.views.createPanel('knowledgeGraph');
 
     // Build status indicator
-    const statusHtml = this.mnemosyneAvailable
-      ? '<span style="color:#4CAF50">mnemosyne connected</span>'
-      : '<span style="color:#FF9800">mnemosyne disconnected — local mode</span>';
+    const statusText = this.mnemosyneAvailable
+      ? 'mnemosyne connected'
+      : 'mnemosyne disconnected — local mode';
+    const statusColor = this.mnemosyneAvailable ? '#4CAF50' : '#FF9800';
+
+    // Create a container div for the graph view
+    const containerId = 'kg-graph-container';
 
     panel.setHtml(`
       <!DOCTYPE html>
       <html>
       <head>
         <style>
-          body { margin: 0; padding: 20px; font-family: sans-serif; background: #1e1e1e; color: #ddd; }
-          #graph { width: 100%; height: 500px; border: 1px solid #444; }
-          #legend { margin-top: 10px; font-size: 12px; }
-          .legend-item { margin: 5px 10px; display: inline-block; }
-          .legend-color { width: 12px; height: 12px; display: inline-block; margin-right: 5px; vertical-align: middle; }
-          #status { margin-bottom: 10px; font-size: 12px; }
+          body { margin: 0; padding: 0; font-family: sans-serif; background: #1a1a2e; color: #ddd; overflow: hidden; }
+          #${containerId} { width: 100%; height: calc(100vh - 60px); position: relative; }
+          #kg-status-bar { padding: 8px 12px; background: #16213e; border-bottom: 1px solid #0f3460; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
         </style>
       </head>
       <body>
-        <h3>Knowledge Graph</h3>
-        <div id="status">${statusHtml}</div>
-        <canvas id="graph"></canvas>
-        <div id="legend">
-          <span class="legend-item"><span class="legend-color" style="background:#4CAF50"></span>Daily</span>
-          <span class="legend-item"><span class="legend-color" style="background:#2196F3"></span>Coding</span>
-          <span class="legend-item"><span class="legend-color" style="background:#FF9800"></span>Legal</span>
+        <div id="kg-status-bar">
+          <span style="color:${statusColor}">${statusText}</span>
+          <span style="color:#888">Press Esc to clear selection</span>
         </div>
-        <script>
-          // Minimal graph visualization
-          const canvas = document.getElementById('graph');
-          const ctx = canvas.getContext('2d');
-          canvas.width = canvas.offsetWidth;
-          canvas.height = canvas.offsetHeight;
-
-          // Send message to Joplin for graph data
-          if (window.joplin) {
-            window.joplin.plugin.run()
-          }
-        </script>
+        <div id="${containerId}"></div>
+        <script src="./dist/graph_view_bundle.js"></script>
       </body>
       </html>
     `);
 
     await panel.show();
+
+    // After panel is shown, initialize the graph view
+    // The panel webview exposes a global context we can use
+    try {
+      // Gather entity and relation data
+      const entities = Array.from(this.graphDB.values()).map(e => ({
+        id: e.id,
+        type: e.type,
+        name: e.name,
+        properties: e.properties,
+        version: e.version,
+        scope_id: e.scope_id,
+        source_channel: e.source_channel,
+      }));
+
+      // Gather relations from local index
+      const relations: GraphRelation[] = [];
+      for (const rels of this.relationIndex.values()) {
+        for (const r of rels) {
+          relations.push({
+            id: r.id,
+            source: r.source,
+            target: r.target,
+            relationType: r.relationType,
+            properties: r.properties,
+          });
+        }
+      }
+
+      // If mnemosyne is available, also fetch relations from server
+      if (this.mnemosyneAvailable) {
+        try {
+          const serverRelations = await this.client.getRelations();
+          for (const r of serverRelations) {
+            if (!relations.some(lr => lr.id === r.id)) {
+              relations.push({
+                id: r.id,
+                source: r.source,
+                target: r.target,
+                relationType: r.relationType,
+                properties: r.properties,
+              });
+            }
+          }
+        } catch {
+          // Non-critical — proceed with local data
+        }
+      }
+
+      // Post data to the webview panel for graph rendering
+      // Note: The actual GraphView instantiation happens in the webview context
+      // via the graph_view_bundle.js script loaded by the panel
+      panel.postMessage({
+        type: 'graphData',
+        entities,
+        relations,
+        mnemosyneAvailable: this.mnemosyneAvailable,
+      });
+    } catch (error: any) {
+      console.warn('Failed to populate graph view:', error?.message || error);
+    }
   }
 
   // Show connection status

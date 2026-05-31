@@ -21,6 +21,7 @@ function createMockPlugin() {
     },
     onNoteSave: jest.fn(),
     onCalculateSyntaxHighlight: jest.fn(),
+    onMessage: jest.fn(),
     dialogs: {
       create: jest.fn(),
       showMessage: jest.fn().mockResolvedValue(undefined),
