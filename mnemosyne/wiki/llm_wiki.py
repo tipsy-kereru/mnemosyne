@@ -23,6 +23,12 @@ from typing import Any, Iterable, Iterator, Optional
 
 from mnemosyne.ingest.llm_extractor import IngestEntity, IngestRelation, ParsedIngestResult
 
+try:
+    from mnemosyne import mnemosyne_core
+    _HAS_RUST_CORE = True
+except ImportError:
+    _HAS_RUST_CORE = False
+
 _GENERATED_START = "<!-- MNEMOSYNE:GENERATED:START -->"
 _GENERATED_END = "<!-- MNEMOSYNE:GENERATED:END -->"
 _EDITOR_GUIDANCE_LINES = [
@@ -875,6 +881,23 @@ class LLMWikiMaintainer:
 
     def _write_index(self) -> Path:
         path = self.wiki_root / "index.md"
+
+        if _HAS_RUST_CORE:
+            entity_files = mnemosyne_core.fast_glob_markdown(str(self.wiki_root / "entities"))
+            source_files = mnemosyne_core.fast_glob_markdown(str(self.wiki_root / "sources"))
+            entity_pages = [Path(p) for p in sorted(entity_files)]
+            source_pages = [Path(p) for p in sorted(source_files)]
+            
+            content = mnemosyne_core.fast_rebuild_index(
+                str(self.wiki_root),
+                [str(p) for p in entity_pages],
+                [str(p) for p in source_pages],
+                self._now(),
+                _EDITOR_GUIDANCE_LINES
+            )
+            self._write_replace_generated(path, content)
+            return path
+
         entity_pages = sorted((self.wiki_root / "entities").glob("*/*.md"))
         source_pages = sorted((self.wiki_root / "sources").glob("*/*.md"))
         frontmatter = self._frontmatter({"page_type": "index", "updated_at": self._now()})
