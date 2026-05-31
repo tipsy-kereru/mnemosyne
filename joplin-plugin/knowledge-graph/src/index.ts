@@ -7,10 +7,13 @@
  * - Temporal knowledge graph visualization
  * - Cross-domain entity linking
  * - Session/scope support (SPEC-SESSION-002)
+ * - HTTP bridge to mnemosyne serve (SPEC-JOPLIN-002)
  */
 
 import { JoplinViewType } from 'joplin-api';
 import { ContentScriptType } from 'joplin/plugins';
+import { MnemosyneClient } from './mnemosyne_client';
+import { ServerManager } from './server_manager';
 
 interface WikiLink {
   raw: string;
@@ -64,8 +67,15 @@ class KnowledgeGraphPlugin {
   private relationIndex: Map<string, KnowledgeGraphRelation[]> = new Map();
   private scopeIndex: Map<string, ScopeInfo> = new Map();
 
+  // Mnemosyne HTTP bridge (SPEC-JOPLIN-002)
+  private client: MnemosyneClient;
+  private serverManager: ServerManager;
+  private mnemosyneAvailable: boolean = false;
+
   constructor(plugin: any) {
     this.plugin = plugin;
+    this.client = new MnemosyneClient('http://127.0.0.1:57832');
+    this.serverManager = new ServerManager('', 57832);
   }
 
   // Initialize plugin
@@ -79,7 +89,47 @@ class KnowledgeGraphPlugin {
     // Load existing knowledge graph
     await this.loadKnowledgeGraph();
 
+    // Attempt to start mnemosyne server and connect
+    await this.connectToMnemosyne();
+
     console.log('Knowledge Graph Plugin initialized');
+  }
+
+  // Connect to mnemosyne server
+  private async connectToMnemosyne() {
+    // Try connecting to an already-running server first
+    this.mnemosyneAvailable = await this.client.isAvailable();
+
+    if (!this.mnemosyneAvailable) {
+      // Attempt to start the server
+      const started = await this.serverManager.start();
+      if (started) {
+        this.mnemosyneAvailable = await this.client.isAvailable();
+      }
+    }
+
+    if (this.mnemosyneAvailable) {
+      console.log('Connected to mnemosyne serve');
+      // Refresh local data from server
+      await this.refreshFromMnemosyne();
+    } else {
+      console.warn('mnemosyne serve unavailable — running in local-only mode');
+    }
+  }
+
+  // Refresh local entity cache from mnemosyne
+  private async refreshFromMnemosyne() {
+    if (!this.mnemosyneAvailable) return;
+
+    try {
+      const entities = await this.client.getEntities();
+      // Merge server entities into local Map (server is source of truth for existing entities)
+      for (const entity of entities) {
+        this.graphDB.set(entity.id, entity);
+      }
+    } catch (error: any) {
+      console.warn('Failed to refresh from mnemosyne:', error?.message || error);
+    }
   }
 
   // Register custom commands
@@ -124,6 +174,16 @@ class KnowledgeGraphPlugin {
       iconName: 'fa fa-magic',
       execute: async () => {
         await this.extractAndLink();
+      },
+    });
+
+    // Command: Check mnemosyne connection status
+    await this.plugin.registry.register({
+      name: 'knowledge-graph.checkConnection',
+      label: 'Check Mnemosyne Connection',
+      iconName: 'fa fa-plug',
+      execute: async () => {
+        await this.showConnectionStatus();
       },
     });
   }
@@ -316,8 +376,32 @@ class KnowledgeGraphPlugin {
     await searchDialog.open();
   }
 
-  // Search knowledge graph
+  // Search knowledge graph — uses mnemosyne client when available, falls back to local
   private async searchKnowledgeGraph(query: string, typeFilter?: string): Promise<KnowledgeGraphEntity[]> {
+    // Try mnemosyne client first
+    if (this.mnemosyneAvailable) {
+      try {
+        const results = await this.client.searchEntities(query, 50);
+        // Re-assess availability after successful call
+        this.mnemosyneAvailable = true;
+
+        // Apply type filter client-side if specified
+        if (typeFilter) {
+          return results.filter(e => e.type === typeFilter);
+        }
+        return results;
+      } catch (error: any) {
+        console.warn('mnemosyne search failed, falling back to local:', error?.message || error);
+        this.mnemosyneAvailable = false;
+      }
+    }
+
+    // Fallback: search local Map
+    return this.searchLocalKnowledgeGraph(query, typeFilter);
+  }
+
+  // Local search fallback (original behavior)
+  private searchLocalKnowledgeGraph(query: string, typeFilter?: string): KnowledgeGraphEntity[] {
     const results: KnowledgeGraphEntity[] = [];
     const queryLower = query.toLowerCase();
 
@@ -376,11 +460,27 @@ class KnowledgeGraphPlugin {
   private async showLinkPickerDialog() {
     const linkDialog = await this.plugin.dialogs.create('select');
 
-    const entities = Array.from(this.graphDB.values()).slice(0, 100);
+    // Try to get entities from mnemosyne first
+    let entities: KnowledgeGraphEntity[];
+    if (this.mnemosyneAvailable) {
+      try {
+        entities = await this.client.getEntities();
+        // Sync to local Map
+        for (const entity of entities) {
+          this.graphDB.set(entity.id, entity);
+        }
+      } catch {
+        entities = Array.from(this.graphDB.values()).slice(0, 100);
+      }
+    } else {
+      entities = Array.from(this.graphDB.values()).slice(0, 100);
+    }
+
+    const displayEntities = entities.slice(0, 100);
 
     linkDialog.setProps({
       title: 'Insert Link',
-      items: entities.map(e => ({
+      items: displayEntities.map(e => ({
         value: e.id,
         label: `${e.type}: ${e.name}`,
       })),
@@ -400,6 +500,11 @@ class KnowledgeGraphPlugin {
   private async showGraphView() {
     const panel = await this.plugin.views.createPanel('knowledgeGraph');
 
+    // Build status indicator
+    const statusHtml = this.mnemosyneAvailable
+      ? '<span style="color:#4CAF50">mnemosyne connected</span>'
+      : '<span style="color:#FF9800">mnemosyne disconnected — local mode</span>';
+
     panel.setHtml(`
       <!DOCTYPE html>
       <html>
@@ -410,10 +515,12 @@ class KnowledgeGraphPlugin {
           #legend { margin-top: 10px; font-size: 12px; }
           .legend-item { margin: 5px 10px; display: inline-block; }
           .legend-color { width: 12px; height: 12px; display: inline-block; margin-right: 5px; vertical-align: middle; }
+          #status { margin-bottom: 10px; font-size: 12px; }
         </style>
       </head>
       <body>
         <h3>Knowledge Graph</h3>
+        <div id="status">${statusHtml}</div>
         <canvas id="graph"></canvas>
         <div id="legend">
           <span class="legend-item"><span class="legend-color" style="background:#4CAF50"></span>Daily</span>
@@ -439,6 +546,18 @@ class KnowledgeGraphPlugin {
     await panel.show();
   }
 
+  // Show connection status
+  private async showConnectionStatus() {
+    const available = await this.client.isAvailable();
+    this.mnemosyneAvailable = available;
+
+    const status = available
+      ? '<p style="color: green;">Connected to mnemosyne serve</p>'
+      : '<p style="color: orange;">mnemosyne serve is not available — running in local-only mode</p>';
+
+    await this.plugin.dialogs.showMessage(status);
+  }
+
   // Extract entities from current note
   private async extractAndLink() {
     const note = await this.plugin.currentNote();
@@ -449,6 +568,7 @@ class KnowledgeGraphPlugin {
 
   // Extract entities from note content
   // @MX:NOTE: [AUTO] Parses frontmatter before domain detection for scope-aware extraction (T4)
+  // @MX:NOTE: [AUTO] Posts extracted entities to mnemosyne when available (SPEC-JOPLIN-002)
   private async extractEntitiesFromNote(note: any) {
     const content = note.body || '';
 
@@ -461,7 +581,7 @@ class KnowledgeGraphPlugin {
     // Extract entities based on domain, passing session metadata
     const entities = this.extractBasedOnDomain(content, domain, sessionMetadata || undefined);
 
-    // Add to knowledge graph
+    // Add to local knowledge graph
     for (const entity of entities) {
       const id = `${entity.type}:${entity.name}`;
       this.graphDB.set(id, {
@@ -477,6 +597,25 @@ class KnowledgeGraphPlugin {
       // Create wiki link in note
       if (!content.includes(`[[entity:${entity.type}:${entity.name}]]`)) {
         // Link new entities (simplified - real impl would find proper context)
+      }
+    }
+
+    // Try to persist to mnemosyne when available (non-blocking)
+    if (this.mnemosyneAvailable && entities.length > 0) {
+      try {
+        const kgEntities: KnowledgeGraphEntity[] = entities.map(e => ({
+          id: `${e.type}:${e.name}`,
+          type: e.type,
+          name: e.name,
+          properties: e.properties,
+          version: 1,
+          scope_id: e.scope_id,
+          source_channel: e.source_channel,
+        }));
+        await this.client.createEntities(kgEntities);
+      } catch (error: any) {
+        console.warn('Failed to sync entities to mnemosyne:', error?.message || error);
+        this.mnemosyneAvailable = false;
       }
     }
 
@@ -557,9 +696,10 @@ class KnowledgeGraphPlugin {
 
   // Load knowledge graph from storage
   // @MX:NOTE: [AUTO] Deserializes scopes array with backward compat for legacy data (T6)
+  // @MX:NOTE: [AUTO] When mnemosyne is available, server data is merged after local load (SPEC-JOPLIN-002)
   private async loadKnowledgeGraph() {
     try {
-      // Load from plugin settings
+      // Load from plugin settings (local persistence)
       const stored = await this.plugin.settings.get('knowledgeGraph');
       if (stored) {
         const data = JSON.parse(stored);
@@ -582,7 +722,7 @@ class KnowledgeGraphPlugin {
     }
   }
 
-  // Save knowledge graph
+  // Save knowledge graph (local persistence only — mnemosyne DB is separate)
   // @MX:NOTE: [AUTO] Includes scopes array in persisted JSON (T6)
   async saveKnowledgeGraph() {
     const data = {
