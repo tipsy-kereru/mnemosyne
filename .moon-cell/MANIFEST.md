@@ -83,7 +83,7 @@ Updated: 2026-05-31 03:14:25 NZST
 | SPEC-JOPLIN-002 | Joplin Plugin HTTP Bridge | completed | .moon-cell/specs/SPEC-JOPLIN-002.md |
 | SPEC-JOPLIN-003 | Real-Time Graph Visualization | completed | .moon-cell/specs/SPEC-JOPLIN-003.md |
 | SPEC-JOPLIN-004 | Edit-to-Graph Real-Time Sync | completed | .moon-cell/specs/SPEC-JOPLIN-004.md |
-| SPEC-PERF-001 | Hybrid Performance Optimization & SQLite Database Tuning | planned | .moon-cell/specs/SPEC-PERF-001.md |
+| SPEC-PERF-001 | Hybrid Performance Optimization & SQLite Database Tuning | completed | .moon-cell/specs/SPEC-PERF-001.md |
 
 ## Untracked Features (no SPEC)
 
@@ -105,7 +105,7 @@ Updated: 2026-05-31 03:14:25 NZST
 | Benchmark harness | scripts/bench/ fixture generators + extended benchmark_async.sh B1–B6 + BENCHMARK_RESULTS.md | SPEC-BENCH-001 implementation result |
 | Benchmark latest | B2 LLM batch PASS (187.38s > 60s), B1/B4/B5/B6 MISS (below threshold) | Run 2026-05-06, 921 pages |
 | Project CLI smoke | `mnemosyne project list|show|register|unregister|migrate` operational | SPEC-PROJECT-REGISTRY-001 implementation |
-| Quality summary | 26 completed SPECs, 1 planned SPECs, 1 candidate SPECs (1 existing + 2 Joplin) | SPEC-JOPLIN-002 completed 2026-05-31 |
+| Quality summary | 27 completed SPECs, 0 planned SPECs, 1 candidate SPECs (1 existing + 2 Joplin) | SPEC-JOPLIN-002 completed 2026-05-31 |
 | Root bridge policy | AGENTS.md has Moon Cell pointer; CLAUDE.md not modified | SPEC-HARNESS-001 decision |
 | Moon Cell tracking | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception | SPEC-HARNESS-001 tracking policy |
 | Package version | 0.2.0 | pyproject.toml |

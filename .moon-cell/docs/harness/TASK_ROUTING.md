@@ -28,12 +28,15 @@ Updated: 2026-05-31 03:14:25 NZST
 | SPEC-HARNESS-001 | Root bridge and Moon Cell tracking policy | completed | Harness Engineer | Repository Maintainer | `.gitignore` `!.moon-cell/` exception; `AGENTS.md` Moon Cell pointer added; approved 2026-05-04 |
 | SPEC-ARCH-ASYNC-001 | Async I/O architecture design | completed | Solution Architect / Implementer | Test Architect | `.moon-cell/specs/SPEC-ARCH-ASYNC-001.md`; T1-T4 complete 2026-05-05; async fetch/extract implemented |
 | SPEC-PROJECT-REGISTRY-001 | Project-scoped knowledge graph with hash-based registry | completed | Implementer | Test Architect | `.moon-cell/specs/SPEC-PROJECT-REGISTRY-001.md`; projects table + auto-detection + CLI implemented 2026-05-07 |
+| SPEC-PERF-001 | Performance tuning & Hybrid core | completed | Performance Architect | Test Architect | `.moon-cell/specs/SPEC-PERF-001.md`; SQLite WAL & synchronous, environment lock dir, Rust core fallback implemented 2026-06-01 |
 
 ## Active / Planned SPECs
 
+No active or planned SPECs. All SPECs completed or in candidate status.
+
 | SPEC ID | Task Type | Status | Owner Role | Reviewer Role | Verification / Evidence |
 |---|---|---|---|---|---|
-| SPEC-PERF-001 | Performance tuning & Hybrid core | planned | Performance Architect | Test Architect | `.moon-cell/specs/SPEC-PERF-001.md` |
+| (none) | — | — | — | — | — |
 
 ## Candidate SPECs
 
@@ -53,7 +56,7 @@ Updated: 2026-05-31 03:14:25 NZST
 | 2 | SPEC-JOPLIN-002 | Bridge: connects plugin to mnemosyne DB via API |
 | 3 | SPEC-JOPLIN-003 | Visualization: graph view, backlinks, autocomplete |
 | 4 | SPEC-JOPLIN-004 | Real-time sync: edit-to-graph pipeline |
-| 5 | SPEC-PERF-001 | High-priority performance optimization for large wikis |
+| 5 | SPEC-PERF-001 | Completed 2026-06-01; SQLite WAL & lock paths and Rust core fallback |
 | 6 | SPEC-WIKI-008 | Only after large-vault benchmark evidence |
 | 7 | SPEC-HARNESS-001 | Harness policy cleanup is optional and not product-critical |
 

@@ -5,14 +5,14 @@ Updated: 2026-05-31 03:14:25 NZST
 
 ## Current Status
 
-Plan 2026-06-01: Performance tuning and hybrid high-performance optimization SPEC planned. 26 completed SPECs, 1 planned, 1 candidate (SPEC-WIKI-008). 526 tests pass. Package v0.2.0.
+Plan 2026-06-01: Performance tuning and hybrid high-performance optimization SPEC completed. 27 completed SPECs, 0 planned, 1 candidate (SPEC-WIKI-008). 527 tests pass. Package v0.2.0.
 
 | Category | Status | Evidence |
 |---|---|---|
-| Completed SPECs | 26 | Audit 2026-05-31 |
-| Active planned SPECs | 1 | SPEC-PERF-001 (Planned) |
+| Completed SPECs | 27 | Audit 2026-06-01 |
+| Active planned SPECs | 0 | All SPECs completed or deferred |
 | Remaining candidate SPECs | 1 | SPEC-WIKI-008 |
-| Full tests | PASS | 526 passed |
+| Full tests | PASS | 527 passed |
 | Static checks | PASS | ruff clean |
 | Benchmark harness | READY | 921 pages baseline; B2 PASS, B1/B4/B5/B6 MISS |
 | Harness tracking | auto-tracked | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception |
@@ -104,5 +104,5 @@ Key design decisions:
 
 ## Recommended Next Action
 
-1. Implement SPEC-PERF-001 to resolve SQLite write and sequential File I/O bottlenecks.
-2. Monitor benchmarks and consider SPEC-WIKI-008 only if large-vault thresholds are exceeded.
+1. Monitor large-vault benchmarks after SPEC-PERF-001 optimizations and evaluate index writing speeds.
+2. Consider SPEC-WIKI-008 only if index build thresholds are exceeded.
