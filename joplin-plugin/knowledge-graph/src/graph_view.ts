@@ -274,6 +274,167 @@ export class GraphView {
   }
 
   /**
+   * Update graph with new data, animating additions and removals.
+   * Preserves current zoom/pan state. Highlights newly added nodes
+   * for 2 seconds.
+   *
+   * SPEC-JOPLIN-004
+   */
+  onGraphUpdated(data: GraphData, newNodeIds?: Set<string>): void {
+    // Save current zoom transform
+    let currentTransform: string | null = null;
+    const gNode = this.g.node();
+    if (gNode) {
+      currentTransform = gNode.getAttribute('transform');
+    }
+
+    // Identify current node IDs for removal detection
+    const currentNodeIds = new Set(this.nodes.map(n => n.id));
+
+    // Build new nodes, preserving positions of existing ones
+    const positionMap = new Map<string, { x?: number; y?: number }>();
+    for (const n of this.nodes) {
+      positionMap.set(n.id, { x: n.x, y: n.y });
+    }
+
+    this.nodes = data.entities.map(e => {
+      const existing = positionMap.get(e.id);
+      return {
+        id: e.id,
+        type: e.type,
+        name: e.name,
+        properties: e.properties,
+        scope_id: e.scope_id,
+        source_channel: e.source_channel,
+        x: existing?.x,
+        y: existing?.y,
+      };
+    });
+
+    // Build id -> index map for link resolution
+    const nodeMap = new Map(this.nodes.map((n, i) => [n.id, i]));
+
+    this.links = data.relations
+      .filter(r => nodeMap.has(r.source) && nodeMap.has(r.target))
+      .map(r => ({
+        source: r.source,
+        target: r.target,
+        relationType: r.relationType,
+      }));
+
+    // Re-render with animation support
+    this.renderAnimated(newNodeIds);
+
+    // Restore zoom transform
+    if (currentTransform && gNode) {
+      gNode.setAttribute('transform', currentTransform);
+    }
+  }
+
+  /**
+   * Render graph with fade-in for new nodes and fade-out for removed nodes.
+   * Highlights newly added nodes for 2 seconds.
+   */
+  private renderAnimated(newNodeIds?: Set<string>): void {
+    // Stop existing simulation
+    if (this.simulation) {
+      this.simulation.stop();
+    }
+
+    // Clear existing elements
+    this.linkGroup.selectAll('*').remove();
+    this.nodeGroup.selectAll('*').remove();
+
+    // Update UI
+    this.updateTypeSelector();
+    this.updateStats();
+
+    // Build simulation
+    this.simulation = forceSimulation<SimNode, SimLink>(this.nodes)
+      .force(
+        'link',
+        forceLink<SimNode, SimLink>(this.links)
+          .id((d: SimNode) => d.id)
+          .distance(80),
+      )
+      .force('charge', forceManyBody().strength(-200))
+      .force('center', forceCenter(this.width / 2, this.height / 2))
+      .force('collide', forceCollide<SimNode>().radius(20))
+      .on('tick', () => this.tick());
+
+    // Render links
+    this.linkElements = this.linkGroup
+      .selectAll<SVGLineElement, SimLink>('line')
+      .data(this.links)
+      .join('line')
+      .attr('stroke', '#444')
+      .attr('stroke-width', 1.5)
+      .attr('marker-end', 'url(#arrowhead)')
+      .attr('class', 'graph-link');
+
+    // Render nodes with animation
+    this.nodeElements = this.nodeGroup
+      .selectAll<SVGGElement, SimNode>('g.node')
+      .data(this.nodes, (d: SimNode) => d.id)
+      .join('g')
+      .attr('class', 'node')
+      .style('cursor', 'pointer')
+      .call(this.dragBehavior());
+
+    // Circle with fade-in for new nodes
+    this.nodeElements
+      .append('circle')
+      .attr('r', 8)
+      .attr('fill', (d: SimNode) => getColorForType(d.type))
+      .attr('stroke', '#222')
+      .attr('stroke-width', 1.5)
+      .attr('opacity', (d: SimNode) => {
+        // New nodes start transparent for fade-in effect
+        if (newNodeIds && newNodeIds.has(d.id)) {
+          return 0;
+        }
+        return 1;
+      })
+      .transition()
+      .duration(400)
+      .attr('opacity', 1);
+
+    // Highlight new nodes with a glow for 2 seconds
+    if (newNodeIds && newNodeIds.size > 0) {
+      this.nodeElements
+        .filter((d: SimNode) => newNodeIds.has(d.id))
+        .select('circle')
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 3)
+        .transition()
+        .delay(2000)
+        .duration(500)
+        .attr('stroke', '#222')
+        .attr('stroke-width', 1.5);
+    }
+
+    // Label
+    this.nodeElements
+      .append('text')
+      .text((d: SimNode) => this.truncateLabel(d.name, 16))
+      .attr('dx', 12)
+      .attr('dy', 4)
+      .attr('fill', '#bbb')
+      .attr('font-size', '11px')
+      .attr('font-family', 'sans-serif')
+      .attr('pointer-events', 'none');
+
+    // Click handler for selection
+    this.nodeElements.on('click', (event: MouseEvent, d: SimNode) => {
+      event.stopPropagation();
+      this.selectNode(d);
+    });
+
+    // Apply current filter state
+    this.applyFilter();
+  }
+
+  /**
    * Destroy the visualization and clean up
    */
   destroy(): void {

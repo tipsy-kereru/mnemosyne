@@ -15,6 +15,8 @@ import { ContentScriptType } from 'joplin/plugins';
 import { MnemosyneClient } from './mnemosyne_client';
 import { ServerManager } from './server_manager';
 import { GraphView, GraphEntity, GraphRelation, GraphData } from './graph_view';
+import { SyncPipeline, SyncStatus } from './sync_pipeline';
+import { createStatusIndicatorHtml, updateStatusIndicator } from './status_indicator';
 
 interface WikiLink {
   raw: string;
@@ -73,11 +75,48 @@ class KnowledgeGraphPlugin {
   private serverManager: ServerManager;
   private mnemosyneAvailable: boolean = false;
 
+  // Real-time sync pipeline (SPEC-JOPLIN-004)
+  private syncPipeline: SyncPipeline;
+
   constructor(plugin: any) {
     this.plugin = plugin;
     this.client = new MnemosyneClient('http://127.0.0.1:57832');
     this.serverManager = new ServerManager('', 57832);
+
+    // Initialize sync pipeline with extraction functions bound to this instance
+    this.syncPipeline = new SyncPipeline({
+      client: this.client,
+      extractFn: (content, domain, metadata) => this.extractBasedOnDomain(content, domain, metadata),
+      detectDomainFn: (content) => this.detectDomain(content),
+      parseFrontmatterFn: (content) => this.parseFrontmatter(content),
+      debounceMs: 500,
+    });
+
+    // Wire up graph-updated callback
+    this.syncPipeline.onGraphUpdated((data) => {
+      // Update local graphDB with new entities
+      for (const entity of data.entities) {
+        this.graphDB.set(entity.id, entity);
+      }
+      // Remove entities no longer present
+      for (const key of data.diff.removed) {
+        this.graphDB.delete(key);
+      }
+    });
+
+    // Wire up status change callback
+    this.syncPipeline.onStatusChange((status) => {
+      this.syncStatus = status;
+      if (status === 'unavailable') {
+        this.mnemosyneAvailable = false;
+      } else if (status === 'connected') {
+        this.mnemosyneAvailable = true;
+      }
+    });
   }
+
+  // Current sync status for status indicator
+  private syncStatus: SyncStatus = 'unavailable';
 
   // Initialize plugin
   async initialize() {
@@ -113,8 +152,11 @@ class KnowledgeGraphPlugin {
       console.log('Connected to mnemosyne serve');
       // Refresh local data from server
       await this.refreshFromMnemosyne();
+      // SPEC-JOPLIN-004: Notify sync pipeline that mnemosyne is available
+      this.syncPipeline.setMnemosyneAvailable(true);
     } else {
       console.warn('mnemosyne serve unavailable — running in local-only mode');
+      this.syncPipeline.setMnemosyneAvailable(false);
     }
   }
 
@@ -191,10 +233,25 @@ class KnowledgeGraphPlugin {
 
   // Register event handlers
   private async registerEventHandlers() {
-    // Handle note save - extract entities
+    // Handle note save - extract entities and force-flush sync pipeline
     this.plugin.onNoteSave(async (note: any) => {
       await this.extractEntitiesFromNote(note);
+
+      // SPEC-JOPLIN-004: Force-flush sync pipeline on explicit save
+      if (note?.id && note?.body) {
+        this.syncPipeline.onContentChange(note.id, note.body);
+        this.syncPipeline.forceFlush();
+      }
     });
+
+    // SPEC-JOPLIN-004: Handle content change for real-time sync
+    if (typeof this.plugin.onNoteChange === 'function') {
+      this.plugin.onNoteChange(async (note: any) => {
+        if (note?.id && note?.body) {
+          this.syncPipeline.onContentChange(note.id, note.body);
+        }
+      });
+    }
 
     // Handle markdown rendering - process wiki links
     this.plugin.onCalculateSyntaxHighlight((text: string) => {
@@ -538,11 +595,9 @@ class KnowledgeGraphPlugin {
   private async showGraphView() {
     const panel = await this.plugin.views.createPanel('knowledgeGraph');
 
-    // Build status indicator
-    const statusText = this.mnemosyneAvailable
-      ? 'mnemosyne connected'
-      : 'mnemosyne disconnected — local mode';
-    const statusColor = this.mnemosyneAvailable ? '#4CAF50' : '#FF9800';
+    // Build status indicator using the status_indicator module
+    const entityCount = this.graphDB.size;
+    const statusHtml = createStatusIndicatorHtml(this.syncStatus, entityCount);
 
     // Create a container div for the graph view
     const containerId = 'kg-graph-container';
@@ -559,7 +614,7 @@ class KnowledgeGraphPlugin {
       </head>
       <body>
         <div id="kg-status-bar">
-          <span style="color:${statusColor}">${statusText}</span>
+          ${statusHtml}
           <span style="color:#888">Press Esc to clear selection</span>
         </div>
         <div id="${containerId}"></div>
