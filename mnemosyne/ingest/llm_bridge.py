@@ -97,10 +97,17 @@ class LLMBridge:
             logger.warning(
                 "Provider %s import failed (%s); falling back to cli", provider, exc
             )
-            raw = self._call_cli(prompt)
-        except (RuntimeError, OSError) as exc:
-            logger.error("Provider %s call failed: %s", provider, exc)
-            return {"nodes": [], "edges": [], "error": str(exc)}
+            try:
+                raw = self._call_cli(prompt)
+            except Exception as cli_exc:
+                return {"nodes": [], "edges": [], "error": f"Fallback CLI failed: {cli_exc}"}
+        except Exception as exc:
+            # Catch all library exceptions (OpenAIError, APIError) and fall back to CLI dynamically
+            logger.error("Provider %s call failed: %s; falling back to cli", provider, exc)
+            try:
+                raw = self._call_cli(prompt)
+            except Exception as cli_exc:
+                return {"nodes": [], "edges": [], "error": f"API call failed: {exc}, Fallback CLI failed: {cli_exc}"}
 
         if not raw:
             return {"nodes": [], "edges": [], "error": "empty response"}
@@ -135,19 +142,74 @@ class LLMBridge:
         fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
         if fence:
             text = fence.group(1).strip()
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            logger.warning("LLM JSON parse failed: %s", exc)
-            # Best-effort: try to slice out the first {...} block
+        # Helper to repair truncated JSON due to token limits
+        def try_repair(json_str: str) -> Optional[dict[str, Any]]:
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+
+            temp = json_str.strip()
+            if not temp:
+                return None
+
+            # Scan the string to find open brackets and unclosed strings
+            stack = []
+            in_string = False
+            escaped = False
+            
+            i = 0
+            n = len(temp)
+            while i < n:
+                char = temp[i]
+                if escaped:
+                    escaped = False
+                elif char == '\\':
+                    escaped = True
+                elif char == '"':
+                    in_string = not in_string
+                elif not in_string:
+                    if char in ('{', '['):
+                        stack.append(char)
+                    elif char == '}':
+                        if stack and stack[-1] == '{':
+                            stack.pop()
+                    elif char == ']':
+                        if stack and stack[-1] == '[':
+                            stack.pop()
+                i += 1
+
+            repaired = temp
+            if in_string:
+                repaired += '"'
+
+            repaired_stripped = repaired.rstrip()
+            if repaired_stripped.endswith(','):
+                repaired = repaired_stripped[:-1]
+            elif repaired_stripped.endswith(':'):
+                repaired = repaired_stripped + '""'
+
+            while stack:
+                open_char = stack.pop()
+                if open_char == '{':
+                    repaired += '}'
+                elif open_char == '[':
+                    repaired += ']'
+
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                return None
+
+        parsed = try_repair(text)
+        if parsed is None:
+            # Fallback: slice out the first matching {...} block
             match = re.search(r"\{.*\}", text, re.DOTALL)
             if match:
-                try:
-                    parsed = json.loads(match.group(0))
-                except json.JSONDecodeError as exc2:
-                    return {"nodes": [], "edges": [], "error": str(exc2)}
-            else:
-                return {"nodes": [], "edges": [], "error": str(exc)}
+                parsed = try_repair(match.group(0))
+
+        if parsed is None:
+            return {"nodes": [], "edges": [], "error": "JSON parse failed and cannot be repaired"}
 
         if not isinstance(parsed, dict):
             return {"nodes": [], "edges": [], "error": "non-object response"}

@@ -159,6 +159,36 @@ class TestLLMBridgeExtract:
         assert result["nodes"][0]["label"] == "John"
         assert len(result.get("edges", [])) == 1
 
+    def test_json_repair_scenarios(self):
+        bridge_module = _import_or_skip("mnemosyne.ingest.llm_bridge")
+        bridge = bridge_module.LLMBridge()
+
+        # 1. Unclosed string, bracket, and brace
+        text1 = '{"nodes": [{"id": "john", "type": "person", "label": "John'
+        res1 = bridge._parse_json(text1)
+        assert res1["nodes"][0]["label"] == "John"
+
+        # 2. Unclosed bracket and brace
+        text2 = '{"nodes": [{"id": "john", "type": "person", "label": "John"}'
+        res2 = bridge._parse_json(text2)
+        assert res2["nodes"][0]["label"] == "John"
+
+        # 3. Trailing comma
+        text3 = '{"nodes": [{"id": "john", "type": "person", "label": "John"}, '
+        res3 = bridge._parse_json(text3)
+        assert res3["nodes"][0]["label"] == "John"
+
+        # 4. Trailing colon
+        text4 = '{"nodes": [{"id": "john", "type": "person", "label":'
+        res4 = bridge._parse_json(text4)
+        assert res4["nodes"][0]["label"] == ""
+
+        # 5. Invalid JSON which cannot be repaired should return error dict
+        text5 = 'invalid content at all'
+        res5 = bridge._parse_json(text5)
+        assert "error" in res5
+        assert res5["nodes"] == []
+
 
 # ---------------------------------------------------------------------------
 # LLMExtractor — chunking and merging
