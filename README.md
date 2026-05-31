@@ -524,6 +524,26 @@ mnemosyne-knowledge-graph/
 └── MANUAL.md                     # Full user manual
 ```
 
+## Performance Tuning
+
+Mnemosyne features native write performance optimizations for scaling up your knowledge base.
+
+### 1. SQLite Write-Ahead Logging (WAL) & Normal Sync
+The sqlite database uses WAL journaling and relaxed synchronization to speed up database inserts and updates during raw source ingestion.
+*   Concurrently reads and writes do not block each other.
+*   Default SQLite connection `timeout` is raised to `30s` to prevent lock timeout failures.
+
+### 2. Lock Offloading (MNEMOSYNE_LOCK_DIR)
+Sequential write locks are processed safely. To prevent disk lock delays (especially on slower HDD or network volumes), redirect the lock path to `/tmp` (memory-backed `tmpfs` RAM disk):
+```bash
+export MNEMOSYNE_LOCK_DIR=/tmp
+```
+
+### 3. Native Rust Accelerator Core (mnemosyne-core)
+Mnemosyne integrates a PyO3/Rayon based Rust extension module to speed up directory globbing and index page generation:
+*   **Automatic Build**: Automatically built on package installs if `cargo` is present.
+*   **Graceful Fallback**: If no Rust compiler is found, the system switches to the native Python logic seamlessly without errors.
+
 ## Key Features
 
 - **Zero API Cost**: Tree-sitter AST parsing (6 languages), local SLMs for NLP

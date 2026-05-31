@@ -481,6 +481,32 @@ mnemosyne-knowledge-graph/
 
 ---
 
+## 7. Performance Tuning
+
+For large-scale wikis or environments with high concurrent writes, Mnemosyne provides several out-of-the-box optimization features.
+
+### 7.1 Database Connection Tuning
+The temporal knowledge graph uses SQLite for local state. The database engine is tuned as follows:
+*   **WAL (Write-Ahead Logging) Mode**: Enabled by default, allowing concurrent readers and writers to access the database without locking conflicts.
+*   **Synchronous Mode**: Set to `NORMAL`. This prevents expensive fsync flushes on every write, improving database throughput during bulk ingest operations.
+*   **Timeout**: SQLite connection timeout is set to `30s` to resolve locking issues when multiple agents edit files concurrently.
+
+### 7.2 Memory-Backed Lock Directory (Lock Offloading)
+Mnemosyne's wiki module serializes write processes via a file-based lock. To avoid storage I/O delays, you can redirect lock files to a RAM disk (such as `/tmp` or another `tmpfs` path):
+```bash
+# Redirect lock files to RAM disk
+export MNEMOSYNE_LOCK_DIR=/tmp
+```
+When configured, locks will be written in the specified fast-access storage path under deterministic hash names mapped to their wiki roots.
+
+### 7.3 Hybrid Rust Acceleration Core (`mnemosyne-core`)
+An optional PyO3-based Rust extension is integrated into the core package:
+*   **Installation**: Automatically compiled during normal package installs if `cargo` is present.
+*   **Offloading**: Offloads Python file globbing and index page generation to a parallel execution pool using `Rayon`.
+*   **Fallback**: If no compiler is present, the package dynamically falls back to native Python indexing paths, preserving 100% feature parity.
+
+---
+
 ## 8. Troubleshooting
 
 | Issue | Solution |
