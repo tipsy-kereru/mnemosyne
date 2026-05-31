@@ -114,7 +114,14 @@ class WikiWriteLock:
 
     def __post_init__(self) -> None:
         self.wiki_root = self.wiki_root.expanduser()
-        self.lock_path = self.wiki_root / ".mnemosyne-wiki.lock"
+        lock_dir_env = os.environ.get("MNEMOSYNE_LOCK_DIR")
+        if lock_dir_env:
+            lock_dir = Path(lock_dir_env).expanduser()
+            lock_dir.mkdir(parents=True, exist_ok=True)
+            root_hash = uuid.uuid5(uuid.NAMESPACE_DNS, str(self.wiki_root)).hex[:12]
+            self.lock_path = lock_dir / f".mnemosyne-wiki-{root_hash}.lock"
+        else:
+            self.lock_path = self.wiki_root / ".mnemosyne-wiki.lock"
         self.owner_token = uuid.uuid4().hex
         self._acquired = False
 

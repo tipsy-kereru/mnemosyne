@@ -987,3 +987,25 @@ def test_locked_rebuild_reports_json_error_without_corrupting_pages(tmp_path, ca
     assert '"code": "wiki-lock-timeout"' in captured.err
     assert str(wiki_root / ".mnemosyne-wiki.lock") in captured.err
     assert alice_page.read_text(encoding="utf-8") == before
+
+
+def test_wiki_write_lock_with_custom_lock_dir(tmp_path, monkeypatch):
+    import os
+    import uuid
+    from mnemosyne.wiki.llm_wiki import WikiWriteLock
+
+    wiki_root = tmp_path / "wiki"
+    lock_dir = tmp_path / "custom_lock_dir"
+    monkeypatch.setenv("MNEMOSYNE_LOCK_DIR", str(lock_dir))
+
+    root_hash = uuid.uuid5(uuid.NAMESPACE_DNS, str(wiki_root)).hex[:12]
+    expected_lock_path = lock_dir / f".mnemosyne-wiki-{root_hash}.lock"
+
+    with WikiWriteLock(wiki_root, action="unit-test-custom"):
+        assert expected_lock_path.exists()
+        assert not (wiki_root / ".mnemosyne-wiki.lock").exists()
+        metadata = WikiWriteLock.read_metadata(expected_lock_path)
+        assert metadata["pid"] == os.getpid()
+        assert metadata["action"] == "unit-test-custom"
+
+    assert not expected_lock_path.exists()
