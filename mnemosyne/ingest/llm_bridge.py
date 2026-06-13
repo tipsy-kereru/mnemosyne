@@ -13,6 +13,21 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_LLM_MAX_TOKENS = 8192
+
+
+def _max_tokens() -> int:
+    """Return per-request token budget, overridable via MNEMOSYNE_LLM_MAX_TOKENS."""
+    raw = os.environ.get("MNEMOSYNE_LLM_MAX_TOKENS", "")
+    if raw:
+        try:
+            val = int(raw)
+            if val > 0:
+                return val
+        except ValueError:
+            logger.warning("MNEMOSYNE_LLM_MAX_TOKENS=%r is not a positive int, using default", raw)
+    return DEFAULT_LLM_MAX_TOKENS
+
 
 SCHEMA_HINTS: dict[str, str] = {
     "coding": "function, class, module, api, bug, feature, test, dependency",
@@ -234,7 +249,7 @@ class LLMBridge:
         # Rely on the prompt instructions + _parse_json fence-stripping instead.
         resp = client.chat.completions.create(
             model=model,
-            max_tokens=8192,
+            max_tokens=_max_tokens(),
             messages=[{"role": "user", "content": prompt}],
         )
         msg = resp.choices[0].message
@@ -248,7 +263,7 @@ class LLMBridge:
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
+            max_tokens=_max_tokens(),
             messages=[{"role": "user", "content": prompt}],
         )
         # SDK returns a list of content blocks; gather text blocks.
@@ -266,7 +281,7 @@ class LLMBridge:
         client = openai.OpenAI()
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            max_tokens=2048,
+            max_tokens=_max_tokens(),
             messages=[{"role": "user", "content": prompt}],
         )
         choice = resp.choices[0]
@@ -280,7 +295,7 @@ class LLMBridge:
         if api_key:
             genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
-        resp = model.generate_content(prompt)
+        resp = model.generate_content(prompt, generation_config={"max_output_tokens": _max_tokens()})
         return getattr(resp, "text", "") or ""
 
     @staticmethod
