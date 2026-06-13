@@ -217,9 +217,13 @@ def prune_wiki_budget(
     for norm, indices in by_norm.items():
         if len(indices) <= 1:
             continue
-        # Representative = highest score (ties broken by lower path for determinism)
-        representative = max(
-            indices, key=lambda i: (docs[i].score, -ord(Path(docs[i].path).name[0]) if Path(docs[i].path).name else 0)
+        # Representative = highest score, ties broken by lowest path for determinism.
+        # Round the score to kill recency (mtime) float noise: within an exact-content
+        # dedup group, importance/access are identical, so any sub-1e-9 score delta is
+        # pure mtime-timing noise, not a meaningful ranking signal.
+        representative = min(
+            indices,
+            key=lambda i: (-round(docs[i].score, 9), Path(docs[i].path).name),
         )
         for idx in indices:
             if idx == representative:
