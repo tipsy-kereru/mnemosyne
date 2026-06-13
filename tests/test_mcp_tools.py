@@ -46,6 +46,7 @@ EXPECTED_TOOLS = {
     # WRITE (create/update only)
     "mnemosyne_add",
     "mnemosyne_extract",
+    "mnemosyne_update",
     "mnemosyne_create_entity",
     "mnemosyne_update_entity",
     "mnemosyne_create_relation",
@@ -198,6 +199,24 @@ class TestAddRoundTrip:
 # ============================================================================
 # AC5 + REQ-MCP-006: update appends history, prior version preserved
 # ============================================================================
+
+class TestUpdateTool:
+    """TBD-2: mnemosyne_update incremental re-extraction tool."""
+
+    def test_update_empty_dir_returns_stats(self, ctx, tmp_path):
+        raw = tmp_path / "raw" / "daily"
+        raw.mkdir(parents=True)
+        result = invoke_tool(ctx, "mnemosyne_update", {"path": str(raw), "domain": "daily"})
+        assert isinstance(result, dict)
+        # Scanning an empty dir is non-destructive and re-ingests nothing.
+        assert result["total"] == 0
+        assert result["changed"] == 0
+        assert result["errors"] == 0
+
+    def test_update_in_tool_set_and_not_delete(self):
+        assert "mnemosyne_update" in EXPECTED_TOOLS
+        assert "mnemosyne_delete" not in EXPECTED_TOOLS
+
 
 class TestUpdateHistory:
     def test_update_appends_entity_history(self, ctx):

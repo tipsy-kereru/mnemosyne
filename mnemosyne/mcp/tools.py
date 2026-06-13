@@ -411,6 +411,31 @@ def _extract(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
 # ============================================================================
 
 
+def _update(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Incremental re-extraction of changed files (REQ-MCP-004 TBD-2).
+
+    Wraps mnemosyne.ingest.update.Updater in-process. Non-destructive: ``prune``
+    only clears stale raw-cache entries, never entities/relations/graph rows.
+    """
+    from mnemosyne.ingest.update import Updater, stats_to_dict
+
+    path = args.get("path")
+    updater = Updater(
+        db_path=Path(ctx.db_path),
+        raw_root=Path(args["raw_root"]).expanduser() if args.get("raw_root") else None,
+        wiki_root=Path(args["wiki_root"]).expanduser() if args.get("wiki_root") else None,
+        dry_run=bool(args.get("dry_run", False)),
+    )
+    stats = updater.update(
+        path=Path(path).expanduser() if path else None,
+        domain=args.get("domain"),
+        scope_id=args.get("scope_id"),
+        source_channel=args.get("source_channel", "mcp"),
+        prune=bool(args.get("prune", False)),
+    )
+    return stats_to_dict(stats)
+
+
 def _wiki_rebuild(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
     from mnemosyne.wiki.llm_wiki import LLMWikiMaintainer
 
@@ -593,6 +618,27 @@ def build_tool_specs() -> List[ToolSpec]:
                 add_scope=True,
             ),
             handler=_extract,
+        ),
+        ToolSpec(
+            name="mnemosyne_update",
+            description=(
+                "Incremental re-extraction from changed files under a raw root (or a given path). "
+                "Re-ingests only files whose content hash changed. Non-destructive: prune clears "
+                "stale raw-cache entries only, never entities/relations/graph rows."
+            ),
+            input_schema=_obj_schema(
+                {
+                    "path": {"type": "string", "description": "File/dir to scan (default: raw_root)."},
+                    "domain": {"type": "string", "enum": ["coding", "daily", "legal"]},
+                    "raw_root": {"type": "string", "description": "Override raw root (default ~/mnemosyne/raw)."},
+                    "wiki_root": {"type": "string", "description": "Optional wiki root to refresh."},
+                    "prune": {"type": "boolean", "default": False},
+                    "dry_run": {"type": "boolean", "default": False},
+                },
+                required=[],
+                add_scope=True,
+            ),
+            handler=_update,
         ),
         ToolSpec(
             name="mnemosyne_create_entity",

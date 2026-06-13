@@ -66,11 +66,14 @@ def _install_snippets() -> Dict[str, Dict[str, object]]:
                     "mnemosyne": {
                         "command": cmd[0],
                         "args": cmd[1:],
-                        "transport": "stdio",
                     }
                 }
             },
-            "note": "Merge under 'mcpServers' in your OpenClaw config.",
+            "note": (
+                "Merge under 'mcpServers' in your openclaw.json (or a plugin bundle's "
+                "MCP config). OpenClaw launches stdio servers as subprocesses from "
+                "command+args; no transport field is needed."
+            ),
         },
     }
 
