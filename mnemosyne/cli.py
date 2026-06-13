@@ -367,6 +367,18 @@ def main(argv=None):
         help="Show installed hook status for all platforms",
     )
 
+    # -- mcp subcommand --
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="MCP server and install helper (SPEC-MCP-001)",
+        description="Run the MCP stdio server or print an MCP client config snippet.",
+    )
+    # Accept arbitrary trailing args and hand them to the mcp sub-CLI, which
+    # owns its own argparse for `serve` / `install`. Using REMAINDER lets
+    # `mnemosyne mcp install --client X` pass through without the top-level
+    # parser rejecting the sub-action flags.
+    mcp_parser.add_argument("mcp_args", nargs=argparse.REMAINDER)
+
     # -- serve subcommand --
     serve_parser = subparsers.add_parser(
         "serve",
@@ -528,6 +540,15 @@ def main(argv=None):
         _run_project(args)
     elif args.command == "serve":
         _run_serve(args)
+    elif args.command == "mcp":
+        import sys as _sys
+        from mnemosyne.mcp.cli import main as mcp_main
+        # Re-dispatch to the mcp subcommand CLI; it owns its own argparse.
+        # REMAINDER captures everything after `mcp` (incl. leading `--`).
+        mcp_args = [a for a in getattr(args, "mcp_args", []) if a != "--"]
+        code = mcp_main(mcp_args)
+        if code:
+            _sys.exit(code)
     else:
         parser.print_help()
 
