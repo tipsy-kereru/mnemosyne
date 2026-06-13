@@ -8,12 +8,12 @@ Based on Google's Gemini Universal Temporal Knowledge Graph research and Andrej 
 
 | Metric | Status |
 |--------|--------|
-| Tests | 465 passed |
+| Tests | 626 passed |
 | Type Safety | mypy 0 errors |
 | Lint | ruff 0 violations |
 | Warnings | 0 pytest warnings |
 | Coverage | 81%+ |
-| SPECs | 18 completed, 0 in progress |
+| SPECs | 19 completed, 0 in progress |
 
 ## Architecture
 
@@ -80,11 +80,14 @@ uv pip install --upgrade "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mne
 Install the `/mnemosyne` skill so AI agents (Claude Code, etc.) can use knowledge graph commands directly:
 
 ```bash
-# Default: install to ~/.claude/skills/mnemosyne/
+# Default: install to ~/.claude/skills/mnemosyne/ (Claude Code)
 mnemosyne skill install
 
-# For other agent frameworks
-mnemosyne skill install --target agents    # ./.agents/skills/mnemosyne/
+# For other agent frameworks (global ~/.agents/skills/)
+mnemosyne skill install --target agents
+
+# Force reinstall even if identical
+mnemosyne skill install --force
 
 # Custom path
 mnemosyne skill install --path ~/my-agent/skills
@@ -157,11 +160,12 @@ mnemosyne wiki doctor
 |---------|-------------|
 | `mnemosyne --version` | Show package version |
 | `mnemosyne query --stats` | Graph statistics |
-| `mnemosyne query --query "search:term"` | Fuzzy entity search |
+| `mnemosyne query --query "search:term"` | FTS5 fuzzy search (ranked results) |
 | `mnemosyne extract <path>` | Extract entities from a file or directory |
 | `mnemosyne add <target>` | Ingest a file, directory, URL, or `--text` snippet |
 | `mnemosyne update <path>` | Incrementally refresh graph and LLM Wiki from changed files |
 | `mnemosyne wiki <subcommand>` | Inspect and maintain the Markdown LLM Wiki |
+| `mnemosyne mcp serve` | Start MCP server for AI agent integration |
 
 ### `mnemosyne add` options
 
@@ -177,6 +181,32 @@ mnemosyne wiki doctor
 | `--wiki-excerpts` | off | Opt in to bounded, redacted source excerpts in wiki pages |
 
 Default data paths: `~/mnemosyne/raw/`, `~/mnemosyne/wiki/`, `~/mnemosyne/graph/knowledge.db`
+
+## MCP Server
+
+Mnemosyne provides an MCP server for AI agent integration:
+
+```bash
+# Start the MCP server
+python -m mnemosyne.mcp
+
+# Or via the CLI
+mnemosyne mcp serve
+
+# Install helper (prints config snippet for your MCP client)
+mnemosyne mcp install --client claude-desktop
+mnemosyne mcp install --client hermes
+mnemosyne mcp install --client openclaw
+```
+
+**15 MCP tools** are available:
+- **Read**: mnemosyne_search, mnemosyne_query, mnemosyne_get_entity, mnemosyne_list_entities, mnemosyne_stats, mnemosyne_wiki_status, mnemosyne_wiki_lint
+- **Write**: mnemosyne_add, mnemosyne_extract, mnemosyne_update, mnemosyne_create_entity, mnemosyne_update_entity, mnemosyne_create_relation
+- **Wiki maintenance**: mnemosyne_wiki_rebuild, mnemosyne_wiki_prune
+
+**No-delete contract**: The MCP server never deletes data. `mnemosyne_update_entity` appends temporal versions (entity_history), and `mnemosyne_wiki_prune` only creates tombstone records.
+
+**Transport**: Direct Python import (reuses KnowledgeGraph + Handlers in-process; no separate `mnemosyne serve` needed).
 
 ### `mnemosyne wiki` subcommands
 
@@ -550,7 +580,8 @@ Mnemosyne integrates a PyO3/Rayon based Rust extension module to speed up direct
 - **Knowledge Compounding**: Wiki-layer accumulates knowledge across extractions
 - **Temporal Tracking**: Entity version history with timestamps
 - **Session Scopes**: Hierarchical project/topic/session scoping
+- **FTS5 Fuzzy Search**: Ranked entity search via SQLite FTS5 BM25
 - **Incremental Extraction**: SHA-256 content hash tracking
 - **Multi-domain**: Coding, daily life, and legal schemas
 - **Protocol-based**: `LanguageExtractor` protocol for extensible language support
-- **Production Ready**: mypy strict, ruff clean, 465 tests, 81%+ coverage
+- **Production Ready**: mypy strict, ruff clean, 626 tests, 81%+ coverage

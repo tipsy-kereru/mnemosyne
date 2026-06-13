@@ -19,8 +19,9 @@ A **local knowledge memory system for AI agents**. Based on Google Gemini's Univ
 | **Knowledge Compounding** | Knowledge accumulates instead of re-exploring relationships from scratch |
 | **Temporal Tracking** | Entity change history managed per version |
 | **Session Scoping** | Hierarchical scope management: project / topic / session |
+| **FTS5 Fuzzy Search** | Ranked entity search via SQLite FTS5 BM25 |
 | **Obsidian Experience** | Joplin plugin with [[wiki-links]] support |
-| **Production Grade** | 465 tests, mypy 0 errors, 81%+ coverage |
+| **Production Grade** | 626 tests, mypy 0 errors, 81%+ coverage |
 
 ### 1.3 Architecture
 
@@ -96,11 +97,13 @@ npm run pack  # → creates knowledge-graph.jpl file
 |---------|-------------|
 | `mnemosyne --version` | Show version |
 | `mnemosyne query --stats` | Graph statistics |
-| `mnemosyne query --query "search:term"` | Search entities |
+| `mnemosyne query --query "search:term"` | FTS5 fuzzy search (ranked results) |
 | `mnemosyne extract <path>` | Extract entities from file/directory |
 | `mnemosyne add <target>` | Ingest file, directory, URL, or `--text` text into the graph |
 | `mnemosyne update <path>` | Incrementally reflect changed files into graph and LLM Wiki |
 | `mnemosyne wiki <subcommand>` | Inspect and manage Markdown LLM Wiki |
+| `mnemosyne skill install` | Install agent skill for Claude Code or other agents |
+| `mnemosyne mcp serve` | Start MCP server for AI agent integration |
 
 ### `mnemosyne add` Options
 
@@ -292,12 +295,38 @@ python -m mnemosyne.graph.knowledge_graph --query "relation:calls"
 # Path finding
 python -m mnemosyne.graph.knowledge_graph --query "path:get_user,authenticate"
 
-# Search
+# FTS5 fuzzy search (ranked results)
 python -m mnemosyne.graph.knowledge_graph --query "search:authenticate"
 
 # Session-scoped query
 python -m mnemosyne.graph.knowledge_graph --query "entity:function[*]@session:impl-session"
 ```
+
+### 3.7 MCP Server
+
+Mnemosyne provides an MCP server for AI agent integration:
+
+```bash
+# Start the MCP server
+python -m mnemosyne.mcp
+
+# Or via the CLI
+mnemosyne mcp serve
+
+# Install helper (prints config snippet for your MCP client)
+mnemosyne mcp install --client claude-desktop
+mnemosyne mcp install --client hermes
+mnemosyne mcp install --client openclaw
+```
+
+**15 MCP tools** are available:
+- **Read**: mnemosyne_search, mnemosyne_query, mnemosyne_get_entity, mnemosyne_list_entities, mnemosyne_stats, mnemosyne_wiki_status, mnemosyne_wiki_lint
+- **Write**: mnemosyne_add, mnemosyne_extract, mnemosyne_update, mnemosyne_create_entity, mnemosyne_update_entity, mnemosyne_create_relation
+- **Wiki maintenance**: mnemosyne_wiki_rebuild, mnemosyne_wiki_prune
+
+**No-delete contract**: The MCP server never deletes data. `mnemosyne_update_entity` appends temporal versions (entity_history), and `mnemosyne_wiki_prune` only creates tombstone records.
+
+**Transport**: Direct Python import (reuses KnowledgeGraph + Handlers in-process; no separate `mnemosyne serve` needed).
 
 ---
 
@@ -353,7 +382,7 @@ kg = KnowledgeGraph()
 # Statistics
 stats = kg.get_stats()
 
-# Search
+# FTS5 fuzzy search (ranked results)
 results = kg.query("search:authenticate")
 
 # Entity lookup
@@ -524,13 +553,13 @@ An optional PyO3-based Rust extension is integrated into the core package:
 
 | Metric | Current Status |
 |--------|---------------|
-| pytest | 465 passed |
+| pytest | 626 passed |
 | mypy | 0 errors (37+ source files) |
 | ruff | 0 violations |
 | Coverage | 81%+ |
-| SPECs | 18 completed |
+| SPECs | 19 completed |
 
 ---
 
-*Manual version: 3.0*
-*Last updated: 2026-05-03*
+*Manual version: 3.1*
+*Last updated: 2026-06-14*

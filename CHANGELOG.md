@@ -5,6 +5,30 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-14
+
+### Added
+- **FTS5 fuzzy search** (SPEC-HEADROOM-001): SQLite FTS5 BM25-ranked search via `search:<term>` queries. Replaces exact-match limitation with true fuzzy search.
+- **Content hash change detection**: Optional `update_entity(skip_if_unchanged=True, source_content=...)` for conditional updates.
+- **Wiki budget pruning**: `mnemosyne/wiki/budget.py` for wiki size management.
+- **Broken link detection**: `mnemosyne/graph/maintenance.py` for wiki integrity.
+- **LLM token budget tuning**: `MNEMOSYNE_LLM_MAX_TOKENS` environment variable (default 8192) for per-request output tokens across all providers.
+- **Skill install enhancements**: `mnemosyne skill install --target {claude|agents}` for global directories (`~/.claude/skills/`, `~/.agents/skills/`), `--force` flag for reinstall, `--path DIR` for custom paths.
+- **MCP server** (SPEC-MCP-001): `python -m mnemosyne.mcp` or `mnemosyne mcp serve` with 15 tools (read, write, wiki maintenance). Install helper via `mnemosyne mcp install --client {claude-desktop|hermes|openclaw}`.
+- **mnemosyne_update tool/CLI**: Incremental re-extraction of changed files (content-hash based), non-destructive.
+
+### Changed
+- FTS5 search now provides ranked results (no longer requires exact entity names).
+- MCP transport uses direct Python import (in-process KnowledgeGraph + Handlers; no separate `mnemosyne serve` needed).
+- MCP server follows no-delete contract: `mnemosyne_update_entity` appends temporal versions, `mnemosyne_wiki_prune` creates tombstones only.
+- Package renamed to `mnemosyne` (import paths are `mnemosyne.*` via SPEC-RENAME-001; all `core.*` references removed).
+
+### Quality Metrics
+- pytest: 626 passed (was 465)
+- ruff: 0 violations
+- mypy: 0 errors
+- Coverage: 81%+
+
 ## [0.3.8] - 2026-05-03
 
 ### Added
