@@ -290,11 +290,15 @@ def main(argv=None):
     )
     skill_install.add_argument(
         "--target", choices=["claude", "agents"], default="claude",
-        help="Target agent framework: 'claude' for ~/.claude/skills/, 'agents' for ./.agents/skills/ (default: claude)",
+        help="Target agent framework: 'claude' for ~/.claude/skills/, 'agents' for ~/.agents/skills/ (default: claude)",
     )
     skill_install.add_argument(
         "--path",
-        help="Custom absolute directory path (e.g. /home/user/.claude/skills). Overrides --target",
+        help="Custom absolute directory path (e.g. /home/user/.claude/skills or ./.agents/skills). Overrides --target",
+    )
+    skill_install.add_argument(
+        "--force", action="store_true",
+        help="Reinstall even if the installed SKILL.md is already identical",
     )
 
     skill_update = skill_subparsers.add_parser(
@@ -309,6 +313,10 @@ def main(argv=None):
     skill_update.add_argument(
         "--path",
         help="Custom absolute directory path. Overrides --target",
+    )
+    skill_update.add_argument(
+        "--force", action="store_true",
+        help="Rewrite even if the installed SKILL.md is already identical",
     )
 
     # -- hook subcommand --
@@ -641,7 +649,7 @@ def _run_skill(args):
     from pathlib import Path
 
     if args.skill_command is None:
-        print("Usage: mnemosyne skill {install|update} [--target claude|agents] [--path DIR]")
+        print("Usage: mnemosyne skill {install|update} [--target claude|agents] [--path DIR] [--force]")
         return
 
     if args.skill_command in ("install", "update"):
@@ -658,14 +666,15 @@ def _run_skill(args):
         if getattr(args, "path", None):
             skills_dir = Path(args.path)
         elif getattr(args, "target", "claude") == "agents":
-            skills_dir = Path.cwd() / ".agents" / "skills"
+            skills_dir = Path.home() / ".agents" / "skills"
         else:
             skills_dir = Path.home() / ".claude" / "skills"
 
         target_file = skills_dir / "mnemosyne" / "SKILL.md"
 
-        # Check if already installed with identical content
-        if target_file.exists() and target_file.read_text(encoding="utf-8") == content:
+        # Skip if already installed with identical content, unless --force reinstalls
+        force = bool(getattr(args, "force", False))
+        if not force and target_file.exists() and target_file.read_text(encoding="utf-8") == content:
             print(f"Already up to date: {target_file}")
             return
 
