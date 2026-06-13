@@ -172,6 +172,12 @@ class KnowledgeGraph:
             cursor.execute(
                 "ALTER TABLE entities ADD COLUMN source_channel TEXT NOT NULL DEFAULT 'legacy'"
             )
+        # SPEC-HEADROOM-001 REQ-006: nullable content_hash for skip-unchanged path.
+        # Additive + idempotent; existing rows default to NULL (no data rewrite).
+        if 'content_hash' not in entity_columns:
+            cursor.execute(
+                "ALTER TABLE entities ADD COLUMN content_hash TEXT DEFAULT NULL"
+            )
 
         # Detect and add missing columns on relations table
         relation_columns = self._get_table_columns('relations')
@@ -222,6 +228,12 @@ class KnowledgeGraph:
         )
 
         self.conn.commit()
+
+        # SPEC-HEADROOM-001 REQ-001/002/00ROOM: FTS5 external-content virtual
+        # table + sync triggers + first-time backfill. Additive, idempotent,
+        # degrades gracefully when FTS5 is unavailable.
+        from mnemosyne.graph.fts import create_entity_fts
+        create_entity_fts(self.conn)
 
     def _get_table_columns(self, table_name: str) -> List[str]:
         """Get list of column names for a table"""
@@ -363,12 +375,41 @@ class KnowledgeGraph:
 
         return relation
 
-    def update_entity(self, entity: Entity, source_channel: Optional[str] = None) -> Entity:
-        """Update an existing entity and append temporal history."""
+    def update_entity(
+        self,
+        entity: Entity,
+        source_channel: Optional[str] = None,
+        skip_if_unchanged: bool = False,
+        source_content: Optional[str] = None,
+    ) -> Entity:
+        """Update an existing entity and append temporal history.
+
+        SPEC-HEADROOM-001 REQ-007: when ``skip_if_unchanged`` is True and
+        ``source_content`` is provided, the SHA-256 of ``source_content`` is
+        compared to the stored ``content_hash``. On equality the UPDATE and
+        the ``entity_history`` append are both skipped (no write emitted) and
+        the existing entity is returned unchanged. The fast path is opt-in so
+        existing callers that expect a write on every call are unaffected.
+        """
         cursor = self.conn.cursor()
         existing = self.get_entity(entity.id)
         if existing is None:
             raise KeyError(f"Entity not found: {entity.id}")
+
+        # SPEC-HEADROOM-001 REQ-007: opt-in skip-unchanged fast path.
+        if skip_if_unchanged and source_content is not None:
+            from mnemosyne.graph.hash_sync import compute_content_hash, should_skip
+
+            new_hash = compute_content_hash(source_content)
+            stored_hash_row = cursor.execute(
+                "SELECT content_hash FROM entities WHERE id = ?", (entity.id,)
+            ).fetchone()
+            stored_hash = stored_hash_row["content_hash"] if stored_hash_row else None
+            if should_skip(stored_hash=stored_hash, new_hash=new_hash):
+                logger.debug(
+                    "Skipping unchanged entity %s (content_hash match)", entity.id
+                )
+                return existing
 
         now = utc_now_iso()
         entity.created_at = existing.created_at
@@ -377,10 +418,18 @@ class KnowledgeGraph:
         entity.scope_id = entity.scope_id if entity.scope_id is not None else existing.scope_id
         entity.source_channel = source_channel or entity.source_channel or existing.source_channel
 
+        # SPEC-HEADROOM-001 REQ-007: persist content_hash when the caller
+        # supplied source_content, so the next call can skip.
+        new_content_hash: Optional[str] = None
+        if source_content is not None:
+            from mnemosyne.graph.hash_sync import compute_content_hash
+
+            new_content_hash = compute_content_hash(source_content)
+
         cursor.execute('''
             UPDATE entities
             SET type = ?, name = ?, properties = ?, updated_at = ?, version = ?,
-                scope_id = ?, source_channel = ?
+                scope_id = ?, source_channel = ?, content_hash = COALESCE(?, content_hash)
             WHERE id = ?
         ''', (
             entity.type,
@@ -390,6 +439,7 @@ class KnowledgeGraph:
             entity.version,
             entity.scope_id,
             entity.source_channel,
+            new_content_hash,
             entity.id,
         ))
         cursor.execute('''
@@ -844,27 +894,51 @@ class KnowledgeGraph:
     def _query_search(
         self, query_str: str, modifiers: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
-        """Search entities by name or property content with optional filters"""
+        """Search entities by name or property content with optional filters.
+
+        SPEC-HEADROOM-001 REQ-003/004: prefers the FTS5 ``entity_fts`` index
+        with ``bm25()`` ranking so partial/approximate names surface; falls
+        back to the original ``LIKE '%term%'`` substring scan (with a warning)
+        when FTS5 is unavailable or the table is absent. The response shape
+        ``{type:'search', term, results, count}`` is preserved either way.
+        """
         if modifiers is None:
             modifiers = {}
 
         term = query_str.replace('search:', '').strip()
 
         cursor = self.conn.cursor()
-        pattern = f'%{term}%'
 
-        conditions = ['(e.name LIKE ? OR e.properties LIKE ?)']
-        params: List[Any] = [pattern, pattern]
-
-        # Apply modifier-based filters
+        # Apply modifier-based filters (composed on the 'e' entities alias).
         mod_clauses, mod_params = self._build_where_clauses(modifiers, table_alias='e')
-        conditions.extend(mod_clauses)
-        params.extend(mod_params)
 
-        where = ' AND '.join(conditions)
-        rows = cursor.execute(
-            f'SELECT e.* FROM entities e WHERE {where}', params
-        ).fetchall()
+        from mnemosyne.graph import fts as fts_mod
+
+        rows = None
+        if fts_mod.fts_search_ready(self.conn):
+            try:
+                rows = fts_mod.ranked_search(
+                    self.conn, term, where_clauses=mod_clauses, where_params=mod_params
+                )
+            except sqlite3.OperationalError as exc:
+                # Malformed MATCH expression or transient FTS error: fall back.
+                logger.warning("FTS5 search failed (%s); falling back to LIKE", exc)
+                rows = None
+
+        if rows is None:
+            if not fts_mod.fts_search_ready(self.conn):
+                logger.warning(
+                    "FTS5 unavailable or entity_fts absent; search:'%s' using LIKE fallback", term
+                )
+            pattern = f'%{term}%'
+            conditions = ['(e.name LIKE ? OR e.properties LIKE ?)']
+            params: List[Any] = [pattern, pattern]
+            conditions.extend(mod_clauses)
+            params.extend(mod_params)
+            where = ' AND '.join(conditions)
+            rows = cursor.execute(
+                f'SELECT e.* FROM entities e WHERE {where}', params
+            ).fetchall()
 
         entities = [{
             'id': row['id'],

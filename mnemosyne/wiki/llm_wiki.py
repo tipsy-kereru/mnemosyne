@@ -24,7 +24,7 @@ from typing import Any, Iterable, Iterator, Optional
 from mnemosyne.ingest.llm_extractor import IngestEntity, IngestRelation, ParsedIngestResult
 
 try:
-    from mnemosyne import mnemosyne_core
+    from mnemosyne import mnemosyne_core  # type: ignore[attr-defined]
     _HAS_RUST_CORE = True
 except ImportError:
     _HAS_RUST_CORE = False

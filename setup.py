@@ -1,5 +1,4 @@
 import subprocess
-import sys
 from setuptools import setup
 
 def has_cargo():

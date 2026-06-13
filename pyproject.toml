@@ -85,3 +85,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.mypy]
+# 3rd-party build stubs (setuptools/setuptools_rust) and the optional
+# Rust core (mnemosyne_core) are not always importable at type-check time.
+ignore_missing_imports = true
