@@ -206,3 +206,6 @@ AGENTS.md
 .mcp.json
 
 *.jpl
+
+# Stray session-transcript dumps (date-stamped .txt at repo root)
+/2*.txt
