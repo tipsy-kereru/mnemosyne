@@ -208,6 +208,35 @@ mnemosyne mcp install --client openclaw
 
 **전송**: 직접 Python 가져오기(프로세스 내 KnowledgeGraph + Handlers 재사용, 별도의 `mnemosyne serve` 필요 없음).
 
+## 성능 튜닝
+
+Mnemosyne는 지식 베이스 확장을 위한 네이티브 쓰기 성능 최적화를 제공합니다.
+
+### 1. SQLite WAL(Write-Ahead Logging) 및 Normal 동기화
+SQLite 데이터베이스는 WAL 저널링과 완화된 동기화를 사용하여 원본 소스 수집 중 데이터베이스 삽입/업데이트 속도를 높입니다.
+*   읽기와 쓰기가 동시에 서로를 차단하지 않습니다.
+*   기본 SQLite 연결 `timeout`은 잠금 시간 초과 실패를 방지하기 위해 `30s`로 상향되었습니다.
+
+### 2. 잠금 오프로딩(MNEMOSYNE_LOCK_DIR)
+순차 쓰기 잠금은 안전하게 처리됩니다. 디스크 잠금 지연(특히 느린 HDD 또는 네트워크 볼륨)을 방지하려면 잠금 경로를 `/tmp`(메모리 기반 `tmpfs` RAM 디스크)로 리디렉션하십시오:
+```bash
+export MNEMOSYNE_LOCK_DIR=/tmp
+```
+
+### 3. 네이티브 Rust 가속기 코어(mnemosyne-core)
+Mnemosyne는 디렉터리 글로빙 및 인덱스 페이지 생성 속도를 높이기 위해 PyO3/Rayon 기반 Rust 확장 모듈을 통합합니다:
+*   **자동 빌드**: `cargo`가 있으면 패키지 설치 시 자동으로 빌드됩니다.
+*   **정상 폴백**: Rust 컴파일러가 없으면 오류 없이 네이티브 Python 로직으로 전환됩니다.
+
+새 컴퓨터에서 가속기를 활성화하려면 Rust 툴체인(`cargo` 제공)을 설치하십시오:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+그런 다음 빌드가 `cargo`를 인식하도록 패키지를 재설치하십시오:
+```bash
+pip install --force-reinstall --no-deps "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+```
+
 ## 핵심 기능
 
 - **제로 API 비용**: Tree-sitter AST 구문 분석(6개 언어), NLP용 로컬 SLM

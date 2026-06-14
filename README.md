@@ -574,6 +574,15 @@ Mnemosyne integrates a PyO3/Rayon based Rust extension module to speed up direct
 *   **Automatic Build**: Automatically built on package installs if `cargo` is present.
 *   **Graceful Fallback**: If no Rust compiler is found, the system switches to the native Python logic seamlessly without errors.
 
+Install the Rust toolchain (provides `cargo`) to enable the accelerator on a new machine:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+Then reinstall the package so the build picks up `cargo`:
+```bash
+pip install --force-reinstall --no-deps "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+```
+
 ## Key Features
 
 - **Zero API Cost**: Tree-sitter AST parsing (6 languages), local SLMs for NLP
