@@ -235,6 +235,12 @@ class KnowledgeGraph:
         from mnemosyne.graph.fts import create_entity_fts
         create_entity_fts(self.conn)
 
+        # SPEC-LONGDOC-001 REQ-LD-003: page-index style long-doc tree tables.
+        # Additive, idempotent (guarded by sqlite_master existence checks),
+        # no ALTER, no backfill. See mnemosyne/graph/longdoc_schema.py.
+        from mnemosyne.graph.longdoc_schema import init_longdoc_schema
+        init_longdoc_schema(self.conn)
+
     def _get_table_columns(self, table_name: str) -> List[str]:
         """Get list of column names for a table"""
         cursor = self.conn.cursor()
