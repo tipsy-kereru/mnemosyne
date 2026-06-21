@@ -568,10 +568,13 @@ class ExtractionPipeline:
         from mnemosyne.extraction.longdoc.tree_indexer import LongDocIndexer
         from mnemosyne.extraction.pipeline_types import content_hash
 
+        # REQ-LD-008: raw_root is REQUIRED — the path-traversal validator must
+        # never be skipped. self.source is the source directory being walked.
         indexer = LongDocIndexer(
             conn=self.kg.conn,
             entity_types=self.router.entity_types,
             domain=self.router.domain,
+            raw_root=self.source,
         )
         src_hash = content_hash(file_path.read_bytes())
         suffix = file_path.suffix.lower()

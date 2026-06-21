@@ -33,6 +33,13 @@ def kg(db_path):
     graph.close()
 
 
+@pytest.fixture
+def raw_root(tmp_path):
+    root = tmp_path / "raw"
+    root.mkdir()
+    return root
+
+
 def _twenty_five_page_md() -> str:
     """Fixture doc: 25 sections, each ~600 words (forces multi-level tree)."""
     return "\n".join(
@@ -111,9 +118,10 @@ class TestTreeBuilderBounds:
 
 
 class TestIndexerPersistence:
-    def test_index_text_returns_tree_id(self, kg):
+    def test_index_text_returns_tree_id(self, kg, raw_root):
         idx = LongDocIndexer(
-            conn=kg.conn, entity_types=["clause", "party"], domain="legal"
+            conn=kg.conn, entity_types=["clause", "party"], domain="legal",
+            raw_root=raw_root,
         )
         tree_id = idx.index_text(
             _twenty_five_page_md(), source_hash="h1", kind="markdown"
@@ -127,8 +135,11 @@ class TestIndexerPersistence:
         assert row["status"] == "active"
         assert row["source_hash"] == "h1"
 
-    def test_index_text_persists_nodes_within_bounds(self, kg):
-        idx = LongDocIndexer(conn=kg.conn, entity_types=["note"], domain="daily")
+    def test_index_text_persists_nodes_within_bounds(self, kg, raw_root):
+        idx = LongDocIndexer(
+            conn=kg.conn, entity_types=["note"], domain="daily",
+            raw_root=raw_root,
+        )
         tree_id = idx.index_text(
             _twenty_five_page_md(), source_hash="h2", kind="markdown"
         )
@@ -145,10 +156,13 @@ class TestIndexerPersistence:
         ).fetchall()
         assert violations == []
 
-    def test_index_file_markdown(self, kg, tmp_path):
-        f = tmp_path / "doc.md"
+    def test_index_file_markdown(self, kg, raw_root):
+        f = raw_root / "doc.md"
         f.write_text("# Hello\n\n" + ("word " * 50))
-        idx = LongDocIndexer(conn=kg.conn, entity_types=["note"], domain="daily")
+        idx = LongDocIndexer(
+            conn=kg.conn, entity_types=["note"], domain="daily",
+            raw_root=raw_root,
+        )
         tree_id = idx.index_file(f, source_hash="hfile")
         assert tree_id is not None
         n_nodes = kg.conn.execute(
@@ -161,8 +175,11 @@ class TestIndexerPersistence:
 
 
 class TestNoDeleteSupersession:
-    def test_reindex_supersedes_prior_tree(self, kg):
-        idx = LongDocIndexer(conn=kg.conn, entity_types=["note"], domain="daily")
+    def test_reindex_supersedes_prior_tree(self, kg, raw_root):
+        idx = LongDocIndexer(
+            conn=kg.conn, entity_types=["note"], domain="daily",
+            raw_root=raw_root,
+        )
         first = idx.index_text(
             "# v1\n\n" + ("a " * 20000), source_hash="sup1", kind="markdown"
         )
@@ -182,9 +199,12 @@ class TestNoDeleteSupersession:
         ).fetchone()
         assert new["status"] == "active"
 
-    def test_both_trees_queryable_after_supersession(self, kg):
+    def test_both_trees_queryable_after_supersession(self, kg, raw_root):
         """R-LD-004 mitigation: superseded tree rows remain in the DB."""
-        idx = LongDocIndexer(conn=kg.conn, entity_types=["note"], domain="daily")
+        idx = LongDocIndexer(
+            conn=kg.conn, entity_types=["note"], domain="daily",
+            raw_root=raw_root,
+        )
         first = idx.index_text(
             "# v1\n\n" + ("a " * 20000), source_hash="sup2", kind="markdown"
         )
@@ -220,14 +240,15 @@ class TestNoDeleteSupersession:
 
 
 class TestDegradedSummary:
-    def test_summary_null_when_slm_and_llm_unavailable(self, kg, monkeypatch):
+    def test_summary_null_when_slm_and_llm_unavailable(self, kg, raw_root, monkeypatch):
         """When SLM and LLM are both unavailable, summary stays NULL (AC-5)."""
         # Force the summariser to see no GLiNER and no LLM by monkeypatching
         # the lazy accessors to return None.
         from mnemosyne.extraction.longdoc import tree_indexer as ti
 
         idx = ti.LongDocIndexer(
-            conn=kg.conn, entity_types=["note"], domain="daily"
+            conn=kg.conn, entity_types=["note"], domain="daily",
+            raw_root=raw_root,
         )
 
         class _NoSummariser:

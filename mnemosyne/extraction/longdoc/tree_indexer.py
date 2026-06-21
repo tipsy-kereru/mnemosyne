@@ -24,7 +24,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-from mnemosyne.extraction.longdoc.security import validate_longdoc_path
+from mnemosyne.extraction.longdoc.security import (
+    LongDocPathError,
+    redact,
+    validate_longdoc_path,
+)
 from mnemosyne.timestamps import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -35,6 +39,11 @@ MAX_FANOUT = 8
 
 # R-LD-002: warn (do not fail) when node count exceeds this.
 NODE_WARN_THRESHOLD = 200
+
+# R-LD-001 REVIEW-phase hardening: hard caps to bound memory and row growth.
+MAX_LONGDOC_PAGES = 1000
+MAX_LONGDOC_BYTES = 50 * 1024 * 1024  # 50 MiB
+MAX_LONGDOC_NODES = 5000
 
 # Heading regex for the markdown splitter. Matches 1-6 leading '#'.
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
@@ -152,6 +161,12 @@ def split_pdf_pages(pdf_path: Path) -> List[Section]:
 
     doc = fitz.open(str(pdf_path))  # type: ignore[attr-defined]
     try:
+        # R-LD-001 REVIEW-phase: reject >1000-page PDFs to bound memory.
+        if len(doc) > MAX_LONGDOC_PAGES:
+            raise LongDocPathError(
+                f"PDF exceeds {MAX_LONGDOC_PAGES} page cap "
+                f"(got {len(doc)} pages): {pdf_path}"
+            )
         sections: List[Section] = []
         token_cursor = 0
         for i in range(len(doc)):
@@ -438,9 +453,10 @@ class LongDocIndexer:
         Entity types passed to the SLM/LLM summariser.
     domain : str
         Domain label passed to the LLMBridge fallback.
-    raw_root : Path or str, optional
-        When set, file paths are validated against this root before reading
-        (REQ-LD-008). Text-mode ``index()`` calls skip validation.
+    raw_root : Path or str
+        REQUIRED. File paths read via ``index_file`` are validated against
+        this root before reading (REQ-LD-008). A ``None`` value raises
+        ``ValueError`` — the validator must never be skipped.
     """
 
     def __init__(
@@ -450,10 +466,14 @@ class LongDocIndexer:
         domain: str = "daily",
         raw_root: "str | Path | None" = None,
     ) -> None:
+        if raw_root is None:
+            raise ValueError(
+                "raw_root is required for path validation (REQ-LD-008)"
+            )
         self.conn = conn
         self.entity_types = list(entity_types or [])
         self.domain = domain
-        self.raw_root = Path(raw_root) if raw_root is not None else None
+        self.raw_root = Path(raw_root)
 
     # -- public API --------------------------------------------------------
 
@@ -485,16 +505,28 @@ class LongDocIndexer:
     def index_file(self, path: "str | Path", source_hash: str) -> Optional[str]:
         """Index a file from disk. Markdown and PDF are auto-detected.
 
-        REQ-LD-008: when ``raw_root`` is configured the path is validated
-        before reading. PDF parsing raises ``ImportError`` when ``pymupdf``
-        is absent; the caller is expected to translate that into an
-        ``ExtractionError(layer='longdoc')`` and skip.
+        REQ-LD-008: the path is ALWAYS validated against ``raw_root`` before
+        reading — the validator is never skipped. R-LD-001: a file-size cap
+        (``MAX_LONGDOC_BYTES``) is enforced before any read. PDF parsing
+        raises ``ImportError`` when ``pymupdf`` is absent; the caller is
+        expected to translate that into an ``ExtractionError(layer='longdoc')``
+        and skip.
         """
-        resolved = path
-        if self.raw_root is not None:
-            resolved = validate_longdoc_path(path, self.raw_root)
-        else:
-            resolved = Path(path)
+        # Unconditional validation: REQ-LD-008 traversal guard always runs.
+        resolved = validate_longdoc_path(path, self.raw_root)
+
+        # R-LD-001 REVIEW-phase: file-size cap before any read.
+        try:
+            size = resolved.stat().st_size
+        except OSError as exc:
+            raise LongDocPathError(
+                f"Cannot stat long-doc path {resolved}: {exc}"
+            ) from exc
+        if size > MAX_LONGDOC_BYTES:
+            raise LongDocPathError(
+                f"Long-doc file exceeds {MAX_LONGDOC_BYTES} byte cap "
+                f"(got {size} bytes): {resolved}"
+            )
 
         suffix = resolved.suffix.lower()
         if suffix == ".pdf":
@@ -525,6 +557,13 @@ class LongDocIndexer:
         all_nodes = _flatten(roots)
         if not all_nodes:
             return None
+
+        # R-LD-001 REVIEW-phase: hard node cap to bound row growth.
+        if len(all_nodes) > MAX_LONGDOC_NODES:
+            raise LongDocPathError(
+                f"Long-doc tree exceeds {MAX_LONGDOC_NODES} node cap "
+                f"(got {len(all_nodes)} nodes)"
+            )
 
         if len(all_nodes) > NODE_WARN_THRESHOLD:
             logger.warning(
@@ -596,6 +635,11 @@ class LongDocIndexer:
             node.summary = summary
             node.entity_refs = refs
 
+            # REVIEW-phase mitigation: redact secrets from raw_excerpt and
+            # entity_refs before persisting to tree_nodes.
+            redacted_excerpt = redact(node.raw_excerpt)
+            redacted_refs = [redact(r) for r in node.entity_refs]
+
             cursor.execute(
                 "INSERT INTO tree_nodes "
                 "(node_id, tree_id, parent_id, path, depth, token_start, token_end, "
@@ -610,9 +654,9 @@ class LongDocIndexer:
                     node.token_start,
                     node.token_end,
                     node.summary,
-                    json.dumps(node.entity_refs),
+                    json.dumps(redacted_refs),
                     node.ordinal,
-                    node.raw_excerpt,
+                    redacted_excerpt,
                 ),
             )
 
