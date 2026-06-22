@@ -43,6 +43,27 @@ _ROUTES: list[tuple[str, re.Pattern[str], str, _CALLConvention]] = [
     ("GET", re.compile(r"^/api/v1/projects/([^/]+)$"), "get_project", "url_arg"),
     ("GET", re.compile(r"^/api/v1/wiki/status$"), "wiki_status", "params"),
     ("GET", re.compile(r"^/api/v1/wiki/lint$"), "wiki_lint", "params"),
+    # SPEC-NLQUERY-001: NL query + multi-turn chat.
+    ("POST", re.compile(r"^/api/v1/ask$"), "ask", "body"),
+    ("POST", re.compile(r"^/api/v1/chat$"), "chat", "body"),
+    (
+        "GET",
+        re.compile(r"^/api/v1/chat/sessions$"),
+        "chat_list_sessions",
+        "params",
+    ),
+    (
+        "GET",
+        re.compile(r"^/api/v1/chat/sessions/([^/]+)$"),
+        "chat_get_session",
+        "url_arg",
+    ),
+    (
+        "DELETE",
+        re.compile(r"^/api/v1/chat/sessions/([^/]+)$"),
+        "chat_archive_session",
+        "url_arg",
+    ),
 ]
 
 
@@ -63,6 +84,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:  # noqa: N802
         self._dispatch("PUT")
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._dispatch("DELETE")
 
     # -- internal helpers ----------------------------------------------------
 

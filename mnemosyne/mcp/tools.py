@@ -469,6 +469,97 @@ def _wiki_prune(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ============================================================================
+# NL query + chat tools (SPEC-NLQUERY-001 REQ-NL-005)
+# ============================================================================
+
+
+def _scope_from_args(args: Dict[str, Any]) -> Dict[str, str]:
+    """Project the optional scope trio from MCP arguments."""
+    out: Dict[str, str] = {}
+    for key in ("scope_id", "project", "source_channel"):
+        val = args.get(key)
+        if val is not None:
+            out[key] = str(val)
+    return out
+
+
+def _run_nl_query(
+    kg: KnowledgeGraph,
+    question: str,
+    scope: Dict[str, str],
+    context: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Shared NL pipeline (router -> executor -> synthesizer)."""
+    from mnemosyne.extraction.longdoc.retriever import LongDocRetriever
+    from mnemosyne.query import (
+        AnswerSynthesizer,
+        NLQueryRouter,
+        QueryExecutor,
+    )
+
+    plan = NLQueryRouter().route(question, scope=scope)
+    retriever = LongDocRetriever(kg.conn)
+    result = QueryExecutor(kg, longdoc_retriever=retriever).run(plan)
+    answer = AnswerSynthesizer().synthesize(question, result, context=context)
+    return {
+        "answer": answer["answer"],
+        "citations": answer["citations"],
+        "degraded": answer["degraded"],
+        "plan": {
+            "intent": plan.intent,
+            "target_entities": plan.target_entities,
+            "target_relations": plan.target_relations,
+            "confidence": plan.confidence,
+        },
+    }
+
+
+def _ask(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    """REQ-NL-005: single-shot NL query, returns answer + citations."""
+    question = args.get("question")
+    if not question:
+        raise APIError("VALIDATION_ERROR", "Missing 'question' field", 422)
+    return _run_nl_query(ctx.kg, str(question), _scope_from_args(args))
+
+
+def _chat(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    """REQ-NL-005/007: multi-turn chat; resume via optional session_id."""
+    from mnemosyne.query.chat_store import (
+        ChatStore,
+        build_context_window,
+    )
+
+    message = args.get("message")
+    if not message:
+        raise APIError("VALIDATION_ERROR", "Missing 'message' field", 422)
+    scope = _scope_from_args(args)
+    store = ChatStore(ctx.kg.conn)
+    session_id = args.get("session_id")
+    if session_id:
+        if store.get_session(str(session_id)) is None:
+            raise APIError(
+                "NOT_FOUND", f"chat session not found: {session_id}", 404
+            )
+    else:
+        session_id = store.create_session(
+            project_hash=scope.get("project"),
+            scope_id=scope.get("scope_id"),
+        )
+    store.append_turn(session_id, "user", str(message))
+    context_window = build_context_window(store.list_turns(session_id))
+    result = _run_nl_query(
+        ctx.kg, str(message), scope, context=context_window
+    )
+    store.append_turn(
+        session_id, "assistant", result["answer"], result["citations"]
+    )
+    turns = store.list_turns(session_id)
+    result["session_id"] = session_id
+    result["turn_id"] = turns[-1]["turn_id"] if turns else None
+    return result
+
+
+# ============================================================================
 # Tool registry
 # ============================================================================
 
@@ -688,6 +779,51 @@ def build_tool_specs() -> List[ToolSpec]:
                 add_scope=True,
             ),
             handler=_create_relation,
+        ),
+        # -- NL query + chat (SPEC-NLQUERY-001 REQ-NL-005) --
+        ToolSpec(
+            name="mnemosyne_ask",
+            description=(
+                "Single-shot natural-language query over the graph + long-doc "
+                "retrieval. Returns a grounded answer plus citations. "
+                "Citations are hard-filtered against retrieved results (no "
+                "hallucinated references)."
+            ),
+            input_schema=_obj_schema(
+                {
+                    "question": {
+                        "type": "string",
+                        "description": "Natural-language question.",
+                    }
+                },
+                required=["question"],
+                add_scope=True,
+            ),
+            handler=_ask,
+        ),
+        ToolSpec(
+            name="mnemosyne_chat",
+            description=(
+                "Multi-turn chat with persisted sessions. Pass session_id to "
+                "resume; omit to start a new session. Returns session_id + "
+                "turn_id for continuity. Last N turns feed the synthesis "
+                "context (REQ-NL-007). No delete tool: archive via HTTP only."
+            ),
+            input_schema=_obj_schema(
+                {
+                    "message": {
+                        "type": "string",
+                        "description": "User message for this turn.",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Existing session id to resume (optional).",
+                    },
+                },
+                required=["message"],
+                add_scope=True,
+            ),
+            handler=_chat,
         ),
         # -- WIKI maintenance --
         ToolSpec(

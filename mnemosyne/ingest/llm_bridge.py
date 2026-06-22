@@ -61,6 +61,21 @@ Rules:
 """
 
 
+SYNTHESIS_PROMPT = """You are a knowledge-graph answer agent (SPEC-NLQUERY-001 REQ-NL-003).
+
+Question:
+{question}
+
+Retrieval context (JSON):
+{context}
+
+Answer the question using ONLY the entities, relations, and excerpts above.
+Cite every claim inline as [entity:ID], [relation:ID], or [excerpt:NODE_PATH]
+where the id is taken verbatim from the retrieval context. Do NOT invent ids.
+If the context is insufficient, say so plainly. Keep the answer under 200 words.
+"""
+
+
 # @MX:ANCHOR: [AUTO] LLMBridge is the vendor-neutral entry point for extraction.
 # @MX:REASON: Used by LLMExtractor and CLI fallback paths; fan_in >= 3.
 class LLMBridge:
@@ -149,6 +164,57 @@ class LLMBridge:
             return await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.extract(text, schema_hint, domain)
             )
+
+    def synthesize(
+        self,
+        question: str,
+        context: str = "",
+    ) -> str:
+        """SPEC-NLQUERY-001 REQ-NL-003: vendor-neutral prose synthesis.
+
+        Mirrors :meth:`extract`'s provider dispatch + try/except fallback
+        chain. Returns synthesized prose string, or ``""`` when every
+        provider fails (caller falls back to structured markdown). Never
+        raises — degraded mode is the contract.
+
+        ``context`` is the serialized retrieval/chat payload produced by the
+        query layer; the prompt instructs the model to cite only ids present
+        in that payload (REQ-NL-008 — the synthesizer still hard-filters).
+        """
+        prompt = SYNTHESIS_PROMPT.format(question=question, context=context)
+        provider = self.provider
+        try:
+            if provider == "zai":
+                raw = self._call_zai(prompt)
+            elif provider == "anthropic":
+                raw = self._call_anthropic(prompt)
+            elif provider == "openai":
+                raw = self._call_openai(prompt)
+            elif provider == "google":
+                raw = self._call_google(prompt)
+            else:
+                raw = self._call_cli(prompt)
+        except ImportError as exc:
+            logger.warning(
+                "synthesize provider %s import failed (%s); fallback cli",
+                provider,
+                exc,
+            )
+            try:
+                raw = self._call_cli(prompt)
+            except Exception as cli_exc:
+                logger.warning("synthesize fallback cli failed: %s", cli_exc)
+                return ""
+        except Exception as exc:
+            logger.warning(
+                "synthesize provider %s failed (%s); fallback cli", provider, exc
+            )
+            try:
+                raw = self._call_cli(prompt)
+            except Exception as cli_exc:
+                logger.warning("synthesize fallback cli failed: %s", cli_exc)
+                return ""
+        return raw or ""
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any]:
