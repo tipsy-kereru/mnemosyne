@@ -189,6 +189,23 @@ class DomainRouter:
         """Return only files whose extension matches this domain."""
         return [f for f in files if f.suffix.lower() in self.file_extensions]
 
+    def route(
+        self,
+        estimated_tokens: int = 0,
+        page_count: int = 0,
+    ) -> str:
+        """SPEC-LONGDOC-001 REQ-LD-007: decide the extraction layer for a doc.
+
+        Returns ``"longdoc"`` when the long-doc detector (REQ-LD-001) trips,
+        else ``"default"``. Called by ``ExtractionPipeline._extract_file`` on
+        the slow path; the caller is responsible for providing reasonable
+        ``estimated_tokens`` / ``page_count`` estimates.
+        """
+        from mnemosyne.extraction.longdoc import detect_longdoc
+        if detect_longdoc(estimated_tokens=estimated_tokens, page_count=page_count):
+            return "longdoc"
+        return "default"
+
 
 class ExtractionPipeline:
     """REQ-001: Orchestrates 3-layer extraction and stores results in KnowledgeGraph.
@@ -446,6 +463,22 @@ class ExtractionPipeline:
                 estimated_tokens=total_tokens,
             )
 
+        # SPEC-LONGDOC-001 REQ-LD-007: long-doc slow-path hook.
+        # After deterministic extraction, when the detector trips (REQ-LD-001)
+        # the file is additionally indexed via LongDocIndexer. Additive layer
+        # on top of the existing deterministic/semantic flow.
+        try:
+            longdoc_layer = self._maybe_index_longdoc(file_path)
+            if longdoc_layer is not None:
+                layers_used.append(longdoc_layer)
+        except Exception as exc:
+            errors.append(ExtractionError(
+                file_path=str(file_path),
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                layer="longdoc",
+            ))
+
         # Layer 2: Semantic (optional)
         if self.enable_semantic:
             try:
@@ -509,6 +542,47 @@ class ExtractionPipeline:
             return self._run_tree_sitter(file_path)
         else:
             return self._run_spacy(file_path)
+
+    def _maybe_index_longdoc(self, file_path: Path) -> Optional[str]:
+        """SPEC-LONGDOC-001 REQ-LD-007: index long docs via LongDocIndexer.
+
+        Returns ``"longdoc"`` when the file was indexed, ``None`` when the
+        detector did not trip or the indexer decided to skip. PDF parsing
+        with ``pymupdf`` absent raises ``ImportError``; the caller wraps it
+        in an ``ExtractionError(layer='longdoc')`` (REQ-LD-008 degraded).
+        """
+        try:
+            text = file_path.read_text(errors="ignore")
+        except (PermissionError, OSError):
+            return None
+
+        # Cheap token estimate matching longdoc.detector's heuristic.
+        estimated_tokens = int(len(text.split()) / 0.75) if text else 0
+        # Page estimate: 1 page per ~500 words for markdown/text; PDFs are
+        # resolved exactly inside the splitter, so this is only a hint.
+        page_count = max(1, len(text.split()) // 500) if text else 0
+
+        if self.router.route(estimated_tokens=estimated_tokens, page_count=page_count) != "longdoc":
+            return None
+
+        from mnemosyne.extraction.longdoc.tree_indexer import LongDocIndexer
+        from mnemosyne.extraction.pipeline_types import content_hash
+
+        # REQ-LD-008: raw_root is REQUIRED — the path-traversal validator must
+        # never be skipped. self.source is the source directory being walked.
+        indexer = LongDocIndexer(
+            conn=self.kg.conn,
+            entity_types=self.router.entity_types,
+            domain=self.router.domain,
+            raw_root=self.source,
+        )
+        src_hash = content_hash(file_path.read_bytes())
+        suffix = file_path.suffix.lower()
+        if suffix == ".pdf":
+            indexer.index_file(file_path, src_hash)
+        else:
+            indexer.index_text(text, src_hash, kind="markdown")
+        return "longdoc"
 
     def _run_tree_sitter(self, file_path: Path) -> tuple:
         """Extract using TreeSitterExtractor."""
