@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 VERSION = "0.2.0"
 
+# SPEC-NLQUERY-001 security: cap question/message length to bound LLM token
+# cost and storage. 8 KiB is well above any natural-language question while
+# rejecting pathological multi-MB strings.
+MAX_QUESTION_BYTES = 8 * 1024
+
 
 class APIError(Exception):
     """Structured error that handlers raise to produce JSON error responses."""
@@ -242,6 +247,7 @@ class Handlers:
         question = body.get("question")
         if not question:
             raise APIError("VALIDATION_ERROR", "Missing 'question' field", 422)
+        _enforce_question_cap(question)
         scope = _scope_from_body(body)
         result = _run_nl_query(self.kg, question, scope)
         return 200, result
@@ -251,6 +257,7 @@ class Handlers:
         message = body.get("message")
         if not message:
             raise APIError("VALIDATION_ERROR", "Missing 'message' field", 422)
+        _enforce_question_cap(message, field="message")
         scope = _scope_from_body(body)
         session_id = body.get("session_id")
 
@@ -261,7 +268,11 @@ class Handlers:
 
         store = ChatStore(self.kg.conn)
         if session_id:
-            existing = store.get_session(session_id)
+            # IDOR guard: verify the caller's project matches the session's
+            # stored project_hash. 404 (not 403) avoids leaking existence.
+            existing = store.get_session(
+                session_id, project_hash=scope.get("project")
+            )
             if existing is None:
                 raise APIError(
                     "NOT_FOUND", f"chat session not found: {session_id}", 404
@@ -301,13 +312,19 @@ class Handlers:
         return 200, {"sessions": sessions, "count": len(sessions)}
 
     def chat_get_session(
-        self, session_id: str
+        self, session_id: str, params: Dict[str, str]
     ) -> Tuple[int, Dict[str, Any]]:
-        """GET /api/v1/chat/sessions/<id>: session meta + turns."""
+        """GET /api/v1/chat/sessions/<id>?project=<hash>: session meta + turns.
+
+        IDOR guard: ``project`` query param is intersected with the session's
+        ``project_hash``; mismatch returns 404 (no existence leak).
+        """
         from mnemosyne.query.chat_store import ChatStore
 
         store = ChatStore(self.kg.conn)
-        meta = store.get_session(session_id)
+        meta = store.get_session(
+            session_id, project_hash=params.get("project")
+        )
         if meta is None:
             raise APIError(
                 "NOT_FOUND", f"chat session not found: {session_id}", 404
@@ -316,13 +333,18 @@ class Handlers:
         return 200, {"session": meta, "turns": turns, "count": len(turns)}
 
     def chat_archive_session(
-        self, session_id: str
+        self, session_id: str, params: Dict[str, str]
     ) -> Tuple[int, Dict[str, Any]]:
-        """DELETE /api/v1/chat/sessions/<id>: tombstone only (no row delete)."""
+        """DELETE /api/v1/chat/sessions/<id>?project=<hash>: tombstone only."""
         from mnemosyne.query.chat_store import ChatStore
 
         store = ChatStore(self.kg.conn)
-        if store.get_session(session_id) is None:
+        if (
+            store.get_session(
+                session_id, project_hash=params.get("project")
+            )
+            is None
+        ):
             raise APIError(
                 "NOT_FOUND", f"chat session not found: {session_id}", 404
             )
@@ -385,6 +407,22 @@ def _scope_from_body(body: Dict[str, Any]) -> Dict[str, str]:
         if val is not None:
             out[key] = str(val)
     return out
+
+
+def _enforce_question_cap(value: Any, field: str = "question") -> None:
+    """SPEC-NLQUERY-001 security: reject oversized question/message strings.
+
+    Validates length in UTF-8 bytes so multi-byte (CJK) questions are bounded
+    by the same memory budget as ASCII. Raises VALIDATION_ERROR (422).
+    """
+    if not isinstance(value, str):
+        return
+    if len(value.encode("utf-8")) > MAX_QUESTION_BYTES:
+        raise APIError(
+            "VALIDATION_ERROR",
+            f"'{field}' exceeds {MAX_QUESTION_BYTES} bytes",
+            422,
+        )
 
 
 def _run_nl_query(

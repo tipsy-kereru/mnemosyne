@@ -40,6 +40,19 @@ def _post(base: str, path: str, data: dict) -> tuple[int, dict]:
         return exc.code, json.loads(exc.read())
 
 
+def _post_raw(base: str, path: str, payload: bytes) -> tuple[int, dict]:
+    """POST a raw byte payload (for oversized-body tests)."""
+    req = urllib.request.Request(
+        base + path, data=payload, headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        resp = urllib.request.urlopen(req)
+        return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
 def _get(base: str, path: str) -> tuple[int, dict]:
     try:
         resp = urllib.request.urlopen(base + path)
@@ -120,4 +133,81 @@ def test_delete_session_is_tombstone_not_row_delete(api: str) -> None:
 
 def test_delete_unknown_session_is_404(api: str) -> None:
     status, _ = _delete(api, "/api/v1/chat/sessions/ghost")
+    assert status == 404
+
+
+# -- SPEC-NLQUERY-001 security: DoS length caps ------------------------------
+
+
+def test_oversize_body_returns_413(api: str) -> None:
+    """Content-Length over 64 KiB is rejected before read (PAYLOAD_TOO_LARGE)."""
+    from mnemosyne.serve.app import MAX_BODY_BYTES
+
+    big = ("x" * (MAX_BODY_BYTES + 1024)).encode()
+    payload = b'{"question":"' + big + b'"}'
+    status, body = _post_raw(api, "/api/v1/ask", payload)
+    assert status == 413
+    assert body["error"] == "PAYLOAD_TOO_LARGE"
+
+
+def test_oversize_question_returns_422(api: str) -> None:
+    """question over 8 KiB (but body under 64 KiB) is VALIDATION_ERROR."""
+    from mnemosyne.serve.handlers import MAX_QUESTION_BYTES
+
+    big = "x" * (MAX_QUESTION_BYTES + 1)
+    status, body = _post(api, "/api/v1/ask", {"question": big})
+    assert status == 422
+    assert body["error"] == "VALIDATION_ERROR"
+
+
+def test_oversize_chat_message_returns_422(api: str) -> None:
+    from mnemosyne.serve.handlers import MAX_QUESTION_BYTES
+
+    big = "x" * (MAX_QUESTION_BYTES + 1)
+    status, body = _post(api, "/api/v1/chat", {"message": big})
+    assert status == 422
+    assert body["error"] == "VALIDATION_ERROR"
+
+
+# -- SPEC-NLQUERY-001 security: IDOR session ownership -----------------------
+
+
+def test_get_session_wrong_project_is_404(api: str) -> None:
+    """Reading a session with a non-matching project= must 404 (no leak)."""
+    _, created = _post(api, "/api/v1/chat", {"message": "m", "project": "owner-a"})
+    sid = created["session_id"]
+    status, _ = _get(api, f"/api/v1/chat/sessions/{sid}?project=attacker-b")
+    assert status == 404
+
+
+def test_get_session_correct_project_succeeds(api: str) -> None:
+    _, created = _post(api, "/api/v1/chat", {"message": "m", "project": "owner-a"})
+    sid = created["session_id"]
+    status, meta = _get(api, f"/api/v1/chat/sessions/{sid}?project=owner-a")
+    assert status == 200
+    assert meta["session"]["session_id"] == sid
+
+
+def test_archive_session_wrong_project_is_404(api: str) -> None:
+    _, created = _post(api, "/api/v1/chat", {"message": "m", "project": "owner-a"})
+    sid = created["session_id"]
+    status, _ = _delete(
+        api, f"/api/v1/chat/sessions/{sid}?project=attacker-b"
+    )
+    assert status == 404
+    # Session is still active (archive was denied).
+    status, meta = _get(api, f"/api/v1/chat/sessions/{sid}?project=owner-a")
+    assert status == 200
+    assert meta["session"]["status"] == "active"
+
+
+def test_chat_resume_wrong_project_is_404(api: str) -> None:
+    """Resuming a session under a different project= must 404 (IDOR guard)."""
+    _, created = _post(api, "/api/v1/chat", {"message": "m", "project": "owner-a"})
+    sid = created["session_id"]
+    status, _ = _post(
+        api,
+        "/api/v1/chat",
+        {"message": "second", "session_id": sid, "project": "attacker-b"},
+    )
     assert status == 404

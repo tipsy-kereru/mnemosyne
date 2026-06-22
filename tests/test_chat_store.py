@@ -100,3 +100,47 @@ def test_context_window_env_override(monkeypatch) -> None:
     window = build_context_window(turns)
     assert "[prior 2 turns summarized]" in window
     assert "m3" in window and "m0" not in window
+
+
+# -- SPEC-NLQUERY-001 security: per-turn content cap -------------------------
+
+
+def test_get_session_filters_by_project(store: ChatStore) -> None:
+    """IDOR guard: get_session(project_hash=...) returns None on mismatch."""
+    sid = store.create_session(project_hash="owner-a")
+    assert store.get_session(sid, project_hash="owner-a") is not None
+    assert store.get_session(sid, project_hash="attacker-b") is None
+    assert store.get_session(sid) is not None  # no filter = no check
+
+
+def test_append_turn_truncates_oversize_content(store: ChatStore) -> None:
+    """Per-turn content over MAX_TURN_CONTENT_BYTES is truncated with a marker."""
+    from mnemosyne.query.chat_store import MAX_TURN_CONTENT_BYTES
+
+    sid = store.create_session()
+    big = "x" * (MAX_TURN_CONTENT_BYTES * 2)
+    store.append_turn(sid, "user", big)
+    turns = store.list_turns(sid)
+    content = turns[0]["content"]
+    assert "[truncated]" in content
+    assert len(content.encode("utf-8")) <= MAX_TURN_CONTENT_BYTES
+
+
+def test_cap_turn_content_preserves_small_input() -> None:
+    from mnemosyne.query.chat_store import _cap_turn_content
+
+    assert _cap_turn_content("hello") == "hello"
+
+
+def test_cap_turn_content_multibyte_boundary() -> None:
+    """Truncation must not split a multibyte (CJK) character."""
+    from mnemosyne.query.chat_store import MAX_TURN_CONTENT_BYTES, _cap_turn_content
+
+    # Each 'あ' is 3 UTF-8 bytes; force a mid-character slice.
+    unit = "あ"
+    big = unit * (MAX_TURN_CONTENT_BYTES // len(unit.encode()) + 50)
+    capped = _cap_turn_content(big)
+    assert "[truncated]" in capped
+    # Result must be valid UTF-8 (decodable without errors).
+    capped.encode("utf-8").decode("utf-8")
+    assert len(capped.encode("utf-8")) <= MAX_TURN_CONTENT_BYTES

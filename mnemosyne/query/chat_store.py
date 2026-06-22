@@ -24,6 +24,12 @@ _TURN_TABLE = "chat_turns"
 _SESSION_COLS = ("session_id", "project_hash", "scope_id", "created_at", "status")
 _TURN_COLS = ("turn_id", "session_id", "role", "content", "citations", "created_at")
 
+# SPEC-NLQUERY-001 security: per-turn content cap. Bounds storage and the
+# synthesis prompt window so a single paste of a large blob cannot exhaust
+# memory or token budgets. Retention/TTL + secret-scan are deferred to a
+# follow-up issue (data-governance, needs human sign-off).
+MAX_TURN_CONTENT_BYTES = 16 * 1024
+
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     row = conn.execute(
@@ -86,6 +92,30 @@ def _gen_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(8)}"
 
 
+_TRUNCATED_MARKER = "[truncated]"
+
+
+def _cap_turn_content(content: str) -> str:
+    """Truncate ``content`` to ``MAX_TURN_CONTENT_BYTES`` (UTF-8) with a marker.
+
+    Slices on byte boundaries then walks back to the last complete UTF-8
+    sequence start so we never split a multibyte (CJK) character. The marker
+    is appended within the byte budget.
+    """
+    encoded = content.encode("utf-8")
+    if len(encoded) <= MAX_TURN_CONTENT_BYTES:
+        return content
+    marker_bytes = len(_TRUNCATED_MARKER.encode("utf-8"))
+    budget = max(0, MAX_TURN_CONTENT_BYTES - marker_bytes)
+    truncated = encoded[:budget]
+    # Walk back to the last complete UTF-8 sequence (a byte that is NOT a
+    # continuation byte, i.e. does not start with 10xxxxxx).
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    head = truncated.decode("utf-8", errors="ignore")
+    return head + _TRUNCATED_MARKER
+
+
 class ChatStore:
     """REQ-NL-006: append-only chat session store (no DELETE/UPDATE on rows)."""
 
@@ -108,12 +138,30 @@ class ChatStore:
         self.conn.commit()
         return sid
 
-    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        row = self.conn.execute(
-            f"SELECT {', '.join(_SESSION_COLS)} FROM {_SESSION_TABLE} "
-            "WHERE session_id=?",
-            (session_id,),
-        ).fetchone()
+    def get_session(
+        self,
+        session_id: str,
+        project_hash: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch a session by id, optionally filtered by ``project_hash``.
+
+        SPEC-NLQUERY-001 security (IDOR): when ``project_hash`` is supplied,
+        rows whose ``project_hash`` does not match are treated as not-found.
+        Callers receive ``None`` for both missing and mismatched sessions so
+        existence is never leaked (404, not 403).
+        """
+        if project_hash is None:
+            row = self.conn.execute(
+                f"SELECT {', '.join(_SESSION_COLS)} FROM {_SESSION_TABLE} "
+                "WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                f"SELECT {', '.join(_SESSION_COLS)} FROM {_SESSION_TABLE} "
+                "WHERE session_id=? AND project_hash=?",
+                (session_id, project_hash),
+            ).fetchone()
         return _session_dict(row) if row is not None else None
 
     def list_sessions(
@@ -153,7 +201,15 @@ class ChatStore:
         content: str,
         citations: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Append a turn row. No UPDATE/DELETE path exists for turns."""
+        """Append a turn row. No UPDATE/DELETE path exists for turns.
+
+        SPEC-NLQUERY-001 security: ``content`` is capped at
+        ``MAX_TURN_CONTENT_BYTES`` (UTF-8). Oversized content is truncated to
+        the cap with a visible ``[truncated]`` marker so the append-only
+        contract is preserved and callers are not surprised by mid-chat errors.
+        Retention/TTL + secret-scan are deferred to a follow-up issue.
+        """
+        content = _cap_turn_content(content)
         turn_id = _gen_id("turn")
         self.conn.execute(
             f"INSERT INTO {_TURN_TABLE} "

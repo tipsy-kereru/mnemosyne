@@ -157,7 +157,14 @@ class AnswerSynthesizer:
 def _build_context_json(
     result: RetrievalResult, context: Optional[str]
 ) -> str:
-    """Serialize retrieval results + optional chat context for the LLM prompt."""
+    """Serialize retrieval results + optional chat context for the LLM prompt.
+
+    SPEC-NLQUERY-001 security (prompt injection): the optional chat context is
+    wrapped in ``<conversation_history>`` ... ``</conversation_history>`` delimiters
+    so the system prompt can instruct the model to treat it as untrusted data,
+    never as instructions. Stored turns are user-authored and may contain
+    injection attempts.
+    """
     payload: Dict[str, Any] = {
         "entities": [
             {"id": e.get("id"), "type": e.get("type"), "name": e.get("name")}
@@ -179,5 +186,7 @@ def _build_context_json(
         "valid_citation_ids": [c.to_dict() for c in result.citations],
     }
     if context:
-        payload["conversation_context"] = context
+        payload["conversation_context"] = (
+            f"<conversation_history>\n{context}\n</conversation_history>"
+        )
     return json.dumps(payload, default=str)

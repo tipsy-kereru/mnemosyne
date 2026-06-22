@@ -18,12 +18,19 @@ from mnemosyne.serve.handlers import APIError, Handlers
 
 logger = logging.getLogger(__name__)
 
+# SPEC-NLQUERY-001 security: cap request body size to bound memory/token cost.
+# 64 KiB is generous for ask/chat payloads (questions are capped tighter in
+# handlers) while rejecting multi-MB bodies that would flow into GLiNER2 / FTS5
+# / the LLM prompt.
+MAX_BODY_BYTES = 64 * 1024
+
 # Calling conventions for handler methods:
-#   "no_arg"     -> handler()
-#   "url_arg"    -> handler(url_args[0])
-#   "url_body"   -> handler(url_args[0], body)
-#   "params"     -> handler(params)
-#   "body"       -> handler(body)
+#   "no_arg"          -> handler()
+#   "url_arg"         -> handler(url_args[0])
+#   "url_arg_params"  -> handler(url_args[0], params)
+#   "url_body"        -> handler(url_args[0], body)
+#   "params"          -> handler(params)
+#   "body"            -> handler(body)
 _CALLConvention = str
 
 # Pre-compiled route patterns: (method, pattern, handler_method_name, calling_convention)
@@ -56,13 +63,13 @@ _ROUTES: list[tuple[str, re.Pattern[str], str, _CALLConvention]] = [
         "GET",
         re.compile(r"^/api/v1/chat/sessions/([^/]+)$"),
         "chat_get_session",
-        "url_arg",
+        "url_arg_params",
     ),
     (
         "DELETE",
         re.compile(r"^/api/v1/chat/sessions/([^/]+)$"),
         "chat_archive_session",
-        "url_arg",
+        "url_arg_params",
     ),
 ]
 
@@ -143,6 +150,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
             return handler()
         if convention == "url_arg":
             return handler(url_args[0])
+        if convention == "url_arg_params":
+            return handler(url_args[0], params)
         if convention == "url_body":
             return handler(url_args[0], body)
         if convention == "params":
@@ -155,6 +164,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             return {}
+        # DoS guard (SPEC-NLQUERY-001 security): reject oversized bodies before
+        # allocating/reading them. Raises PAYLOAD_TOO_LARGE (413).
+        if content_length > MAX_BODY_BYTES:
+            raise APIError(
+                "PAYLOAD_TOO_LARGE",
+                f"Request body exceeds {MAX_BODY_BYTES} bytes",
+                413,
+            )
         raw = self.rfile.read(content_length)
         try:
             return json.loads(raw)
