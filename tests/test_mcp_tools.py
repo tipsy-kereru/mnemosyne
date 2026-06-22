@@ -50,6 +50,9 @@ EXPECTED_TOOLS = {
     "mnemosyne_create_entity",
     "mnemosyne_update_entity",
     "mnemosyne_create_relation",
+    # NL query + chat (SPEC-NLQUERY-001 REQ-NL-005)
+    "mnemosyne_ask",
+    "mnemosyne_chat",
     # WIKI maintenance
     "mnemosyne_wiki_rebuild",
     "mnemosyne_wiki_prune",

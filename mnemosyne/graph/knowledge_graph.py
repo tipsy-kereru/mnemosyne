@@ -241,6 +241,12 @@ class KnowledgeGraph:
         from mnemosyne.graph.longdoc_schema import init_longdoc_schema
         init_longdoc_schema(self.conn)
 
+        # SPEC-NLQUERY-001 REQ-NL-006: append-only chat session tables.
+        # Additive, idempotent (sqlite_master-guarded). No DELETE/UPDATE on
+        # chat_turns anywhere; archive = status flip on chat_sessions.
+        from mnemosyne.query.chat_store import init_chat_schema
+        init_chat_schema(self.conn)
+
     def _get_table_columns(self, table_name: str) -> List[str]:
         """Get list of column names for a table"""
         cursor = self.conn.cursor()

@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 VERSION = "0.2.0"
 
+# SPEC-NLQUERY-001 security: cap question/message length to bound LLM token
+# cost and storage. 8 KiB is well above any natural-language question while
+# rejecting pathological multi-MB strings.
+MAX_QUESTION_BYTES = 8 * 1024
+
 
 class APIError(Exception):
     """Structured error that handlers raise to produce JSON error responses."""
@@ -235,6 +240,121 @@ class Handlers:
 
         return 200, result
 
+    # -- NL Query / Chat (SPEC-NLQUERY-001) ---------------------------------
+
+    def ask(self, body: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+        """POST /api/v1/ask: single-shot NL query -> answer + citations."""
+        question = body.get("question")
+        if not question:
+            raise APIError("VALIDATION_ERROR", "Missing 'question' field", 422)
+        _enforce_question_cap(question)
+        scope = _scope_from_body(body)
+        result = _run_nl_query(self.kg, question, scope)
+        return 200, result
+
+    def chat(self, body: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+        """POST /api/v1/chat: multi-turn chat with persisted sessions."""
+        message = body.get("message")
+        if not message:
+            raise APIError("VALIDATION_ERROR", "Missing 'message' field", 422)
+        _enforce_question_cap(message, field="message")
+        scope = _scope_from_body(body)
+        session_id = body.get("session_id")
+
+        from mnemosyne.query.chat_store import (
+            ChatStore,
+            build_context_window,
+        )
+
+        store = ChatStore(self.kg.conn)
+        if session_id:
+            # IDOR guard: verify the caller's project matches the session's
+            # stored project_hash. 404 (not 403) avoids leaking existence.
+            existing = store.get_session(
+                session_id, project_hash=scope.get("project")
+            )
+            if existing is None:
+                raise APIError(
+                    "NOT_FOUND", f"chat session not found: {session_id}", 404
+                )
+        else:
+            session_id = store.create_session(
+                project_hash=scope.get("project"),
+                scope_id=scope.get("scope_id"),
+            )
+
+        # Persist the user turn before synthesis so the window includes it.
+        store.append_turn(session_id, "user", message)
+        prior_turns = store.list_turns(session_id)
+        context_window = build_context_window(prior_turns)
+
+        result = _run_nl_query(
+            self.kg, message, scope, context=context_window
+        )
+        # Persist the assistant turn (answer + citations) — append-only.
+        store.append_turn(
+            session_id, "assistant", result["answer"], result["citations"]
+        )
+
+        result["session_id"] = session_id
+        result["turn_id"] = store.list_turns(session_id)[-1]["turn_id"]
+        return 200, result
+
+    def chat_list_sessions(
+        self, params: Dict[str, str]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """GET /api/v1/chat/sessions?project=<hash>."""
+        from mnemosyne.query.chat_store import ChatStore
+
+        store = ChatStore(self.kg.conn)
+        project = params.get("project")
+        sessions = store.list_sessions(project_hash=project)
+        return 200, {"sessions": sessions, "count": len(sessions)}
+
+    def chat_get_session(
+        self, session_id: str, params: Dict[str, str]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """GET /api/v1/chat/sessions/<id>?project=<hash>: session meta + turns.
+
+        IDOR guard: ``project`` query param is intersected with the session's
+        ``project_hash``; mismatch returns 404 (no existence leak).
+        """
+        from mnemosyne.query.chat_store import ChatStore
+
+        store = ChatStore(self.kg.conn)
+        meta = store.get_session(
+            session_id, project_hash=params.get("project")
+        )
+        if meta is None:
+            raise APIError(
+                "NOT_FOUND", f"chat session not found: {session_id}", 404
+            )
+        turns = store.list_turns(session_id)
+        return 200, {"session": meta, "turns": turns, "count": len(turns)}
+
+    def chat_archive_session(
+        self, session_id: str, params: Dict[str, str]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """DELETE /api/v1/chat/sessions/<id>?project=<hash>: tombstone only."""
+        from mnemosyne.query.chat_store import ChatStore
+
+        store = ChatStore(self.kg.conn)
+        if (
+            store.get_session(
+                session_id, project_hash=params.get("project")
+            )
+            is None
+        ):
+            raise APIError(
+                "NOT_FOUND", f"chat session not found: {session_id}", 404
+            )
+        archived = store.archive_session(session_id)
+        return 200, {
+            "session_id": session_id,
+            "status": "archived" if archived else "already-archived",
+            "deleted": False,  # REQ-NL-006: never a row delete
+        }
+
     # -- Projects ------------------------------------------------------------
 
     def list_projects(self) -> Tuple[int, Dict[str, Any]]:
@@ -277,6 +397,66 @@ class Handlers:
 
 
 # -- Conversion helpers ------------------------------------------------------
+
+
+def _scope_from_body(body: Dict[str, Any]) -> Dict[str, str]:
+    """Extract the optional scope trio (scope_id/project/source_channel)."""
+    out: Dict[str, str] = {}
+    for key in ("scope_id", "project", "source_channel"):
+        val = body.get(key)
+        if val is not None:
+            out[key] = str(val)
+    return out
+
+
+def _enforce_question_cap(value: Any, field: str = "question") -> None:
+    """SPEC-NLQUERY-001 security: reject oversized question/message strings.
+
+    Validates length in UTF-8 bytes so multi-byte (CJK) questions are bounded
+    by the same memory budget as ASCII. Raises VALIDATION_ERROR (422).
+    """
+    if not isinstance(value, str):
+        return
+    if len(value.encode("utf-8")) > MAX_QUESTION_BYTES:
+        raise APIError(
+            "VALIDATION_ERROR",
+            f"'{field}' exceeds {MAX_QUESTION_BYTES} bytes",
+            422,
+        )
+
+
+def _run_nl_query(
+    kg: KnowledgeGraph,
+    question: str,
+    scope: Dict[str, str],
+    context: str | None = None,
+) -> Dict[str, Any]:
+    """Shared NL pipeline for /ask and /chat (router -> executor -> synth)."""
+    from mnemosyne.extraction.longdoc.retriever import LongDocRetriever
+    from mnemosyne.query import (
+        AnswerSynthesizer,
+        NLQueryRouter,
+        QueryExecutor,
+    )
+
+    router = NLQueryRouter()
+    plan = router.route(question, scope=scope)
+    retriever = LongDocRetriever(kg.conn)
+    executor = QueryExecutor(kg, longdoc_retriever=retriever)
+    result = executor.run(plan)
+    synth = AnswerSynthesizer()
+    answer = synth.synthesize(question, result, context=context)
+    return {
+        "answer": answer["answer"],
+        "citations": answer["citations"],
+        "degraded": answer["degraded"],
+        "plan": {
+            "intent": plan.intent,
+            "target_entities": plan.target_entities,
+            "target_relations": plan.target_relations,
+            "confidence": plan.confidence,
+        },
+    }
 
 
 def _row_to_entity_dict(row: Any) -> Dict[str, Any]:
