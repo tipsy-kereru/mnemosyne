@@ -448,6 +448,45 @@ def main(argv=None):
     )
     wiki_subparsers = wiki_parser.add_subparsers(dest="wiki_command")
 
+    # -- purge-retention subcommand (ISSUE-0004 portion a) --
+    # Tombstone-only chat-content retention purge. No row deletion. Dry-run
+    # by default; --apply runs the UPDATE. TTL via --days or
+    # MNEMOSYNE_CHAT_RETENTION_DAYS (default 90).
+    purge_parser = subparsers.add_parser(
+        "purge-retention",
+        help="Purge (tombstone) chat turns older than the retention window",
+        description=(
+            "Purge chat turns older than the retention window. Tombstone-only: "
+            "rows are UPDATE'd (retention_purged_at set, content overwritten "
+            "with '[retention-purged]'); NO row is ever deleted (no-delete "
+            "contract). Defaults to dry-run; pass --apply to write."
+        ),
+    )
+    purge_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report candidate turn count + sample IDs without writing (default)",
+    )
+    purge_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Run the UPDATE tombstone on candidate turns (writes)",
+    )
+    purge_parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help=(
+            "Retention window in days (default: MNEMOSYNE_CHAT_RETENTION_DAYS "
+            "env or 90)"
+        ),
+    )
+    purge_parser.add_argument(
+        "--db-path",
+        default=None,
+        help="KnowledgeGraph DB path (default: auto-resolve)",
+    )
+
     def add_wiki_common(p):
         p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
         p.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
@@ -538,6 +577,8 @@ def main(argv=None):
         _run_hook(args)
     elif args.command == "project":
         _run_project(args)
+    elif args.command == "purge-retention":
+        _run_purge_retention(args)
     elif args.command == "serve":
         _run_serve(args)
     elif args.command == "mcp":
@@ -929,6 +970,38 @@ def _run_project_migrate(kg):
 
     kg.conn.commit()
     print(f"Migrated {migrated} orphan scope(s) into projects table.")
+
+
+def _run_purge_retention(args):
+    """Execute the ``mnemosyne purge-retention`` subcommand (ISSUE-0004).
+
+    Tombstone-only chat-content purge. Defaults to dry-run (zero writes).
+    ``--apply`` runs the UPDATE (sets ``retention_purged_at`` + overwrites
+    ``content`` with ``[retention-purged]``). NEVER issues a DELETE — the
+    no-delete contract is load-bearing (security-phase grep target).
+    """
+    import json
+
+    from mnemosyne.query.chat_store import purge_retention
+
+    kg = _open_kg_for_purge(args)
+    try:
+        result = purge_retention(
+            kg.conn, days=args.days, apply=bool(args.apply)
+        )
+        print(json.dumps(result, indent=2))
+    finally:
+        kg.close()
+
+
+def _open_kg_for_purge(args):
+    """Open a KnowledgeGraph for the purge job, honouring --db-path."""
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+
+    db_path = getattr(args, "db_path", None)
+    if db_path:
+        return KnowledgeGraph(db_path=db_path)
+    return KnowledgeGraph()
 
 
 def _run_serve(args):

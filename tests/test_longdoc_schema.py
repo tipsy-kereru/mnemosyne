@@ -95,3 +95,22 @@ class TestLongDocSchema:
             "SELECT status FROM document_trees WHERE tree_id='t1'"
         ).fetchone()
         assert row["status"] == "active"
+
+
+# -- ISSUE-0004 AC-1: dead-code removal regression -----------------------------
+
+
+def test_columns_of_removed_from_longdoc_schema() -> None:
+    """_columns_of was removed (zero callers). Assert it is gone from the
+    module surface and from the source text (regression against re-add)."""
+    import inspect
+
+    import mnemosyne.graph.longdoc_schema as mod
+
+    assert not hasattr(mod, "_columns_of"), (
+        "_columns_of must be removed from longdoc_schema (dead code, ISSUE-0004)"
+    )
+    src = inspect.getsource(mod)
+    assert "_columns_of" not in src, (
+        "_columns_of must not appear anywhere in longdoc_schema source"
+    )

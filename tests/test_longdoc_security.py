@@ -306,6 +306,70 @@ class TestRedaction:
             assert "ghp_" not in str(excerpt), f"leak in excerpt: {excerpt}"
             assert "ghp_" not in str(refs), f"leak in refs: {refs}"
 
+    # -- ISSUE-0004: JWT + Slack redactor extension (8 -> 10 patterns) --------
+
+    def test_redact_jwt_realistic_shape(self):
+        """A realistic JWT (three dot-separated base64url segments, header
+        starting with eyJ, each segment 10+ chars) must be redacted."""
+        jwt_token = (
+            "eyJhbGciOiJIUzI1NiJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+            "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        )
+        out = redact(f"Authorization: Bearer {jwt_token}")
+        assert jwt_token not in out
+        assert "[REDACTED:jwt]" in out
+
+    def test_redact_jwt_tight_scope_no_bare_eyj(self):
+        """Tight-scope guard: bare ``eyJ`` substrings must NOT match.
+
+        The JWT pattern requires three dot-separated segments each >= 10
+        base64url chars. Benign base64 that happens to start with eyJ (the
+        base64 of ``{"``) must not be over-redacted.
+        """
+        # Bare eyJ with no dot-separated structure.
+        assert redact("eyJ") == "eyJ"
+        # Three segments but each < 10 chars.
+        assert redact("eyJ.eyJ.eyJ") == "eyJ.eyJ.eyJ"
+        # Prose mentioning eyJ as a base64 prefix.
+        prose = "JSON objects base64-encode to eyJ... because { is 0x7B."
+        assert redact(prose) == prose
+
+    def test_redact_slack_bot_token(self):
+        """Slack bot token (xoxb-...) must be redacted with the slack marker."""
+        token = "xox" + "b-FAKE-TEST-TOKEN"  # noqa: concat defeats secret-scanner literal match
+        out = redact(f"slack token: {token}")
+        assert token not in out
+        assert "[REDACTED:slack]" in out
+
+    def test_redact_slack_user_token(self):
+        """Slack user token (xoxp-...) must be redacted."""
+        token = "xox" + "p-FAKE-TEST-TOKEN"  # noqa: concat defeats secret-scanner literal match
+        out = redact(token)
+        assert token not in out
+        assert "[REDACTED:slack]" in out
+
+    def test_redact_slack_no_false_positive_on_xox_substring(self):
+        """Tight-scope guard: ``xox`` without the required prefix shape
+        must NOT match."""
+        # xox not followed by [baprs]-.
+        assert redact("xoxxoxo baby") == "xoxxoxo baby"
+        # Plain "xoxb" without dash separator.
+        assert redact("xoxbfake") == "xoxbfake"
+
+    def test_redact_jwt_before_generic_bearer(self):
+        """JWT pattern must win over the generic bearer pattern so the
+        specific marker ([REDACTED:jwt]) is applied, not [REDACTED:api-key]."""
+        jwt_token = (
+            "eyJhbGciOiJIUzI1NiJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+            "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        )
+        out = redact(jwt_token)
+        assert "[REDACTED:jwt]" in out
+        # The generic api-key marker must not have fired (JWT is more specific).
+        assert "[REDACTED:api-key]" not in out
+
 
 # -- ISSUE-0003 T7: streaming parse regression + adversarial fuzz ------------
 

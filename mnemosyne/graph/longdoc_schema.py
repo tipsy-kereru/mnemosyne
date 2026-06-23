@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import List
 
 from mnemosyne.graph.fts import fts5_compile_available
 
@@ -39,11 +38,6 @@ def _index_exists(conn: sqlite3.Connection, name: str) -> bool:
         "SELECT name FROM sqlite_master WHERE type='index' AND name=?", (name,)
     ).fetchone()
     return row is not None
-
-
-def _columns_of(conn: sqlite3.Connection, table: str) -> List[str]:
-    """Return column names of *table* via PRAGMA table_info (raw-tuple form)."""
-    return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
 
 
 def init_longdoc_schema(conn: sqlite3.Connection) -> bool:

@@ -80,6 +80,13 @@ def validate_longdoc_path(path: "str | Path", raw_root: "str | Path") -> Path:
 # Stdlib-only patterns matching common credential shapes. Idempotent and never
 # raises on malformed input. Deliberately conservative: redacts recognizable
 # credential carriers without rewriting arbitrary free text.
+#
+# ISSUE-0004: extended from 8 -> 10 patterns. JWT and Slack are added BEFORE
+# the generic bearer/api-key pattern so the specific shape wins and gets a
+# more informative marker. JWT is scoped tightly (three dot-separated
+# base64url segments, header segment must start with ``eyJ`` which is base64
+# for ``{"``) to avoid over-redacting benign base64 that happens to start
+# with the same prefix.
 _REDACT_PATTERNS: list[tuple["re.Pattern[str]", str]] = [
     (
         re.compile(
@@ -91,6 +98,23 @@ _REDACT_PATTERNS: list[tuple["re.Pattern[str]", str]] = [
     (re.compile(r"gh[ps]_[A-Za-z0-9]{36,}"), "[REDACTED:github-token]"),
     (re.compile(r"AKIA[0-9A-Z]{16}"), "[REDACTED:aws-key]"),
     (re.compile(r"whsec_[A-Za-z0-9]+"), "[REDACTED:webhook]"),
+    # ISSUE-0004: JWT. Three dot-separated base64url segments; segment 1 must
+    # start with ``eyJ`` (base64 for ``{"`` — a JSON object header); segment 2
+    # and segment 3 are non-empty base64url (10+ chars each) so a stray
+    # ``eyJ.eyJ.eyJ`` triplet or single ``eyJ`` substring does not match.
+    (
+        re.compile(
+            r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+        ),
+        "[REDACTED:jwt]",
+    ),
+    # ISSUE-0004: Slack token. ``xox[baprs]-`` prefix followed by a base64-ish
+    # run. Matches bot (xoxb), app (xoxa), user (xoxp), refresh (xoxr), and
+    # legacy (xoxs) token shapes.
+    (
+        re.compile(r"xox[baprs]-[A-Za-z0-9-]+"),
+        "[REDACTED:slack]",
+    ),
     (
         re.compile(r"(postgres(?:ql)?://)([^:]+):([^@]+)@"),
         r"\1[REDACTED:user-pass]@",

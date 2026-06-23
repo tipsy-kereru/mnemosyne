@@ -583,6 +583,45 @@ Then reinstall the package so the build picks up `cargo`:
 pip install --force-reinstall --no-deps "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
 ```
 
+## Chat Retention
+
+Chat turn content (`chat_turns.content`) is bounded by two mechanisms:
+
+1. **Redact-on-persist**: `ChatStore.append_turn` passes `content` through the shared inline secret redactor (`mnemosyne.extraction.longdoc.security.redact`) after the 16 KiB byte cap, before INSERT. Recognisable credential carriers (GitHub / AWS / JWT / Slack tokens, private-key blocks, etc.) are replaced with `[REDACTED:*]` markers so secret-like substrings never land in the DB at rest. The redactor is conservative on free text to avoid false positives (10 patterns total).
+
+2. **Retention TTL (tombstone-only)**: a `mnemosyne purge-retention` CLI subcommand reclaims turns older than the retention window. **No row is ever deleted** (no-delete contract): the purge runs `UPDATE chat_turns SET retention_purged_at=<now>, content='[retention-purged]'` and is idempotent (re-running is a no-op once `retention_purged_at` is set).
+
+### Configuration
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `MNEMOSYNE_CHAT_RETENTION_DAYS` | `90` | Retention window in days. Non-positive / non-integer values fall back to the default. Overridable per-invocation via `--days`. |
+
+### Usage
+
+```bash
+# Dry-run (default): report candidate turn count + sample IDs without writing.
+mnemosyne purge-retention --dry-run
+
+# Apply: run the UPDATE tombstone on candidate turns.
+mnemosyne purge-retention --apply
+
+# Override the TTL for this invocation.
+mnemosyne purge-retention --apply --days 30
+
+# Point at a non-default DB.
+mnemosyne purge-retention --dry-run --db-path /path/to/knowledge.db
+```
+
+### Cron example
+
+```cron
+# Nightly at 03:00: dry-run first (log only), then apply.
+0 3 * * * MNEMOSYNE_CHAT_RETENTION_DAYS=90 mnemosyne purge-retention --apply
+```
+
+> The purge is tombstone-only. Rows are retained for audit (`retention_purged_at` timestamp + `[retention-purged]` content marker). The default TTL of 90 days is a conservative placeholder; tuning the value to 30 / 180 / 365 days is a deployment-level data-governance decision.
+
 ## Key Features
 
 - **Zero API Cost**: Tree-sitter AST parsing (6 languages), local SLMs for NLP
