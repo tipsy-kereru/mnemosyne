@@ -1,0 +1,3 @@
+# Mark committed PDF fixtures as binary so diffs/merges are clean.
+# No LFS required: the committed fixtures here are <5 KiB.
+tests/fixtures/**/*.pdf binary
