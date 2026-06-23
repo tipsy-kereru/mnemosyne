@@ -1,0 +1,22 @@
+.TH MNEMOSYNE-RETENTION-STATUS 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne retention-status \- Report candidate turn count without writing (always dry\-run).
+.SH SYNOPSIS
+\fBmnemosyne retention-status\fR [options]
+.SH DESCRIPTION
+Report candidate turn count without writing (always dry\-run).
+.SH OPTIONS
+.TP
+\fB\-\-dry\-run\fR
+Report candidate turn count + sample IDs without writing (default)
+.TP
+\fB\-\-apply\fR
+Run the UPDATE tombstone on candidate turns (writes)
+.TP
+\fB\-\-days\fR
+Retention window in days (default: MNEMOSYNE_CHAT_RETENTION_DAYS env or 90)
+.TP
+\fB\-\-db\-path\fR
+KnowledgeGraph DB path (default: auto\-resolve)
+.SH SEE ALSO
+mnemosyne(1)

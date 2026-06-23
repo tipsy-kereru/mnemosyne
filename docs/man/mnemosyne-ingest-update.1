@@ -1,0 +1,40 @@
+.TH MNEMOSYNE-INGEST-UPDATE 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne ingest-update \- Incrementally update the knowledge graph from changed files.
+.SH SYNOPSIS
+\fBmnemosyne ingest-update\fR [options]
+.SH DESCRIPTION
+Incrementally update the knowledge graph from changed files.
+.SH OPTIONS
+.TP
+\fBpath\fR
+Directory to scan (default: ~/mnemosyne/raw/)
+.TP
+\fB\-\-domain\fR
+Domain filter (default: auto)
+.TP
+\fB\-\-scope\-id\fR
+Attach a scope ID to updated entities
+.TP
+\fB\-\-prune\fR
+Remove cache entries for files that no longer exist
+.TP
+\fB\-\-stats\fR
+Show stats only, do not re\-extract
+.TP
+\fB\-\-dry\-run\fR
+Show what would be updated without writing to the knowledge graph
+.TP
+\fB\-\-wiki\-root\fR
+LLM Wiki root (default: ~/mnemosyne/wiki)
+.TP
+\fB\-\-no\-wiki\fR
+Do not update Markdown LLM Wiki pages
+.TP
+\fB\-\-wiki\-excerpts\fR
+Opt in to bounded, redacted source excerpts in wiki source pages
+.TP
+\fB\-\-examples\fR
+Show update examples and output format details
+.SH SEE ALSO
+mnemosyne(1)

@@ -1,0 +1,24 @@
+.TH MNEMOSYNE-WIKI-LINT 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne wiki-lint \- Lint wiki links, metadata, and graph drift.
+.SH SYNOPSIS
+\fBmnemosyne wiki-lint\fR [options]
+.SH DESCRIPTION
+Lint wiki links, metadata, and graph drift.
+.SH OPTIONS
+.TP
+\fB\-\-wiki\-root\fR
+LLM Wiki root (default: ~/mnemosyne/wiki)
+.TP
+\fB\-\-db\-path\fR
+KnowledgeGraph DB path
+.TP
+\fB\-\-format\fR
+.TP
+\fB\-\-lock\-timeout\fR
+Seconds to wait for the wiki write lock on write commands
+.TP
+\fB\-\-strict\fR
+Exit nonzero on warnings too
+.SH SEE ALSO
+mnemosyne(1)
