@@ -1,0 +1,28 @@
+.TH MNEMOSYNE-INGEST-EXTRACT 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne ingest-extract \- Extract entities and relations from source files into the knowledge graph.
+.SH SYNOPSIS
+\fBmnemosyne ingest-extract\fR [options]
+.SH DESCRIPTION
+Extract entities and relations from source files into the knowledge graph.
+.SH OPTIONS
+.TP
+\fBpath\fR
+File or directory to extract from
+.TP
+\fB\-\-domain\fR
+Domain for extraction (default: coding)
+.TP
+\fB\-\-format\fR
+Output format (default: json)
+.TP
+\fB\-\-scope\-id\fR
+Attach a scope ID (e.g. session name) to extracted entities
+.TP
+\fB\-\-source\-channel\fR
+Tag the extraction source channel (default: cli)
+.TP
+\fB\-\-examples\fR
+Show extraction examples and output format details
+.SH SEE ALSO
+mnemosyne(1)

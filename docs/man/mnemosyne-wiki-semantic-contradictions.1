@@ -1,0 +1,27 @@
+.TH MNEMOSYNE-WIKI-SEMANTIC-CONTRADICTIONS 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne wiki-semantic-contradictions \- Opt\-in local semantic contradiction discovery.
+.SH SYNOPSIS
+\fBmnemosyne wiki-semantic-contradictions\fR [options]
+.SH DESCRIPTION
+Opt\-in local semantic contradiction discovery.
+.SH OPTIONS
+.TP
+\fB\-\-wiki\-root\fR
+LLM Wiki root (default: ~/mnemosyne/wiki)
+.TP
+\fB\-\-db\-path\fR
+KnowledgeGraph DB path
+.TP
+\fB\-\-format\fR
+.TP
+\fB\-\-lock\-timeout\fR
+Seconds to wait for the wiki write lock on write commands
+.TP
+\fB\-\-write\fR
+Persist review candidates
+.TP
+\fB\-\-include\-raw\-excerpts\fR
+Opt in to bounded redacted raw source excerpts for local files
+.SH SEE ALSO
+mnemosyne(1)

@@ -1,0 +1,35 @@
+.TH MNEMOSYNE-WIKI-RESOLVE 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne wiki-resolve \- Update one conflict's resolution metadata without deleting evidence.
+.SH SYNOPSIS
+\fBmnemosyne wiki-resolve\fR [options]
+.SH DESCRIPTION
+Update one conflict's resolution metadata without deleting evidence.
+.SH OPTIONS
+.TP
+\fB\-\-wiki\-root\fR
+LLM Wiki root (default: ~/mnemosyne/wiki)
+.TP
+\fB\-\-db\-path\fR
+KnowledgeGraph DB path
+.TP
+\fB\-\-format\fR
+.TP
+\fB\-\-lock\-timeout\fR
+Seconds to wait for the wiki write lock on write commands
+.TP
+\fBconflict_id\fR
+Stable conflict ID from `mnemosyne wiki contradictions`
+.TP
+\fB\-\-resolution\fR
+.TP
+\fB\-\-note\fR
+Optional review note
+.TP
+\fB\-\-reviewer\fR
+Optional reviewer label
+.TP
+\fB\-\-dry\-run\fR
+Preview the metadata update without writing
+.SH SEE ALSO
+mnemosyne(1)

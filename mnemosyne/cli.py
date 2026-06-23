@@ -2,9 +2,27 @@
 Mnemosyne Knowledge Graph main CLI.
 
 Installed as ``mnemosyne`` console_scripts entry point.
+
+Command tree (SPEC-PACKAGE-001, REQ-PKG-005):
+
+    mnemosyne ingest <add|update|extract>
+    mnemosyne graph <query|search|stats|path>
+    mnemosyne project <list|show|register|unregister|migrate>
+    mnemosyne wiki <status|lint|...>                 # delegates to mnemosyne.wiki.cli
+    mnemosyne serve <start>
+    mnemosyne mcp <serve|install>                    # REMAINDER pass-through
+    mnemosyne config <get|set|list|skill|hook>
+    mnemosyne retention <purge|status>
+    mnemosyne extension <install|list|...>           # stub (ISSUE-0007)
+
+Legacy top-level shapes (``add``, ``query``, ``purge-retention``, ...) are kept
+as deprecation aliases for two minor releases (REQ-PKG-006). Each alias prints
+exactly one ``warning:`` line to stderr before forwarding to the new handler
+with identical arg semantics.
 """
 
 import argparse
+import sys
 
 QUERY_SYNTAX = """
 Query Syntax:
@@ -20,22 +38,22 @@ Entity types: function, class, module, api, bug, feature, test, dependency,
               statute, clause, case, party, obligation, deadline, contract
 
 Examples:
-  mnemosyne query --stats
-  mnemosyne query --query "search:authenticate"
-  mnemosyne query --query "entity:function[parse_config]"
-  mnemosyne query --query "entity:function[.*]@session:impl-session"
-  mnemosyne query --query "relation:calls"
-  mnemosyne query --query "path:get_user,authenticate"
+  mnemosyne graph query --stats
+  mnemosyne graph query "search:authenticate"
+  mnemosyne graph query "entity:function[parse_config]"
+  mnemosyne graph query "entity:function[.*]@session:impl-session"
+  mnemosyne graph query "relation:calls"
+  mnemosyne graph query "path:get_user,authenticate"
 
 Output: JSON to stdout. Structure depends on query type.
 """
 
 EXTRACT_EXAMPLES = """
 Examples:
-  mnemosyne extract src/main.py
-  mnemosyne extract src/ --domain coding --format json
-  mnemosyne extract src/ --format wiki --scope-id session-1
-  mnemosyne extract src/ --source-channel vscode
+  mnemosyne ingest extract src/main.py
+  mnemosyne ingest extract src/ --domain coding --format json
+  mnemosyne ingest extract src/ --format wiki --scope-id session-1
+  mnemosyne ingest extract src/ --source-channel vscode
 
 Output:
   --format json  : Array of entity objects [{type, name, language, file_path, ...}]
@@ -46,12 +64,12 @@ Supported languages (coding domain): Python, JavaScript, TypeScript, TSX, Go, Ru
 
 ADD_EXAMPLES = """
 Examples:
-  mnemosyne add ./notes/meeting.md
-  mnemosyne add https://arxiv.org/abs/2305.10601
-  mnemosyne add --text "John works at Google" --domain daily
-  mnemosyne add ./src/ --domain coding --scope-id session-1
-  mnemosyne add ./report.pdf --domain legal
-  mnemosyne add ./notes/meeting.md --wiki-root ./wiki
+  mnemosyne ingest add ./notes/meeting.md
+  mnemosyne ingest add https://arxiv.org/abs/2305.10601
+  mnemosyne ingest add --text "John works at Google" --domain daily
+  mnemosyne ingest add ./src/ --domain coding --scope-id session-1
+  mnemosyne ingest add ./report.pdf --domain legal
+  mnemosyne ingest add ./notes/meeting.md --wiki-root ./wiki
 
 Output: JSON with {source, entities_added, relations_added, raw_path, wiki_paths}
   --dry-run: shows extraction preview without writing to graph
@@ -60,11 +78,11 @@ Output: JSON with {source, entities_added, relations_added, raw_path, wiki_paths
 
 UPDATE_EXAMPLES = """
 Examples:
-  mnemosyne update
-  mnemosyne update ~/mnemosyne/raw/coding/
-  mnemosyne update --stats
-  mnemosyne update --domain legal --prune
-  mnemosyne update ~/mnemosyne/raw/daily --wiki-root ~/mnemosyne/wiki
+  mnemosyne ingest update
+  mnemosyne ingest update ~/mnemosyne/raw/coding/
+  mnemosyne ingest update --stats
+  mnemosyne ingest update --domain legal --prune
+  mnemosyne ingest update ~/mnemosyne/raw/daily --wiki-root ~/mnemosyne/wiki
 
 Output: JSON with {total, changed, new_files, unchanged, errors}
 """
@@ -92,198 +110,237 @@ Editor workflow:
 Output: text by default; pass --format json for automation.
 """
 
+_PURGE_RETENTION_DESC = (
+    "Purge chat turns older than the retention window. Tombstone-only: "
+    "rows are UPDATE'd (retention_purged_at set, content overwritten "
+    "with '[retention-purged]'); NO row is ever deleted (no-delete "
+    "contract). Defaults to dry-run; pass --apply to write."
+)
 
-def main(argv=None):
-    """Mnemosyne CLI entry point."""
-    try:
-        from pathlib import Path
-        from dotenv import load_dotenv  # type: ignore[import-not-found]
-        current = Path(__file__).resolve().parent
-        for _ in range(4):
-            env_path = current / ".env"
-            if env_path.exists():
-                load_dotenv(dotenv_path=env_path)
-                break
-            current = current.parent
-        else:
-            load_dotenv()
-    except ImportError:
-        pass
-    parser = argparse.ArgumentParser(
-        prog="mnemosyne",
-        description="Mnemosyne Knowledge Graph - Local-first knowledge memory for AI agents",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--version", action="version", version="0.1.0",
-    )
+_EXTENSION_STUB_MSG = "extension group ships in ISSUE-0007 (PACKAGE-B)"
 
-    subparsers = parser.add_subparsers(dest="command")
 
-    # query subcommand
-    query_parser = subparsers.add_parser(
-        "query",
-        help="Query the knowledge graph",
-        description="Query the knowledge graph using structured expressions",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=QUERY_SYNTAX,
-    )
-    query_parser.add_argument("--query", help="Query expression (see syntax below)")
-    query_parser.add_argument("--stats", action="store_true", help="Show graph statistics as JSON")
-    query_parser.add_argument("--project", help="Query a specific project by name")
-    query_parser.add_argument("--global", action="store_true", dest="global_scope", help="Search across all projects (ignore auto-scope)")
-    query_parser.add_argument(
-        "--examples", action="store_true",
-        help="Show query syntax and examples",
-    )
+# ---------------------------------------------------------------------------
+# gh-style help formatter (REQ-PKG-007)
+# ---------------------------------------------------------------------------
 
-    # extract subcommand
-    extract_parser = subparsers.add_parser(
-        "extract",
-        help="Extract entities from source files",
-        description="Extract entities and relations from source files into the knowledge graph",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=EXTRACT_EXAMPLES,
-    )
-    extract_parser.add_argument("path", help="File or directory to extract from")
-    extract_parser.add_argument(
-        "--domain",
-        choices=["coding", "daily", "legal"],
-        default="coding",
-        help="Domain for extraction (default: coding)",
-    )
-    extract_parser.add_argument(
-        "--format",
-        choices=["json", "wiki"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    extract_parser.add_argument(
-        "--scope-id",
-        help="Attach a scope ID (e.g. session name) to extracted entities",
-    )
-    extract_parser.add_argument(
-        "--source-channel", default="cli",
-        help="Tag the extraction source channel (default: cli)",
-    )
-    extract_parser.add_argument(
-        "--examples", action="store_true",
-        help="Show extraction examples and output format details",
-    )
 
-    # add subcommand
-    add_parser = subparsers.add_parser(
-        "add",
-        help="Add a file, directory, URL, or text to the knowledge graph",
-        description="Add a file, directory, URL, or text to the knowledge graph",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=ADD_EXAMPLES,
-    )
-    add_parser.add_argument(
-        "target", nargs="?",
-        help="File, directory, or URL to ingest",
-    )
-    add_parser.add_argument(
-        "--text",
-        help="Inline text to ingest instead of a target path or URL",
-    )
-    add_parser.add_argument(
+class GhHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """argparse formatter that preserves the gh-style help epilog verbatim.
+
+    Standard argparse output already emits a ``usage:`` line and an
+    ``options:`` section. ``RawDescriptionHelpFormatter`` preserves the
+    parser's ``description`` and ``epilog`` verbatim, so the EXAMPLES and
+    SEE ALSO sections (folded into the epilog by ``_new_parser``) render
+    under their own clearly-labelled banners (REQ-PKG-007).
+    """
+
+
+def _new_parser(
+    subparsers: argparse._SubParsersAction,
+    name: str,
+    *,
+    help: str,
+    description: str,
+    epilog: str | None = None,
+    see_also: str | None = None,
+    aliases: list[str] | None = None,
+) -> argparse.ArgumentParser:
+    """Create a subparser wired with GhHelpFormatter + optional SEE ALSO.
+
+    SEE ALSO is folded into the epilog so it renders under a clearly-labelled
+    section header (REQ-PKG-007). The epilog is preserved verbatim by
+    GhHelpFormatter (a RawDescriptionHelpFormatter subclass).
+    """
+    if see_also:
+        see_also_block = f"SEE ALSO:\n  {see_also}"
+        epilog = f"{epilog.rstrip()}\n\n{see_also_block}" if epilog else see_also_block
+    kwargs: dict = {
+        "help": help,
+        "description": description,
+        "formatter_class": GhHelpFormatter,
+    }
+    if epilog:
+        kwargs["epilog"] = epilog
+    if aliases:
+        kwargs["aliases"] = aliases
+    parser = subparsers.add_parser(name, **kwargs)
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Shared argument specs (single source for new groups + legacy aliases)
+# ---------------------------------------------------------------------------
+
+
+def _add_ingest_add_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("target", nargs="?", help="File, directory, or URL to ingest")
+    p.add_argument("--text", help="Inline text to ingest instead of a target path or URL")
+    p.add_argument(
         "--domain",
         choices=["coding", "daily", "legal"],
         default="daily",
         help="Domain for ingestion (default: daily)",
     )
-    add_parser.add_argument(
-        "--scope-id",
-        help="Attach a scope ID (e.g. session name) to ingested entities",
+    p.add_argument("--scope-id", help="Attach a scope ID (e.g. session name) to ingested entities")
+    p.add_argument(
+        "--source-channel", default="cli", help="Tag the ingestion source channel (default: cli)"
     )
-    add_parser.add_argument(
-        "--source-channel", default="cli",
-        help="Tag the ingestion source channel (default: cli)",
-    )
-    add_parser.add_argument(
+    p.add_argument(
         "--dry-run", action="store_true",
         help="Show what would happen without writing to the knowledge graph",
     )
-    add_parser.add_argument(
-        "--wiki-root",
-        default=None,
-        help="LLM Wiki root (default: ~/mnemosyne/wiki)",
-    )
-    add_parser.add_argument(
-        "--no-wiki", action="store_true",
-        help="Do not update Markdown LLM Wiki pages",
-    )
-    add_parser.add_argument(
+    p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
+    p.add_argument("--no-wiki", action="store_true", help="Do not update Markdown LLM Wiki pages")
+    p.add_argument(
         "--wiki-excerpts", action="store_true",
         help="Opt in to bounded, redacted source excerpts in wiki source pages",
     )
-    add_parser.add_argument(
-        "--examples", action="store_true",
-        help="Show ingestion examples and output format details",
+    p.add_argument(
+        "--examples", action="store_true", help="Show ingestion examples and output format details"
     )
 
-    # update subcommand
-    update_parser = subparsers.add_parser(
-        "update",
-        help="Incrementally update the knowledge graph from changed files",
-        description="Incrementally update the knowledge graph from changed files",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=UPDATE_EXAMPLES,
-    )
-    update_parser.add_argument(
-        "path", nargs="?",
-        help="Directory to scan (default: ~/mnemosyne/raw/)",
-    )
-    update_parser.add_argument(
+
+def _add_ingest_update_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("path", nargs="?", help="Directory to scan (default: ~/mnemosyne/raw/)")
+    p.add_argument(
         "--domain",
         choices=["coding", "daily", "legal", "auto"],
         default="auto",
         help="Domain filter (default: auto)",
     )
-    update_parser.add_argument(
-        "--scope-id",
-        help="Attach a scope ID to updated entities",
-    )
-    update_parser.add_argument(
+    p.add_argument("--scope-id", help="Attach a scope ID to updated entities")
+    p.add_argument(
         "--prune", action="store_true",
         help="Remove cache entries for files that no longer exist",
     )
-    update_parser.add_argument(
-        "--stats", action="store_true",
-        help="Show stats only, do not re-extract",
-    )
-    update_parser.add_argument(
+    p.add_argument("--stats", action="store_true", help="Show stats only, do not re-extract")
+    p.add_argument(
         "--dry-run", action="store_true",
         help="Show what would be updated without writing to the knowledge graph",
     )
-    update_parser.add_argument(
-        "--wiki-root",
-        default=None,
-        help="LLM Wiki root (default: ~/mnemosyne/wiki)",
-    )
-    update_parser.add_argument(
-        "--no-wiki", action="store_true",
-        help="Do not update Markdown LLM Wiki pages",
-    )
-    update_parser.add_argument(
+    p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
+    p.add_argument("--no-wiki", action="store_true", help="Do not update Markdown LLM Wiki pages")
+    p.add_argument(
         "--wiki-excerpts", action="store_true",
         help="Opt in to bounded, redacted source excerpts in wiki source pages",
     )
-    update_parser.add_argument(
-        "--examples", action="store_true",
-        help="Show update examples and output format details",
+    p.add_argument(
+        "--examples", action="store_true", help="Show update examples and output format details"
     )
 
-    # -- skill subcommand --
-    skill_parser = subparsers.add_parser(
-        "skill",
-        help="Manage agent skill files",
-        description="Install or manage mnemosyne agent skill files for Claude Code and other AI agents",
-    )
-    skill_subparsers = skill_parser.add_subparsers(dest="skill_command")
 
-    skill_install = skill_subparsers.add_parser(
+def _add_ingest_extract_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("path", help="File or directory to extract from")
+    p.add_argument(
+        "--domain",
+        choices=["coding", "daily", "legal"],
+        default="coding",
+        help="Domain for extraction (default: coding)",
+    )
+    p.add_argument(
+        "--format", choices=["json", "wiki"], default="json", help="Output format (default: json)"
+    )
+    p.add_argument(
+        "--scope-id", help="Attach a scope ID (e.g. session name) to extracted entities"
+    )
+    p.add_argument(
+        "--source-channel", default="cli", help="Tag the extraction source channel (default: cli)"
+    )
+    p.add_argument(
+        "--examples", action="store_true", help="Show extraction examples and output format details"
+    )
+
+
+def _add_graph_query_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("query", nargs="?", help="Query expression (see syntax below)")
+    p.add_argument("--query", dest="query_flag", help="Query expression (alias of positional)")
+    p.add_argument("--stats", action="store_true", help="Show graph statistics as JSON")
+    p.add_argument("--project", help="Query a specific project by name")
+    p.add_argument(
+        "--global",
+        action="store_true",
+        dest="global_scope",
+        help="Search across all projects (ignore auto-scope)",
+    )
+    p.add_argument("--examples", action="store_true", help="Show query syntax and examples")
+
+
+def _add_retention_purge_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report candidate turn count + sample IDs without writing (default)",
+    )
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help="Run the UPDATE tombstone on candidate turns (writes)",
+    )
+    p.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Retention window in days (default: MNEMOSYNE_CHAT_RETENTION_DAYS env or 90)",
+    )
+    p.add_argument("--db-path", default=None, help="KnowledgeGraph DB path (default: auto-resolve)")
+
+
+def _add_serve_start_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    p.add_argument("--port", type=int, default=57832, help="Listen port (default: 57832)")
+    p.add_argument("--db-path", default=None, help="Knowledge graph database path")
+
+
+def _add_project_verbs(project_subparsers: argparse._SubParsersAction) -> None:
+    _new_parser(
+        project_subparsers,
+        "list",
+        help="List all registered projects",
+        description="List all registered projects.",
+    ).set_defaults(project_command="list")
+
+    show = _new_parser(
+        project_subparsers,
+        "show",
+        help="Show project details and entity counts",
+        description="Show project details and entity counts.",
+    )
+    show.add_argument(
+        "identifier", nargs="?", help="Project name or hash (default: current project)"
+    )
+    show.set_defaults(project_command="show")
+
+    register = _new_parser(
+        project_subparsers,
+        "register",
+        help="Manually register a project path",
+        description="Manually register a project path.",
+    )
+    register.add_argument("path", help="Path to project root")
+    register.add_argument("--name", help="Project name (default: directory basename)")
+    register.set_defaults(project_command="register")
+
+    unregister = _new_parser(
+        project_subparsers,
+        "unregister",
+        help="Remove project registration (does not delete entities)",
+        description="Remove project registration (does not delete entities).",
+    )
+    unregister.add_argument("identifier", help="Project name or hash")
+    unregister.set_defaults(project_command="unregister")
+
+    _new_parser(
+        project_subparsers,
+        "migrate",
+        help="Back-fill projects table from existing scope_id values",
+        description="Back-fill projects table from existing scope_id values.",
+    ).set_defaults(project_command="migrate")
+
+
+def _add_skill_verbs(skill_subparsers: argparse._SubParsersAction) -> None:
+    skill_install = _new_parser(
+        skill_subparsers,
         "install",
         help="Install mnemosyne skill to agent skills directory",
         description="Install the mnemosyne SKILL.md so that AI agents (Claude Code, etc.) can use /mnemosyne",
@@ -300,198 +357,104 @@ def main(argv=None):
         "--force", action="store_true",
         help="Reinstall even if the installed SKILL.md is already identical",
     )
+    skill_install.set_defaults(skill_command="install")
 
-    skill_update = skill_subparsers.add_parser(
+    skill_update = _new_parser(
+        skill_subparsers,
         "update",
         help="Update installed mnemosyne skill to latest version",
-        description="Update the mnemosyne SKILL.md to the latest bundled version",
+        description="Update the mnemosyne SKILL.md to the latest bundled version.",
     )
     skill_update.add_argument(
         "--target", choices=["claude", "agents"], default="claude",
         help="Target agent framework (default: claude)",
     )
-    skill_update.add_argument(
-        "--path",
-        help="Custom absolute directory path. Overrides --target",
-    )
+    skill_update.add_argument("--path", help="Custom absolute directory path. Overrides --target")
     skill_update.add_argument(
         "--force", action="store_true",
         help="Rewrite even if the installed SKILL.md is already identical",
     )
+    skill_update.set_defaults(skill_command="update")
 
-    # -- hook subcommand --
-    hook_parser = subparsers.add_parser(
-        "hook",
-        help="Manage mnemosyne hooks for AI agents and git",
-        description="Install, remove, or check mnemosyne hooks that auto-sync the "
-        "knowledge graph on file changes. Supports: git, claude, codex, gemini, copilot",
-    )
-    hook_subparsers = hook_parser.add_subparsers(dest="hook_command")
 
-    hook_install = hook_subparsers.add_parser(
+def _add_hook_verbs(hook_subparsers: argparse._SubParsersAction) -> None:
+    hook_install = _new_parser(
+        hook_subparsers,
         "install",
         help="Install hooks for a target platform",
         description="Install mnemosyne hooks. Without a target, installs git + claude.",
     )
     hook_install.add_argument(
-        "target",
-        nargs="?",
-        default=None,
+        "target", nargs="?", default=None,
         help="Platform: git, claude, codex, gemini, copilot, or 'all' (default: git+claude)",
     )
-    hook_install.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite existing hooks",
-    )
+    hook_install.add_argument("--force", action="store_true", help="Overwrite existing hooks")
+    hook_install.set_defaults(hook_command="install")
 
-    hook_remove = hook_subparsers.add_parser(
-        "remove",
-        help="Remove hooks for a target platform",
+    hook_remove = _new_parser(
+        hook_subparsers, "remove", help="Remove hooks for a target platform",
+        description="Remove hooks for a target platform.",
     )
+    hook_remove.add_argument("target", nargs="?", default=None, help="Platform to remove hooks from")
     hook_remove.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Platform to remove hooks from",
-    )
-    hook_remove.add_argument(
-        "--all",
-        action="store_true",
-        dest="remove_all",
+        "--all", action="store_true", dest="remove_all",
         help="Remove hooks from all platforms",
     )
+    hook_remove.set_defaults(hook_command="remove")
 
-    hook_subparsers.add_parser(
-        "status",
-        help="Show installed hook status for all platforms",
-    )
+    _new_parser(
+        hook_subparsers, "status", help="Show installed hook status for all platforms",
+        description="Show installed hook status for all platforms.",
+    ).set_defaults(hook_command="status")
 
-    # -- mcp subcommand --
-    mcp_parser = subparsers.add_parser(
-        "mcp",
-        help="MCP server and install helper (SPEC-MCP-001)",
-        description="Run the MCP stdio server or print an MCP client config snippet.",
-    )
-    # Accept arbitrary trailing args and hand them to the mcp sub-CLI, which
-    # owns its own argparse for `serve` / `install`. Using REMAINDER lets
-    # `mnemosyne mcp install --client X` pass through without the top-level
-    # parser rejecting the sub-action flags.
-    mcp_parser.add_argument("mcp_args", nargs=argparse.REMAINDER)
 
-    # -- serve subcommand --
-    serve_parser = subparsers.add_parser(
-        "serve",
-        help="Start HTTP API server for external tool integration",
-        description="Start a local HTTP API server (stdlib http.server, no external dependencies)",
+def _add_config_verbs(
+    config_subparsers: argparse._SubParsersAction,
+) -> tuple[argparse.ArgumentParser, argparse.ArgumentParser, argparse.ArgumentParser]:
+    """Register config verbs. Skill/hook are nested sub-subparsers."""
+    get_p = _new_parser(
+        config_subparsers, "get", help="Get a config value",
+        description="Get a config value (stub — full impl lands in a follow-up).",
     )
-    serve_parser.add_argument(
-        "--host", default="127.0.0.1",
-        help="Bind address (default: 127.0.0.1)",
+    set_p = _new_parser(
+        config_subparsers, "set", help="Set a config value",
+        description="Set a config value (stub — full impl lands in a follow-up).",
     )
-    serve_parser.add_argument(
-        "--port", type=int, default=57832,
-        help="Listen port (default: 57832)",
-    )
-    serve_parser.add_argument(
-        "--db-path", default=None,
-        help="Knowledge graph database path",
+    list_p = _new_parser(
+        config_subparsers, "list", help="List config values",
+        description="List config values (stub — full impl lands in a follow-up).",
     )
 
-    wiki_parser = subparsers.add_parser(
-        "wiki",
-        help="Inspect and maintain the Markdown LLM Wiki",
-        description="Inspect and maintain the Markdown LLM Wiki",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=WIKI_EXAMPLES,
+    skill_parser = _new_parser(
+        config_subparsers, "skill",
+        help="Manage agent skill files",
+        description="Install or manage mnemosyne agent skill files for Claude Code and other AI agents",
     )
+    skill_sub = skill_parser.add_subparsers(dest="skill_command")
+    _add_skill_verbs(skill_sub)
+    skill_parser.set_defaults(config_verb="skill")
 
-    # -- project subcommand --
-    project_parser = subparsers.add_parser(
-        "project",
-        help="Manage project-scoped knowledge graphs",
-        description="Register, list, and migrate project-scoped knowledge graphs",
+    hook_parser = _new_parser(
+        config_subparsers, "hook",
+        help="Manage mnemosyne hooks for AI agents and git",
+        description="Install, remove, or check mnemosyne hooks that auto-sync the knowledge graph on file changes. Supports: git, claude, codex, gemini, copilot",
     )
-    project_subparsers = project_parser.add_subparsers(dest="project_command")
+    hook_sub = hook_parser.add_subparsers(dest="hook_command")
+    _add_hook_verbs(hook_sub)
+    hook_parser.set_defaults(config_verb="hook")
 
-    project_subparsers.add_parser(
-        "list",
-        help="List all registered projects",
-    )
+    return get_p, set_p, list_p
 
-    project_show = project_subparsers.add_parser(
-        "show",
-        help="Show project details and entity counts",
-    )
-    project_show.add_argument(
-        "identifier",
-        nargs="?",
-        help="Project name or hash (default: current project)",
-    )
 
-    project_register = project_subparsers.add_parser(
-        "register",
-        help="Manually register a project path",
-    )
-    project_register.add_argument("path", help="Path to project root")
-    project_register.add_argument("--name", help="Project name (default: directory basename)")
-
-    project_unregister = project_subparsers.add_parser(
-        "unregister",
-        help="Remove project registration (does not delete entities)",
-    )
-    project_unregister.add_argument("identifier", help="Project name or hash")
-
-    project_subparsers.add_parser(
-        "migrate",
-        help="Back-fill projects table from existing scope_id values",
-    )
-    wiki_subparsers = wiki_parser.add_subparsers(dest="wiki_command")
-
-    # -- purge-retention subcommand (ISSUE-0004 portion a) --
-    # Tombstone-only chat-content retention purge. No row deletion. Dry-run
-    # by default; --apply runs the UPDATE. TTL via --days or
-    # MNEMOSYNE_CHAT_RETENTION_DAYS (default 90).
-    purge_parser = subparsers.add_parser(
-        "purge-retention",
-        help="Purge (tombstone) chat turns older than the retention window",
-        description=(
-            "Purge chat turns older than the retention window. Tombstone-only: "
-            "rows are UPDATE'd (retention_purged_at set, content overwritten "
-            "with '[retention-purged]'); NO row is ever deleted (no-delete "
-            "contract). Defaults to dry-run; pass --apply to write."
-        ),
-    )
-    purge_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Report candidate turn count + sample IDs without writing (default)",
-    )
-    purge_parser.add_argument(
-        "--apply",
-        action="store_true",
-        help="Run the UPDATE tombstone on candidate turns (writes)",
-    )
-    purge_parser.add_argument(
-        "--days",
-        type=int,
-        default=None,
-        help=(
-            "Retention window in days (default: MNEMOSYNE_CHAT_RETENTION_DAYS "
-            "env or 90)"
-        ),
-    )
-    purge_parser.add_argument(
-        "--db-path",
-        default=None,
-        help="KnowledgeGraph DB path (default: auto-resolve)",
-    )
-
-    def add_wiki_common(p):
+def _add_wiki_verbs(wiki_subparsers: argparse._SubParsersAction) -> None:
+    def add_wiki_common(p: argparse.ArgumentParser) -> None:
         p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
         p.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
         p.add_argument("--format", choices=["text", "json"], default="text")
-        p.add_argument("--lock-timeout", type=float, default=10.0, help="Seconds to wait for the wiki write lock on write commands")
+        p.add_argument(
+            "--lock-timeout", type=float, default=10.0,
+            help="Seconds to wait for the wiki write lock on write commands",
+        )
 
     for name, help_text in (
         ("status", "Show read-only wiki health summary"),
@@ -503,12 +466,17 @@ def main(argv=None):
         ("rebuild", "Regenerate generated wiki sections from graph data"),
         ("doctor", "Run status and lint together"),
     ):
-        sub = wiki_subparsers.add_parser(name, help=help_text)
+        sub = _new_parser(
+            wiki_subparsers, name, help=help_text, description=help_text.rstrip(".") + "."
+        )
         add_wiki_common(sub)
         if name == "contradictions":
             sub.add_argument("--all", action="store_true", help="Include resolved conflicts")
         if name == "resolve":
-            sub.add_argument("conflict_id", help="Stable conflict ID from `mnemosyne wiki contradictions`")
+            sub.add_argument(
+                "conflict_id",
+                help="Stable conflict ID from `mnemosyne wiki contradictions`",
+            )
             sub.add_argument(
                 "--resolution",
                 required=True,
@@ -522,85 +490,487 @@ def main(argv=None):
             )
             sub.add_argument("--note", default=None, help="Optional review note")
             sub.add_argument("--reviewer", default=None, help="Optional reviewer label")
-            sub.add_argument("--dry-run", action="store_true", help="Preview the metadata update without writing")
+            sub.add_argument(
+                "--dry-run", action="store_true",
+                help="Preview the metadata update without writing",
+            )
         if name == "prune":
             sub.add_argument(
-                "--apply-tombstones",
-                action="store_true",
+                "--apply-tombstones", action="store_true",
                 help="Write tombstone records without deleting pages or graph facts",
             )
         if name == "semantic-contradictions":
             sub.add_argument("--write", action="store_true", help="Persist review candidates")
             sub.add_argument(
-                "--include-raw-excerpts",
-                action="store_true",
+                "--include-raw-excerpts", action="store_true",
                 help="Opt in to bounded redacted raw source excerpts for local files",
             )
         if name in {"lint", "doctor"}:
             sub.add_argument("--strict", action="store_true", help="Exit nonzero on warnings too")
         if name == "rebuild":
             sub.add_argument("--dry-run", action="store_true", help="Show pages that would be written")
+        sub.set_defaults(wiki_command=name)
 
+
+# ---------------------------------------------------------------------------
+# Top-level parser construction (group tree + legacy aliases)
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level mnemosyne argparse parser (group tree + aliases)."""
+    parser = argparse.ArgumentParser(
+        prog="mnemosyne",
+        description="Mnemosyne Knowledge Graph - Local-first knowledge memory for AI agents",
+        formatter_class=GhHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version="0.1.0")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # -- ingest group --
+    ingest = _new_parser(
+        subparsers, "ingest",
+        help="Ingest sources into the knowledge graph",
+        description="Ingest sources into the knowledge graph.",
+        epilog=ADD_EXAMPLES,
+        see_also="mnemosyne graph, mnemosyne wiki",
+    )
+    ingest_sub = ingest.add_subparsers(dest="ingest_command")
+    ingest_add = _new_parser(
+        ingest_sub, "add", help="Add a file, directory, URL, or text",
+        description="Add a file, directory, URL, or text to the knowledge graph.",
+        epilog=ADD_EXAMPLES,
+    )
+    _add_ingest_add_args(ingest_add)
+    ingest_add.set_defaults(func=_run_add, group="ingest", verb="add")
+    ingest_update = _new_parser(
+        ingest_sub, "update", help="Incrementally update from changed files",
+        description="Incrementally update the knowledge graph from changed files.",
+        epilog=UPDATE_EXAMPLES,
+    )
+    _add_ingest_update_args(ingest_update)
+    ingest_update.set_defaults(func=_run_update, group="ingest", verb="update")
+    ingest_extract = _new_parser(
+        ingest_sub, "extract", help="Extract entities from source files",
+        description="Extract entities and relations from source files into the knowledge graph.",
+        epilog=EXTRACT_EXAMPLES,
+    )
+    _add_ingest_extract_args(ingest_extract)
+    ingest_extract.set_defaults(func=_run_extract, group="ingest", verb="extract")
+
+    # -- graph group --
+    graph = _new_parser(
+        subparsers, "graph",
+        help="Query the knowledge graph",
+        description="Query the knowledge graph using structured expressions.",
+        epilog=QUERY_SYNTAX,
+        see_also="mnemosyne ingest, mnemosyne project",
+    )
+    graph_sub = graph.add_subparsers(dest="graph_command")
+    graph_query = _new_parser(
+        graph_sub, "query", help="Run a DSL query",
+        description="Query the knowledge graph using structured expressions.",
+        epilog=QUERY_SYNTAX,
+    )
+    _add_graph_query_args(graph_query)
+    graph_query.set_defaults(func=_run_graph_query, group="graph", verb="query")
+    graph_search = _new_parser(
+        graph_sub, "search", help="Fuzzy search across all entities",
+        description="Fuzzy search across all entities (search:TERM DSL shortcut).",
+    )
+    graph_search.add_argument("term", help="Search term")
+    graph_search.set_defaults(func=_run_graph_search, group="graph", verb="search")
+    graph_stats = _new_parser(
+        graph_sub, "stats", help="Show graph statistics as JSON",
+        description="Show graph statistics as JSON.",
+    )
+    graph_stats.set_defaults(func=_run_graph_stats, group="graph", verb="stats")
+    graph_path = _new_parser(
+        graph_sub, "path", help="Find shortest path between two entities",
+        description="Find shortest path between two entities (path:FROM,TO DSL shortcut).",
+    )
+    graph_path.add_argument("from_entity", help="Starting entity")
+    graph_path.add_argument("to_entity", help="Ending entity")
+    graph_path.set_defaults(func=_run_graph_path, group="graph", verb="path")
+
+    # -- project group (already group-shaped) --
+    project = _new_parser(
+        subparsers, "project",
+        help="Manage project-scoped knowledge graphs",
+        description="Register, list, and migrate project-scoped knowledge graphs.",
+        see_also="mnemosyne graph, mnemosyne ingest",
+    )
+    project_sub = project.add_subparsers(dest="project_command")
+    _add_project_verbs(project_sub)
+    project.set_defaults(func=_run_project, group="project")
+
+    # -- wiki group (delegates to mnemosyne.wiki.cli) --
+    wiki = _new_parser(
+        subparsers, "wiki",
+        help="Inspect and maintain the Markdown LLM Wiki",
+        description="Inspect and maintain the Markdown LLM Wiki.",
+        epilog=WIKI_EXAMPLES,
+        see_also="mnemosyne graph, mnemosyne ingest",
+    )
+    wiki_sub = wiki.add_subparsers(dest="wiki_command")
+    _add_wiki_verbs(wiki_sub)
+    wiki.set_defaults(func=_run_wiki, group="wiki")
+
+    # -- serve group --
+    serve = _new_parser(
+        subparsers, "serve",
+        help="HTTP API server commands",
+        description="Start and inspect the local HTTP API server (stdlib http.server).",
+    )
+    serve_sub = serve.add_subparsers(dest="serve_command")
+    serve_start = _new_parser(
+        serve_sub, "start", help="Start HTTP API server",
+        description="Start a local HTTP API server (stdlib http.server, no external dependencies).",
+    )
+    _add_serve_start_args(serve_start)
+    serve_start.set_defaults(func=_run_serve, group="serve", verb="start")
+    serve.set_defaults(func=_run_serve_group, group="serve")
+
+    # -- mcp group (REMAINDER pass-through preserved) --
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="MCP server and install helper (SPEC-MCP-001)",
+        description="Run the MCP stdio server or print an MCP client config snippet.",
+    )
+    # REMAINDER lets `mnemosyne mcp install --client X` pass through to the
+    # mcp sub-CLI which owns its own argparse for `serve` / `install`.
+    mcp_parser.add_argument("mcp_args", nargs=argparse.REMAINDER)
+    mcp_parser.set_defaults(func=_run_mcp, group="mcp")
+
+    # -- config group --
+    config = _new_parser(
+        subparsers, "config",
+        help="Inspect and edit mnemosyne configuration",
+        description="Inspect and edit mnemosyne configuration (values, skills, hooks).",
+        see_also="mnemosyne retention, mnemosyne extension",
+    )
+    config_sub = config.add_subparsers(dest="config_command")
+    get_p, set_p, list_p = _add_config_verbs(config_sub)
+    get_p.set_defaults(func=_run_config_get, group="config", verb="get")
+    set_p.set_defaults(func=_run_config_set, group="config", verb="set")
+    list_p.set_defaults(func=_run_config_list, group="config", verb="list")
+    config.set_defaults(func=_run_config_group, group="config")
+
+    # -- retention group --
+    retention = _new_parser(
+        subparsers, "retention",
+        help="Chat-content retention management",
+        description="Purge or inspect chat-content retention (tombstone-only; no row deletion).",
+    )
+    retention_sub = retention.add_subparsers(dest="retention_command")
+    retention_purge = _new_parser(
+        retention_sub, "purge", help="Purge (tombstone) chat turns past the retention window",
+        description=_PURGE_RETENTION_DESC,
+    )
+    _add_retention_purge_args(retention_purge)
+    retention_purge.set_defaults(func=_run_purge_retention, group="retention", verb="purge")
+    retention_status = _new_parser(
+        retention_sub, "status", help="Report candidate turn count without writing",
+        description="Report candidate turn count without writing (always dry-run).",
+    )
+    _add_retention_purge_args(retention_status)
+    retention_status.set_defaults(func=_run_purge_retention_status, group="retention", verb="status")
+    retention.set_defaults(func=_run_retention_group, group="retention")
+
+    # -- extension group (STUB — ISSUE-0007) --
+    extension = _new_parser(
+        subparsers, "extension",
+        help="Manage mnemosyne extensions (ISSUE-0007)",
+        description="Install, list, remove, upgrade, search, or inspect mnemosyne extensions.",
+        aliases=["ext"],
+        see_also="mnemosyne config",
+    )
+    ext_sub = extension.add_subparsers(dest="extension_command")
+    for verb in ("install", "list", "remove", "upgrade", "search", "info"):
+        v = _new_parser(
+            ext_sub, verb,
+            help=f"{verb} extension (ISSUE-0007)",
+            description=f"{verb} extension — {_EXTENSION_STUB_MSG}",
+        )
+        v.add_argument("args", nargs="*", help="verb-specific arguments (ISSUE-0007)")
+        v.set_defaults(func=_run_extension_stub, group="extension", verb=verb)
+    extension.set_defaults(func=_run_extension_group, group="extension")
+
+    # -- legacy / deprecation aliases (REQ-PKG-006) --
+    _register_legacy_aliases(subparsers)
+
+    return parser
+
+
+def _register_legacy_aliases(subparsers: argparse._SubParsersAction) -> None:
+    """Register legacy top-level subparsers that forward to the new groups.
+
+    Each alias sets ``_deprecated_to`` so ``main()`` emits a single stderr
+    warning before dispatching. Handler reuse avoids arg-mapping drift.
+    """
+    add_alias = subparsers.add_parser(
+        "add",
+        help="(deprecated) alias for 'ingest add'",
+        description="Deprecated. Use 'mnemosyne ingest add'.",
+        formatter_class=GhHelpFormatter,
+    )
+    _add_ingest_add_args(add_alias)
+    add_alias.set_defaults(func=_run_add, _deprecated_to="ingest add")
+
+    update_alias = subparsers.add_parser(
+        "update",
+        help="(deprecated) alias for 'ingest update'",
+        description="Deprecated. Use 'mnemosyne ingest update'.",
+        formatter_class=GhHelpFormatter,
+    )
+    _add_ingest_update_args(update_alias)
+    update_alias.set_defaults(func=_run_update, _deprecated_to="ingest update")
+
+    extract_alias = subparsers.add_parser(
+        "extract",
+        help="(deprecated) alias for 'ingest extract'",
+        description="Deprecated. Use 'mnemosyne ingest extract'.",
+        formatter_class=GhHelpFormatter,
+        epilog=EXTRACT_EXAMPLES,
+    )
+    _add_ingest_extract_args(extract_alias)
+    extract_alias.set_defaults(func=_run_extract, _deprecated_to="ingest extract")
+
+    query_alias = subparsers.add_parser(
+        "query",
+        help="(deprecated) alias for 'graph query'",
+        description="Deprecated. Use 'mnemosyne graph query'.",
+        formatter_class=GhHelpFormatter,
+        epilog=QUERY_SYNTAX,
+    )
+    _add_graph_query_args(query_alias)
+    query_alias.set_defaults(func=_run_graph_query, _deprecated_to="graph query")
+
+    purge_alias = subparsers.add_parser(
+        "purge-retention",
+        help="(deprecated) alias for 'retention purge'",
+        description="Deprecated. Use 'mnemosyne retention purge'.",
+        formatter_class=GhHelpFormatter,
+    )
+    _add_retention_purge_args(purge_alias)
+    purge_alias.set_defaults(func=_run_purge_retention, _deprecated_to="retention purge")
+
+    skill_alias = subparsers.add_parser(
+        "skill",
+        help="(deprecated) alias for 'config skill'",
+        description="Deprecated. Use 'mnemosyne config skill'.",
+        formatter_class=GhHelpFormatter,
+    )
+    skill_alias_sub = skill_alias.add_subparsers(dest="skill_command")
+    _add_skill_verbs(skill_alias_sub)
+    skill_alias.set_defaults(func=_run_skill, _deprecated_to="config skill")
+
+    hook_alias = subparsers.add_parser(
+        "hook",
+        help="(deprecated) alias for 'config hook'",
+        description="Deprecated. Use 'mnemosyne config hook'.",
+        formatter_class=GhHelpFormatter,
+    )
+    hook_alias_sub = hook_alias.add_subparsers(dest="hook_command")
+    _add_hook_verbs(hook_alias_sub)
+    hook_alias.set_defaults(func=_run_hook, _deprecated_to="config hook")
+
+
+def _emit_deprecation_warning(old: str, new: str) -> None:
+    """Print exactly one deprecation warning line to stderr (REQ-PKG-006)."""
+    print(
+        f"warning: 'mnemosyne {old}' is deprecated; use 'mnemosyne {new}'",
+        file=sys.stderr,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Group help fallbacks + graph/extension/config dispatchers
+# ---------------------------------------------------------------------------
+
+
+def _run_serve_group(args):
+    """Print serve help when ``mnemosyne serve`` is invoked with no verb."""
+    print("Usage: mnemosyne serve <start> [options]", file=sys.stderr)
+    sys.exit(2)
+
+
+def _run_config_group(args):
+    """Dispatch ``config skill`` / ``config hook`` or print help."""
+    verb = getattr(args, "config_verb", None)
+    if verb == "skill":
+        _run_skill(args)
+        return
+    if verb == "hook":
+        _run_hook(args)
+        return
+    print("Usage: mnemosyne config <get|set|list|skill|hook> [options]")
+
+
+def _run_retention_group(args):
+    """Print retention help when ``mnemosyne retention`` is invoked with no verb."""
+    print("Usage: mnemosyne retention <purge|status> [options]", file=sys.stderr)
+    sys.exit(2)
+
+
+def _run_extension_group(args):
+    """Extension group invoked with no verb — raise NotImplementedError (ISSUE-0007)."""
+    raise NotImplementedError(_EXTENSION_STUB_MSG)
+
+
+def _run_extension_stub(args):
+    """Stub for all extension verbs — raises NotImplementedError (ISSUE-0007)."""
+    raise NotImplementedError(_EXTENSION_STUB_MSG)
+
+
+def _run_config_get(args):
+    """config get — stub (full impl lands in a follow-up)."""
+    print("config get is not implemented yet")
+
+
+def _run_config_set(args):
+    """config set — stub (full impl lands in a follow-up)."""
+    print("config set is not implemented yet")
+
+
+def _run_config_list(args):
+    """config list — stub (full impl lands in a follow-up)."""
+    print("config list is not implemented yet")
+
+
+def _resolve_graph_query_string(args) -> str | None:
+    """Pick the query string from positional or --query flag (positional wins)."""
+    positional = getattr(args, "query", None)
+    flag = getattr(args, "query_flag", None)
+    return positional or flag
+
+
+def _run_graph_query(args):
+    """Execute ``mnemosyne graph query`` (and legacy ``query`` alias)."""
+    from mnemosyne.graph.cli import main as graph_main
+    # Normalize: positional `query` is the source of truth; legacy --query flag
+    # is mirrored into the positional slot before dispatch.
+    if getattr(args, "query_flag", None) and not getattr(args, "query", None):
+        args.query = args.query_flag
+    _inject_project_scope(args)
+    graph_main(argv=_build_query_argv(args))
+
+
+def _run_graph_search(args):
+    """Execute ``mnemosyne graph search`` — shortcut for ``search:TERM``."""
+    from mnemosyne.graph.cli import main as graph_main
+    graph_main(argv=["--query", f"search:{args.term}"])
+
+
+def _run_graph_stats(args):
+    """Execute ``mnemosyne graph stats``."""
+    from mnemosyne.graph.cli import main as graph_main
+    graph_main(argv=["--stats"])
+
+
+def _run_graph_path(args):
+    """Execute ``mnemosyne graph path FROM TO``."""
+    from mnemosyne.graph.cli import main as graph_main
+    graph_main(argv=["--query", f"path:{args.from_entity},{args.to_entity}"])
+
+
+def _run_extract(args):
+    """Execute ``mnemosyne ingest extract`` (and legacy ``extract`` alias)."""
+    from mnemosyne.extraction.cli import main as extract_main
+    extract_main(argv=_build_extract_argv(args))
+
+
+def _run_mcp(args):
+    """Execute the ``mnemosyne mcp`` subcommand (REMAINDER pass-through)."""
+    from mnemosyne.mcp.cli import main as mcp_main
+    # REMAINDER captures everything after `mcp` (incl. leading `--`).
+    mcp_args = [a for a in getattr(args, "mcp_args", []) if a != "--"]
+    code = mcp_main(mcp_args)
+    if code:
+        sys.exit(code)
+
+
+def _run_purge_retention_status(args):
+    """Execute ``mnemosyne retention status`` — always dry-run report."""
+    import json
+
+    from mnemosyne.query.chat_store import purge_retention
+
+    kg = _open_kg_for_purge(args)
+    try:
+        result = purge_retention(kg.conn, days=args.days, apply=False)
+        print(json.dumps(result, indent=2))
+    finally:
+        kg.close()
+
+
+def main(argv=None):
+    """Mnemosyne CLI entry point."""
+    _load_dotenv()
+    parser = build_parser()
     args = parser.parse_args(argv)
 
+    # --examples on command shapes: emit warning (if deprecated), then show epilog
     if getattr(args, "examples", False):
-        if args.command == "query":
-            print(QUERY_SYNTAX.strip())
-        elif args.command == "extract":
-            print(EXTRACT_EXAMPLES.strip())
-        elif args.command == "add":
-            print(ADD_EXAMPLES.strip())
-        elif args.command == "update":
-            print(UPDATE_EXAMPLES.strip())
-        elif args.command == "wiki":
-            print(WIKI_EXAMPLES.strip())
+        command = getattr(args, "command", None)
+        examples_map = {
+            "query": QUERY_SYNTAX,
+            "extract": EXTRACT_EXAMPLES,
+            "add": ADD_EXAMPLES,
+            "update": UPDATE_EXAMPLES,
+            "wiki": WIKI_EXAMPLES,
+        }
+        if command in examples_map:
+            if getattr(args, "_deprecated_to", None):
+                _emit_deprecation_warning(command, args._deprecated_to)
+            print(examples_map[command].strip())
+            return
+
+    func = getattr(args, "func", None)
+    if func is None:
+        # No subcommand (or group with no verb). Render help.
+        parser.print_help()
         return
 
-    if args.command is None:
-        parser.print_help()
-    elif args.command == "query":
-        from mnemosyne.graph.cli import main as graph_main
-        _inject_project_scope(args)
-        graph_main(argv=_build_query_argv(args))
-    elif args.command == "extract":
-        from mnemosyne.extraction.cli import main as extract_main
-        extract_main(argv=_build_extract_argv(args))
-    elif args.command == "add":
-        _run_add(args)
-    elif args.command == "update":
-        _run_update(args)
-    elif args.command == "wiki":
-        _run_wiki(args)
-    elif args.command == "skill":
-        _run_skill(args)
-    elif args.command == "hook":
-        _run_hook(args)
-    elif args.command == "project":
-        _run_project(args)
-    elif args.command == "purge-retention":
-        _run_purge_retention(args)
-    elif args.command == "serve":
-        _run_serve(args)
-    elif args.command == "mcp":
-        import sys as _sys
-        from mnemosyne.mcp.cli import main as mcp_main
-        # Re-dispatch to the mcp subcommand CLI; it owns its own argparse.
-        # REMAINDER captures everything after `mcp` (incl. leading `--`).
-        mcp_args = [a for a in getattr(args, "mcp_args", []) if a != "--"]
-        code = mcp_main(mcp_args)
-        if code:
-            _sys.exit(code)
-    else:
-        parser.print_help()
+    # Deprecation warning fires exactly once, right before dispatch.
+    deprecated_to = getattr(args, "_deprecated_to", None)
+    if deprecated_to:
+        command = getattr(args, "command", "")
+        _emit_deprecation_warning(command, deprecated_to)
+
+    try:
+        func(args)
+    except NotImplementedError as exc:
+        # Extension stubs: argparse-style exit code 2 with a clear message.
+        parser.error(str(exc))
+
+
+def _load_dotenv() -> None:
+    """Best-effort .env discovery (mirrors prior behaviour)."""
+    try:
+        from pathlib import Path
+        from dotenv import load_dotenv  # type: ignore[import-not-found]
+        current = Path(__file__).resolve().parent
+        for _ in range(4):
+            env_path = current / ".env"
+            if env_path.exists():
+                load_dotenv(dotenv_path=env_path)
+                return
+            current = current.parent
+        load_dotenv()
+    except ImportError:
+        pass
 
 
 def _build_query_argv(args):
     """Build argv list for graph CLI from parsed args."""
-    argv = []
-    if args.stats:
+    argv: list[str] = []
+    if getattr(args, "stats", False):
         argv.append("--stats")
-    if args.query:
-        argv.extend(["--query", args.query])
+    query = _resolve_graph_query_string(args)
+    if query:
+        argv.extend(["--query", query])
     return argv
 
 
@@ -615,7 +985,7 @@ def _build_extract_argv(args):
 
 
 def _run_add(args):
-    """Execute the ``mnemosyne add`` subcommand."""
+    """Execute the ``mnemosyne ingest add`` subcommand."""
     import json
     import sys
     from pathlib import Path

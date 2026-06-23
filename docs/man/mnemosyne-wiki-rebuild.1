@@ -1,0 +1,24 @@
+.TH MNEMOSYNE-WIKI-REBUILD 1 "2026-06-23" "mnemosyne" "Mnemosyne CLI"
+.SH NAME
+mnemosyne wiki-rebuild \- Regenerate generated wiki sections from graph data.
+.SH SYNOPSIS
+\fBmnemosyne wiki-rebuild\fR [options]
+.SH DESCRIPTION
+Regenerate generated wiki sections from graph data.
+.SH OPTIONS
+.TP
+\fB\-\-wiki\-root\fR
+LLM Wiki root (default: ~/mnemosyne/wiki)
+.TP
+\fB\-\-db\-path\fR
+KnowledgeGraph DB path
+.TP
+\fB\-\-format\fR
+.TP
+\fB\-\-lock\-timeout\fR
+Seconds to wait for the wiki write lock on write commands
+.TP
+\fB\-\-dry\-run\fR
+Show pages that would be written
+.SH SEE ALSO
+mnemosyne(1)
