@@ -162,15 +162,23 @@ def split_pdf_pages(pdf_path: Path) -> List[Section]:
     doc = fitz.open(str(pdf_path))  # type: ignore[attr-defined]
     try:
         # R-LD-001 REVIEW-phase: reject >1000-page PDFs to bound memory.
-        if len(doc) > MAX_LONGDOC_PAGES:
+        # ``doc.page_count`` is a cheap property lookup on the catalogue; it
+        # does NOT materialise page content, so the cap fires before any
+        # page-body read.
+        page_count = doc.page_count  # type: ignore[attr-defined]
+        if page_count > MAX_LONGDOC_PAGES:
             raise LongDocPathError(
                 f"PDF exceeds {MAX_LONGDOC_PAGES} page cap "
-                f"(got {len(doc)} pages): {pdf_path}"
+                f"(got {page_count} pages): {pdf_path}"
             )
+        # R-LD-001 streaming: iterate the document lazily via ``enumerate(doc)``
+        # so pages are decoded one at a time. No whole-document dump and no
+        # whole-doc ``get_text("dict")`` buffer is ever constructed — this
+        # bounds peak memory regardless of file size. The regression test in
+        # ``tests/test_longdoc_security.py`` asserts this structurally.
         sections: List[Section] = []
         token_cursor = 0
-        for i in range(len(doc)):
-            page = doc.load_page(i)
+        for i, page in enumerate(doc):
             body = page.get_text("text") or ""
             t = _estimate_tokens(body)
             sections.append(Section(
