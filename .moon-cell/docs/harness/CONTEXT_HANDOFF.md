@@ -1,24 +1,55 @@
 # Context Handoff
 
 Generated: 2026-04-28 18:43:18 NZST
-Updated: 2026-05-31 03:14:25 NZST
+Updated: 2026-06-20 22:50:19 NZST
 
 ## Current Status
 
-Plan 2026-06-01: Performance tuning and hybrid high-performance optimization SPEC completed. 27 completed SPECs, 0 planned, 1 candidate (SPEC-WIKI-008). 527 tests pass. Package v0.2.0.
+Plan 2026-06-20: Two new SPECs drafted from OpenKB architecture audit gap —
+long-document indexing and NL query/chat. Both converted to Laplace draft
+issues (ISSUE-0001, ISSUE-0002) awaiting human approval. 27 completed SPECs,
+2 planned, 1 candidate. Laplace `.harness/` initialized (mixed tracking policy).
 
 | Category | Status | Evidence |
 |---|---|---|
 | Completed SPECs | 27 | Audit 2026-06-01 |
-| Active planned SPECs | 0 | All SPECs completed or deferred |
+| Active planned SPECs | 2 | SPEC-LONGDOC-001, SPEC-NLQUERY-001 |
 | Remaining candidate SPECs | 1 | SPEC-WIKI-008 |
 | Full tests | PASS | 527 passed |
 | Static checks | PASS | ruff clean |
 | Benchmark harness | READY | 921 pages baseline; B2 PASS, B1/B4/B5/B6 MISS |
 | Harness tracking | auto-tracked | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception |
+| Laplace harness | initialized | `.harness/` created 2026-06-20; ISSUE-0001, ISSUE-0002 draft |
 | Package version | 0.2.0 | pyproject.toml |
 
-## SPECs Completed Since Last Handoff (2026-05-04)
+## 2026-06-20 SPEC Package: Long-Doc + NL Query
+
+Gap source: OpenKB architecture audit. OpenKB ships PageIndex long-doc
+retrieval + NL query/chat; mnemosyne lacks both. mnemosyne path preserves
+zero-external-dependency + zero-LLM-first principles.
+
+Dependency chain:
+```
+SPEC-LONGDOC-001 (self-contained tree indexer + retriever)
+  └─→ SPEC-NLQUERY-001 (NL router + answer synthesizer + HTTP/MCP exposure)
+```
+
+Key design decisions (DEC-013..016):
+- DEC-013: Self-contained tree indexer over external `pageindex` dep.
+- DEC-014: SLM-first (GLiNER2) + LLM-fallback (LLMBridge) for indexer + synthesis.
+- DEC-015: HTTP + MCP dual exposure for NL query.
+- DEC-016: No-delete supersession for document trees + chat sessions.
+
+## SPECs Completed Since Last Handoff (2026-06-01)
+
+### SPEC-PERF-001: Hybrid Performance Optimization (completed 2026-06-01)
+
+| Requirement | Result |
+|---|---|
+| REQ-PERF-001 | SQLite WAL + synchronous=NORMAL PRAGMA tuning |
+| REQ-PERF-002 | mnemosyne-core Rust extension (PyO3/Maturin) |
+| REQ-PERF-003 | Fast-path/slow-path editor decoupling |
+| REQ-PERF-004 | RAM disk lock optimization (MNEMOSYNE_LOCK_DIR) |
 
 ### SPEC-ARCH-ASYNC-001: Async I/O (completed 2026-05-05)
 
@@ -39,52 +70,6 @@ Plan 2026-06-01: Performance tuning and hybrid high-performance optimization SPE
 | REQ-PR-004 | `mnemosyne project` subcommand: list/show/register/unregister/migrate |
 | REQ-PR-005 | Migration back-fills from existing scope_id values |
 
-### Untracked Features (no SPEC)
-
-| Feature | Commit | Notes |
-|---|---|---|
-| `mnemosyne skill install` | c153d8a | Install mnemosyne skill to agent skills directory |
-| `mnemosyne skill update` | 8ae7e9d | Update installed mnemosyne skill to latest version |
-| `mnemosyne hook install` | 2411ecd | Auto-sync hooks for git, claude, codex, gemini, copilot |
-
-## Benchmark Results Summary (2026-05-06, 921 pages)
-
-| Benchmark | Measured | Threshold | Result |
-|---|---|---|---|
-| B1 URL fetch ×10 (PDF) | 1.06s | >30s | MISS |
-| B2 LLM batch ×5 | 187.38s | >60s | PASS |
-| B4 wiki status | 0.19s | >1s | MISS |
-| B5 wiki lint | 0.19s | >2s | MISS |
-| B6 wiki rebuild dry-run | 0.14s | >5s | MISS |
-
-Decision: SPEC-WIKI-008 → DEFERRED (all vault benchmarks well below thresholds).
-
-## Remaining Candidate List
-
-| Remaining Item | Candidate SPEC | Priority | Risk | Notes |
-|---|---|---|---|---|
-| Large wiki/vault index performance | SPEC-WIKI-008 | low | medium | Benchmark-gated; all thresholds MISS |
-| External Tool Integration API | SPEC-JOPLIN-001 | high | medium | HTTP API for Joplin plugin; foundation for 002/003/004 |
-| Joplin Plugin HTTP Bridge | SPEC-JOPLIN-002 | high | medium | Replace in-memory Map with mnemosyne API client |
-| Real-Time Graph Visualization | SPEC-JOPLIN-003 | high | medium | D3.js graph, backlinks, autocomplete |
-| Edit-to-Graph Real-Time Sync | SPEC-JOPLIN-004 | medium | medium | onContentChange pipeline, 2s updates |
-
-## Joplin Integration SPEC Package (2026-05-31)
-
-4 SPECs created for Kuku-parity Joplin plugin experience. Dependency chain:
-
-```
-SPEC-JOPLIN-001 (mnemosyne serve HTTP API)
-  └─→ SPEC-JOPLIN-002 (Joplin plugin HTTP bridge)
-        ├─→ SPEC-JOPLIN-003 (D3.js graph visualization)
-        └─→ SPEC-JOPLIN-004 (edit-to-graph real-time sync)
-```
-
-Key design decisions:
-- DB connection: HTTP API indirect access (not SQLite direct or CLI subprocess)
-- Visualization: D3.js (not vis.js or Cytoscape.js)
-- Sync strategy: regex on content change + full pipeline on save
-
 ## Decisions Made
 
 | ID | Decision | Rationale |
@@ -101,8 +86,13 @@ Key design decisions:
 | DEC-010 | Joplin-mnemosyne connection via HTTP API | Decouples plugin from DB schema; allows remote mnemosyne in future |
 | DEC-011 | D3.js for graph visualization | Industry standard, lightweight subpackages, Joplin webview compatible |
 | DEC-012 | Dual sync: regex preview + full pipeline on save | Real-time responsiveness without expensive extraction on every keystroke |
+| DEC-013 | Self-contained tree indexer (no `pageindex` dep) | Preserves mnemosyne zero-external-dependency principle |
+| DEC-014 | SLM-first + LLM-fallback for indexer + synthesis | Consistent with 3-layer extraction model; zero-cost default path |
+| DEC-015 | HTTP + MCP dual exposure for NL query | Reuses `mnemosyne serve` for Joplin, MCP for agents |
+| DEC-016 | No-delete supersession for trees + chat | Matches SPEC-MCP-001 contract; status flip, no DELETE |
 
 ## Recommended Next Action
 
-1. Monitor large-vault benchmarks after SPEC-PERF-001 optimizations and evaluate index writing speeds.
-2. Consider SPEC-WIKI-008 only if index build thresholds are exceeded.
+1. `/laplace:approve ISSUE-0001` then `/laplace:run ISSUE-0001` → implement SPEC-LONGDOC-001.
+2. After ISSUE-0001 review-passed: `/laplace:approve ISSUE-0002` → SPEC-NLQUERY-001.
+3. Monitor large-vault benchmarks; promote SPEC-WIKI-008 only if thresholds exceeded.

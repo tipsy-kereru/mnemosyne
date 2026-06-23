@@ -1,12 +1,12 @@
 # Moon Cell Manifest
 
 Generated: 2026-04-28 18:43:18 NZST
-Updated: 2026-05-31 03:14:25 NZST
+Updated: 2026-06-20 22:50:19 NZST
 
 ## Workspace
 - Harness schema version: 1.9.0
 - Created: 2026-04-28 18:43:18 NZST
-- Last updated: 2026-05-31 03:14:25 NZST
+- Last updated: 2026-06-20 22:50:19 NZST
 - Primary runtime: Claude Code originally; Codex App bridge added for current session
 - Harness style: Hybrid (Audit-first + SPEC-first lite + Karpathy guardrails + capability inventory)
 
@@ -43,6 +43,8 @@ Updated: 2026-05-31 03:14:25 NZST
 | .moon-cell/specs/SPEC-JOPLIN-003.md | Real-Time Graph Visualization | Frontend Developer | moon-cell | 2026-05-31 | Completed; D3.js force-directed graph, 17 tests pass, backlinks, autocomplete |
 | .moon-cell/specs/SPEC-JOPLIN-004.md | Edit-to-Graph Real-Time Sync | Frontend Developer | moon-cell | 2026-05-31 | Completed; debounced sync pipeline, entity diffing, status indicator, 39 tests |
 | .moon-cell/specs/SPEC-PERF-001.md | Hybrid Performance Optimization SPEC | Performance Architect | moon-cell | 2026-06-01 | Planned hybrid parallel I/O and SQLite tuning |
+| .moon-cell/specs/SPEC-LONGDOC-001.md | PageIndex-style long-doc tree indexing | Solution Architect | moon-cell | 2026-06-20 | Planned; Laplace ISSUE-0001 draft; high risk, security phase required |
+| .moon-cell/specs/SPEC-NLQUERY-001.md | NL query + multi-turn chat layer | Spec Architect | moon-cell | 2026-06-20 | Planned; Laplace ISSUE-0002 draft; depends on SPEC-LONGDOC-001 |
 
 ## Optional Bridge Artifacts
 
@@ -84,6 +86,8 @@ Updated: 2026-05-31 03:14:25 NZST
 | SPEC-JOPLIN-003 | Real-Time Graph Visualization | completed | .moon-cell/specs/SPEC-JOPLIN-003.md |
 | SPEC-JOPLIN-004 | Edit-to-Graph Real-Time Sync | completed | .moon-cell/specs/SPEC-JOPLIN-004.md |
 | SPEC-PERF-001 | Hybrid Performance Optimization & SQLite Database Tuning | completed | .moon-cell/specs/SPEC-PERF-001.md |
+| SPEC-LONGDOC-001 | PageIndex-Style Long Document Tree Indexing | planned | .moon-cell/specs/SPEC-LONGDOC-001.md |
+| SPEC-NLQUERY-001 | Natural-Language Query and Chat Layer | planned | .moon-cell/specs/SPEC-NLQUERY-001.md |
 
 ## Untracked Features (no SPEC)
 
