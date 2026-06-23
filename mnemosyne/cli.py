@@ -110,6 +110,45 @@ Editor workflow:
 Output: text by default; pass --format json for automation.
 """
 
+TOP_LEVEL_EXAMPLES = """
+Examples:
+  mnemosyne ingest add ./notes.md --domain daily
+  mnemosyne graph query "entity:function[parse_config]"
+  mnemosyne retention purge --apply --days 90
+  mnemosyne config skill install longdoc
+
+Output: JSON to stdout for most verbs; --help on any group for details.
+
+SEE ALSO:
+  mnemosyne ingest, mnemosyne graph, mnemosyne retention, mnemosyne config
+"""
+
+RETENTION_EXAMPLES = """
+Examples:
+  mnemosyne retention purge --days 90 --dry-run
+  mnemosyne retention purge --days 30 --apply
+  mnemosyne retention status --days 180
+
+Output: JSON with {purged, candidates, ...}; status is always dry-run.
+
+SEE ALSO:
+  mnemosyne config, mnemosyne graph
+"""
+
+CONFIG_EXAMPLES = """
+Examples:
+  mnemosyne config get extractor.model
+  mnemosyne config set wiki.default_root ~/mnemosyne/wiki
+  mnemosyne config list
+  mnemosyne config skill install longdoc
+  mnemosyne config hook install pre_ingest_validator
+
+Output: text by default; config list prints a key=value summary.
+
+SEE ALSO:
+  mnemosyne retention, mnemosyne extension
+"""
+
 _PURGE_RETENTION_DESC = (
     "Purge chat turns older than the retention window. Tombstone-only: "
     "rows are UPDATE'd (retention_purged_at set, content overwritten "
@@ -523,8 +562,19 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mnemosyne",
         description="Mnemosyne Knowledge Graph - Local-first knowledge memory for AI agents",
         formatter_class=GhHelpFormatter,
+        epilog=TOP_LEVEL_EXAMPLES,
     )
     parser.add_argument("--version", action="version", version="0.1.0")
+    # Legacy global flags (REQ-PKG-006): --query/--stats forward to graph query /
+    # graph stats with a deprecation warning. Kept for two minor releases.
+    parser.add_argument(
+        "--query", dest="global_query",
+        help="(deprecated) alias for 'graph query'",
+    )
+    parser.add_argument(
+        "--stats", dest="global_stats", action="store_true",
+        help="(deprecated) alias for 'graph stats'",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -648,7 +698,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers, "config",
         help="Inspect and edit mnemosyne configuration",
         description="Inspect and edit mnemosyne configuration (values, skills, hooks).",
-        see_also="mnemosyne retention, mnemosyne extension",
+        epilog=CONFIG_EXAMPLES,
     )
     config_sub = config.add_subparsers(dest="config_command")
     get_p, set_p, list_p = _add_config_verbs(config_sub)
@@ -662,6 +712,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers, "retention",
         help="Chat-content retention management",
         description="Purge or inspect chat-content retention (tombstone-only; no row deletion).",
+        epilog=RETENTION_EXAMPLES,
     )
     retention_sub = retention.add_subparsers(dest="retention_command")
     retention_purge = _new_parser(
@@ -925,6 +976,30 @@ def main(argv=None):
             if getattr(args, "_deprecated_to", None):
                 _emit_deprecation_warning(command, args._deprecated_to)
             print(examples_map[command].strip())
+            return
+
+    # Legacy global flags (REQ-PKG-006): --query/--stats forward to graph query
+    # / graph stats with a one-line deprecation warning. A subcommand, if also
+    # given, takes precedence (the new group-shape path).
+    if getattr(args, "command", None) is None:
+        global_query = getattr(args, "global_query", None)
+        global_stats = getattr(args, "global_stats", False)
+        if global_query:
+            _emit_deprecation_warning("--query", "graph query")
+            args.query = global_query
+            args.query_flag = global_query
+            args.stats = bool(global_stats)
+            try:
+                _run_graph_query(args)
+            except NotImplementedError as exc:
+                parser.error(str(exc))
+            return
+        if global_stats:
+            _emit_deprecation_warning("--stats", "graph stats")
+            try:
+                _run_graph_stats(args)
+            except NotImplementedError as exc:
+                parser.error(str(exc))
             return
 
     func = getattr(args, "func", None)

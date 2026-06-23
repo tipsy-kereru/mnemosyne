@@ -235,6 +235,39 @@ class TestHelpStandardization:
         assert "skill" in out
         assert "hook" in out
 
+    def test_top_level_help_contains_at_least_two_examples(self, capsys):
+        from mnemosyne.cli import main
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        out = capsys.readouterr().out
+        assert "EXAMPLES" in out or "Examples" in out
+        example_lines = [
+            ln for ln in out.splitlines() if ln.strip().startswith("mnemosyne ")
+        ]
+        assert len(example_lines) >= 2
+
+    def test_retention_help_contains_at_least_two_examples(self, capsys):
+        from mnemosyne.cli import main
+        with pytest.raises(SystemExit):
+            main(["retention", "--help"])
+        out = capsys.readouterr().out
+        assert "EXAMPLES" in out or "Examples" in out
+        example_lines = [
+            ln for ln in out.splitlines() if ln.strip().startswith("mnemosyne ")
+        ]
+        assert len(example_lines) >= 2
+
+    def test_config_help_contains_at_least_two_examples(self, capsys):
+        from mnemosyne.cli import main
+        with pytest.raises(SystemExit):
+            main(["config", "--help"])
+        out = capsys.readouterr().out
+        assert "EXAMPLES" in out or "Examples" in out
+        example_lines = [
+            ln for ln in out.splitlines() if ln.strip().startswith("mnemosyne ")
+        ]
+        assert len(example_lines) >= 2
+
     def test_ingest_add_help_has_examples(self, capsys):
         from mnemosyne.cli import main
         with pytest.raises(SystemExit):
@@ -270,6 +303,56 @@ class TestGraphQueryNormalization:
         with patch("mnemosyne.graph.cli.main") as mock_graph:
             main(["query", "--query", "entity:function[foo]"])
         mock_graph.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Legacy global --query / --stats forwarding (REQ-PKG-006, AC-1)
+# ---------------------------------------------------------------------------
+
+
+class TestGlobalFlagForwarding:
+    def test_global_query_flag_forwards_to_graph_query(self, capsys):
+        from mnemosyne.cli import main
+        with patch("mnemosyne.graph.cli.main") as mock_graph:
+            main(["--query", "entity:function[foo]"])
+        mock_graph.assert_called_once()
+        argv = mock_graph.call_args.kwargs.get("argv") or mock_graph.call_args.args[0]
+        assert "--query" in argv and "entity:function[foo]" in argv
+
+    def test_global_query_flag_emits_deprecation_warning(self, capsys):
+        from mnemosyne.cli import main
+        with patch("mnemosyne.graph.cli.main"):
+            main(["--query", "entity:function[foo]"])
+        err = capsys.readouterr().err
+        assert (
+            "warning: 'mnemosyne --query' is deprecated; use 'mnemosyne graph query'"
+            in err
+        )
+
+    def test_global_stats_flag_forwards_to_graph_stats(self, capsys):
+        from mnemosyne.cli import main
+        with patch("mnemosyne.graph.cli.main") as mock_graph:
+            main(["--stats"])
+        mock_graph.assert_called_once()
+        argv = mock_graph.call_args.kwargs.get("argv") or mock_graph.call_args.args[0]
+        assert "--stats" in argv
+
+    def test_global_stats_flag_emits_deprecation_warning(self, capsys):
+        from mnemosyne.cli import main
+        with patch("mnemosyne.graph.cli.main"):
+            main(["--stats"])
+        err = capsys.readouterr().err
+        assert (
+            "warning: 'mnemosyne --stats' is deprecated; use 'mnemosyne graph stats'"
+            in err
+        )
+
+    def test_subcommand_takes_precedence_over_global_flags(self):
+        from mnemosyne.cli import build_parser
+        # When a real subcommand is given, the global --query flag must NOT
+        # override it (the group-shape path wins).
+        ns = build_parser().parse_args(["graph", "query", "x"])
+        assert ns.command == "graph"
 
 
 # ---------------------------------------------------------------------------
