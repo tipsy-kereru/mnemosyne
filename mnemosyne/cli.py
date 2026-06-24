@@ -156,7 +156,25 @@ _PURGE_RETENTION_DESC = (
     "contract). Defaults to dry-run; pass --apply to write."
 )
 
-_EXTENSION_STUB_MSG = "extension group ships in ISSUE-0007 (PACKAGE-B)"
+_EXTENSION_DESC = (
+    "Install, list, remove, upgrade, search, or inspect mnemosyne extensions. "
+    "Extensions ship heavy optional dependencies (GLiNER2/torch, pymupdf) as "
+    "sidecar payloads loaded from ~/.mnemosyne/extensions/ via sys.path injection."
+)
+_EXTENSION_INSTALL_EXAMPLES = """\
+EXAMPLES:
+  # install the latest GLiNER2 + REBEL + CPU torch payload
+  mnemosyne extension install slm
+
+  # install a specific version
+  mnemosyne extension install pdf --version 1.2.0
+
+  # reinstall over an existing version
+  mnemosyne extension install slm --force
+
+  # upgrade every installed extension
+  mnemosyne extension upgrade --all
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +465,96 @@ def _add_hook_verbs(hook_subparsers: argparse._SubParsersAction) -> None:
     ).set_defaults(hook_command="status")
 
 
+def _add_extension_common(p: argparse.ArgumentParser) -> None:
+    """--format json|text applies to every extension verb (REQ-PKG-007)."""
+    p.add_argument(
+        "--format", choices=["text", "json"], default="text",
+        help="Output format (default: text)",
+    )
+
+
+def _add_extension_verbs(extension_parser: argparse.ArgumentParser) -> None:
+    """Register install/list/remove/upgrade/search/info verbs (REQ-PKG-004)."""
+    ext_sub = extension_parser.add_subparsers(dest="extension_command")
+
+    install = _new_parser(
+        ext_sub, "install",
+        help="Install an extension payload from the registry",
+        description=(
+            "Download an extension payload from the registry (default: GitHub "
+            "Releases of tipsy-kereru/mnemosyne-ext-<name>), verify SHA256 of "
+            "every file against the signed manifest, and extract into "
+            "~/.mnemosyne/extensions/<name>/<version>/."
+        ),
+        epilog=_EXTENSION_INSTALL_EXAMPLES,
+    )
+    install.add_argument("name", nargs="+", help="Extension name(s) (e.g. slm, pdf)")
+    install.add_argument("--version", help="Pin a specific version (default: latest)")
+    install.add_argument(
+        "--force", action="store_true",
+        help="Reinstall over an existing version or permit a downgrade",
+    )
+    _add_extension_common(install)
+    install.set_defaults(func=_run_extension_install, group="extension", verb="install")
+
+    list_p = _new_parser(
+        ext_sub, "list",
+        help="List installed extensions",
+        description="Print installed extensions (name, version, source, path).",
+    )
+    _add_extension_common(list_p)
+    list_p.set_defaults(func=_run_extension_list, group="extension", verb="list")
+
+    remove = _new_parser(
+        ext_sub, "remove",
+        help="Remove an installed extension",
+        description=(
+            "Delete the extension payload directory and append a tombstone to "
+            "extensions/.removed.jsonl for audit. The on-disk payload is gone; "
+            "the record of its removal persists."
+        ),
+    )
+    remove.add_argument("name", nargs="+", help="Extension name(s) to remove")
+    _add_extension_common(remove)
+    remove.set_defaults(func=_run_extension_remove, group="extension", verb="remove")
+
+    upgrade = _new_parser(
+        ext_sub, "upgrade",
+        help="Upgrade one or all extensions to the latest release",
+        description=(
+            "Check the latest release tag and install if newer. Pass --all to "
+            "upgrade every installed extension."
+        ),
+    )
+    upgrade.add_argument("name", nargs="?", help="Extension to upgrade (omit with --all)")
+    upgrade.add_argument(
+        "--all", action="store_true", dest="upgrade_all",
+        help="Upgrade every installed extension",
+    )
+    _add_extension_common(upgrade)
+    upgrade.set_defaults(
+        func=_run_extension_upgrade, group="extension", verb="upgrade", all=False
+    )
+
+    search = _new_parser(
+        ext_sub, "search",
+        help="Search the extension registry index",
+        description="List extensions available from the registry index.",
+    )
+    search.add_argument("query", nargs="?", help="Optional substring filter")
+    _add_extension_common(search)
+    search.set_defaults(func=_run_extension_search, group="extension", verb="search")
+
+    info = _new_parser(
+        ext_sub, "info",
+        help="Print metadata for an extension",
+        description="Print metadata for an extension (installed or available): size, deps, what it enables.",
+    )
+    info.add_argument("name", help="Extension name")
+    _add_extension_common(info)
+    info.set_defaults(func=_run_extension_info, group="extension", verb="info")
+
+
 def _add_config_verbs(
     config_subparsers: argparse._SubParsersAction,
 ) -> tuple[argparse.ArgumentParser, argparse.ArgumentParser, argparse.ArgumentParser]:
@@ -729,23 +837,15 @@ def build_parser() -> argparse.ArgumentParser:
     retention_status.set_defaults(func=_run_purge_retention_status, group="retention", verb="status")
     retention.set_defaults(func=_run_retention_group, group="retention")
 
-    # -- extension group (STUB — ISSUE-0007) --
+    # -- extension group (REQ-PKG-004; ISSUE-0007 / SPEC-PACKAGE-001 PACKAGE-B) --
     extension = _new_parser(
         subparsers, "extension",
-        help="Manage mnemosyne extensions (ISSUE-0007)",
-        description="Install, list, remove, upgrade, search, or inspect mnemosyne extensions.",
+        help="Manage mnemosyne extensions",
+        description=_EXTENSION_DESC,
         aliases=["ext"],
         see_also="mnemosyne config",
     )
-    ext_sub = extension.add_subparsers(dest="extension_command")
-    for verb in ("install", "list", "remove", "upgrade", "search", "info"):
-        v = _new_parser(
-            ext_sub, verb,
-            help=f"{verb} extension (ISSUE-0007)",
-            description=f"{verb} extension — {_EXTENSION_STUB_MSG}",
-        )
-        v.add_argument("args", nargs="*", help="verb-specific arguments (ISSUE-0007)")
-        v.set_defaults(func=_run_extension_stub, group="extension", verb=verb)
+    _add_extension_verbs(extension)
     extension.set_defaults(func=_run_extension_group, group="extension")
 
     # -- legacy / deprecation aliases (REQ-PKG-006) --
@@ -866,13 +966,63 @@ def _run_retention_group(args):
 
 
 def _run_extension_group(args):
-    """Extension group invoked with no verb — raise NotImplementedError (ISSUE-0007)."""
-    raise NotImplementedError(_EXTENSION_STUB_MSG)
+    """Print help when ``mnemosyne extension`` is invoked with no verb."""
+    from mnemosyne.extensions.cli import cmd_group
+
+    code = cmd_group(args)
+    if code:
+        sys.exit(code)
 
 
-def _run_extension_stub(args):
-    """Stub for all extension verbs — raises NotImplementedError (ISSUE-0007)."""
-    raise NotImplementedError(_EXTENSION_STUB_MSG)
+def _run_extension_install(args):
+    from mnemosyne.extensions.cli import cmd_install
+
+    code = cmd_install(args)
+    if code:
+        sys.exit(code)
+
+
+def _run_extension_list(args):
+    from mnemosyne.extensions.cli import cmd_list
+
+    code = cmd_list(args)
+    if code:
+        sys.exit(code)
+
+
+def _run_extension_remove(args):
+    from mnemosyne.extensions.cli import cmd_remove
+
+    code = cmd_remove(args)
+    if code:
+        sys.exit(code)
+
+
+def _run_extension_upgrade(args):
+    from mnemosyne.extensions.cli import cmd_upgrade
+
+    # argparse sets `all` via the dest on set_defaults; normalize both shapes.
+    if not hasattr(args, "all"):
+        args.all = getattr(args, "upgrade_all", False)
+    code = cmd_upgrade(args)
+    if code:
+        sys.exit(code)
+
+
+def _run_extension_search(args):
+    from mnemosyne.extensions.cli import cmd_search
+
+    code = cmd_search(args)
+    if code:
+        sys.exit(code)
+
+
+def _run_extension_info(args):
+    from mnemosyne.extensions.cli import cmd_info
+
+    code = cmd_info(args)
+    if code:
+        sys.exit(code)
 
 
 def _run_config_get(args):
@@ -959,6 +1109,15 @@ def _run_purge_retention_status(args):
 def main(argv=None):
     """Mnemosyne CLI entry point."""
     _load_dotenv()
+    # REQ-PKG-003: inject installed extension payload dirs into sys.path
+    # before CLI dispatch so optional deps (gliner/fitz/torch) resolve.
+    # Best-effort: a corrupt extension must not block the CLI.
+    try:
+        from mnemosyne.extensions.loader import load_installed_extensions
+
+        load_installed_extensions()
+    except Exception:  # noqa: BLE001 - startup must not crash on loader errors
+        pass
     parser = build_parser()
     args = parser.parse_args(argv)
 

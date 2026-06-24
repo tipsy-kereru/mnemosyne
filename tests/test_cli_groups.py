@@ -5,7 +5,8 @@ Covers:
   retention, extension) dispatch to the correct handler.
 - Legacy deprecation aliases emit exactly one ``warning:`` line to stderr
   and forward to the new handler.
-- ``extension`` stub raises ``NotImplementedError`` -> exit code 2.
+- ``extension`` verbs (install/list/remove/upgrade/search/info) dispatch
+  to the implemented handlers (ISSUE-0007 / SPEC-PACKAGE-001 PACKAGE-B).
 - ``--help`` output contains the four gh-style sections (USAGE / OPTIONS /
   EXAMPLES / SEE ALSO).
 - ``scripts/gen_manpages.py`` smoke: produces roff files with ``.TH`` /
@@ -169,13 +170,41 @@ class TestDeprecationAliases:
 # ---------------------------------------------------------------------------
 
 
-class TestExtensionStub:
-    @pytest.mark.parametrize("verb", ["install", "list", "remove", "upgrade", "search", "info"])
-    def test_extension_verb_raises_not_implemented_exit_code_2(self, verb, capsys):
+class TestExtensionDispatch:
+    """Extension verbs are implemented (ISSUE-0007) and dispatch correctly."""
+
+    @pytest.mark.parametrize(
+        "verb", ["install", "list", "remove", "upgrade", "search", "info"]
+    )
+    def test_extension_verb_dispatches_to_handler(self, verb):
+        # Parser routes each verb to its cmd_ handler with group="extension".
+        from mnemosyne.cli import build_parser
+
+        # Each verb has a different argv signature; build a valid one.
+        if verb in ("install", "remove", "info"):
+            argv = ["extension", verb, "slm"]
+        elif verb == "list":
+            argv = ["extension", "list"]
+        elif verb == "search":
+            argv = ["extension", "search", "slm"]
+        else:  # upgrade
+            argv = ["extension", "upgrade", "--all"]
+        ns = build_parser().parse_args(argv)
+        assert ns.group == "extension"
+        assert ns.verb == verb
+        assert callable(ns.func)
+
+    def test_extension_list_dispatches_with_no_extensions(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        # list verb prints "no extensions installed" and main returns None.
         from mnemosyne.cli import main
-        with pytest.raises(SystemExit) as exc_info:
-            main(["extension", verb, "slm"])
-        assert exc_info.value.code == 2
+
+        monkeypatch.setenv("MNEMOSYNE_HOME", str(tmp_path))
+        rc = main(["extension", "list"])
+        assert rc in (0, None)
+        out = capsys.readouterr().out
+        assert "no extensions installed" in out
 
     def test_ext_alias_resolves_to_extension_group(self):
         from mnemosyne.cli import build_parser
@@ -184,10 +213,12 @@ class TestExtensionStub:
         assert ns.group == "extension"
         assert ns.verb == "install"
 
-    def test_extension_no_verb_raises(self):
+    def test_extension_no_verb_prints_usage_exit_2(self, capsys):
         from mnemosyne.cli import main
-        with pytest.raises(SystemExit):
+
+        with pytest.raises(SystemExit) as exc_info:
             main(["extension"])
+        assert exc_info.value.code == 2
 
 
 # ---------------------------------------------------------------------------
