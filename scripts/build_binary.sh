@@ -176,24 +176,44 @@ install_binary() {
     done
     chmod +x "${BUILD_DIR}/mnemosyne"
     # strip-all removes debug symbols + symbol tables (smaller than strip-debug).
-    # AC6 budget is 100MB; PyOxidizer 0.24 + CPython 3.10 + required deps land
-    # around 145-150MB stripped, which exceeds the budget — documented as a
-    # known deviation in BINARY_BUILD.md (path forward: PyOxidizer 0.4x upgrade,
-    # tracked in ISSUE-0009). We do NOT fail the build on size; the smoke test
-    # (test_binary_size_within_budget) uses pytest.xfail for the advisory target.
+    # AC6 (reclassified advisory, see PM Amendment in ISSUE-0008): PyOxidizer
+    # 0.24 + CPython 3.10 + required deps land well over 100MB; the budget is
+    # owned by ISSUE-0009 (PyOxidizer 0.4x + CPython 3.12 upgrade).
     strip --strip-all "${BUILD_DIR}/mnemosyne" || strip --strip-debug "${BUILD_DIR}/mnemosyne" || log "warning: strip failed (non-fatal)"
-    local size_bytes size_mb
-    size_bytes="$(stat -c %s "${BUILD_DIR}/mnemosyne")"
-    size_mb="$(awk -v b="${size_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}')"
-    log "binary ready: ${BUILD_DIR}/mnemosyne (${size_mb} MB, ${size_bytes} bytes)"
-    # AC6 budget (100MB) is not met with PyOxidizer 0.24 + CPython 3.10 + the
-    # required runtime dep set (cryptography alone is 14MB in lib/). We log a
-    # warning rather than failing the build — the deviation is documented in
-    # BINARY_BUILD.md and the smoke test uses pytest.xfail for the advisory
-    # 80MB target. Hard-failing here would block the entire ISSUE-0008 deliverable
-    # on a size budget that requires the PyOxidizer 0.4x upgrade (ISSUE-0009).
-    if (( size_bytes > 100 * 1024 * 1024 )); then
-        log "WARNING: AC6 budget exceeded (${size_mb} MB > 100 MB); documented deviation, see BINARY_BUILD.md"
+    # Strip lib/**/*.so as well — these ship unstripped from PyOxidizer and
+    # account for ~9MB of the lib/ footprint. Falls back to --strip-debug for
+    # any .so that rejects --strip-all (some extension modules do).
+    local so_count=0 strip_fail=0
+    while IFS= read -r -d '' so; do
+        so_count=$((so_count + 1))
+        if ! strip --strip-all "${so}" 2>/dev/null && ! strip --strip-debug "${so}" 2>/dev/null; then
+            strip_fail=$((strip_fail + 1))
+        fi
+    done < <(find "${BUILD_DIR}/lib" -type f -name '*.so' -print0 2>/dev/null)
+    log "stripped ${so_count} .so files in lib/ (${strip_fail} failed)"
+    local binary_bytes binary_mb
+    binary_bytes="$(stat -c %s "${BUILD_DIR}/mnemosyne")"
+    binary_mb="$(awk -v b="${binary_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}')"
+    # Full distribution footprint: binary + lib/ + filesystem-shipped companion
+    # dirs (jsonschema_specifications, referencing). PyOxidizer 0.24 cannot
+    # collapse these into the binary proper — the path forward is ISSUE-0009.
+    local lib_bytes companion_bytes dist_bytes dist_mb
+    lib_bytes="$(du -sb "${BUILD_DIR}/lib" 2>/dev/null | cut -f1)"
+    companion_bytes=0
+    for pkg in jsonschema_specifications referencing; do
+        [[ -d "${BUILD_DIR}/${pkg}" ]] && companion_bytes=$((companion_bytes + $(du -sb "${BUILD_DIR}/${pkg}" | cut -f1)))
+    done
+    dist_bytes=$((binary_bytes + lib_bytes + companion_bytes))
+    dist_mb="$(awk -v b="${dist_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}')"
+    log "binary ready: ${BUILD_DIR}/mnemosyne (${binary_mb} MB, ${binary_bytes} bytes)"
+    log "distribution footprint: ${dist_mb} MB (binary ${binary_mb} MB + lib $(awk -v b="${lib_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}') MB + companion $(awk -v b="${companion_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}') MB)"
+    # AC6 reclassified advisory (PM Amendment in ISSUE-0008): the full
+    # distribution footprint on PyOxidizer 0.24 + CPython 3.10 + the required
+    # runtime dep set (cryptography alone is ~11MB stripped in lib/) is over
+    # the 100MB budget. The path to <=100MB is the PyOxidizer 0.4x upgrade
+    # (ISSUE-0009). We log the measurement rather than failing the build.
+    if (( dist_bytes > 100 * 1024 * 1024 )); then
+        log "NOTE: AC6 advisory — distribution is ${dist_mb} MB (over 100 MB; owned by ISSUE-0009 PyOxidizer 0.4x upgrade; see BINARY_BUILD.md)"
     fi
 }
 

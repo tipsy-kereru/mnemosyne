@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Benchmark harness for the mnemosyne PyOxidizer binary (AC6 + AC7).
 #
-# AC6: binary size <= 100 MB stripped (target <= 80 MB — informational).
+# AC6: distribution size <= 100 MB (binary + lib/ + companion dirs). Measured
+#   as the full footprint because PyOxidizer 0.24 cannot collapse lib/ into
+#   the binary. Reclassified advisory via PM Amendment in ISSUE-0008; the
+#   path to <=100 MB is ISSUE-0009's PyOxidizer 0.4x + CPython 3.12 upgrade.
 # AC7: cold-start `mnemosyne --help` <= 300 ms wall-clock (median of 5 runs).
 #
 # Thresholds (NFR §7) are goals for ISSUE-0008 on linux-x86_64 dev hardware.
@@ -12,12 +15,15 @@
 #   scripts/bench_binary.sh [path/to/mnemosyne]
 #
 # Output: machine-parseable lines:
-#   size_bytes=<n>
+#   binary_bytes=<n>            (top-level executable only)
+#   lib_bytes=<n>               (extension modules, filesystem fallback)
+#   companion_bytes=<n>         (jsonschema_specifications + referencing)
+#   size_bytes=<n>              (full distribution footprint)
 #   size_status=ok|over_budget
 #   cold_start_us_median=<n>
 #   cold_start_status=ok|over_goal
 #
-# Exit code: 0 if AC6 (size <= 100 MB) is met, 1 otherwise. AC7 is advisory.
+# Exit code: 0 always (AC6 reclassified advisory; AC7 informational).
 set -euo pipefail
 
 BINARY="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build/mnemosyne}"
@@ -32,7 +38,20 @@ if [[ ! -x "${BINARY}" ]]; then
 fi
 
 # ---- AC6: size -------------------------------------------------------------
-size_bytes="$(stat -c %s "${BINARY}")"
+# Measure the full distribution footprint (binary + lib/ + filesystem-shipped
+# companion dirs) since PyOxidizer 0.24 cannot collapse lib/ into the binary.
+# Companion dirs (jsonschema_specifications, referencing) are required at
+# runtime for the frozen-import hazard workaround (see BINARY_BUILD.md).
+binary_bytes="$(stat -c %s "${BINARY}")"
+binary_mb="$(awk -v b="${binary_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}')"
+dist_root="$(dirname "${BINARY}")"
+lib_bytes=0
+[[ -d "${dist_root}/lib" ]] && lib_bytes="$(du -sb "${dist_root}/lib" | cut -f1)"
+companion_bytes=0
+for pkg in jsonschema_specifications referencing; do
+    [[ -d "${dist_root}/${pkg}" ]] && companion_bytes=$((companion_bytes + $(du -sb "${dist_root}/${pkg}" | cut -f1)))
+done
+size_bytes=$((binary_bytes + lib_bytes + companion_bytes))
 size_mb="$(awk -v b="${size_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}')"
 size_limit=$((100 * 1024 * 1024))
 if (( size_bytes <= size_limit )); then
@@ -40,6 +59,10 @@ if (( size_bytes <= size_limit )); then
 else
     size_status="over_budget"
 fi
+printf 'binary_bytes=%s\n' "${binary_bytes}"
+printf 'binary_mb=%.1f\n' "${binary_mb}"
+printf 'lib_bytes=%s\n' "${lib_bytes}"
+printf 'companion_bytes=%s\n' "${companion_bytes}"
 printf 'size_bytes=%s\n' "${size_bytes}"
 printf 'size_mb=%.1f\n' "${size_mb}"
 printf 'size_status=%s\n' "${size_status}"
@@ -86,12 +109,13 @@ fi
 printf 'cold_start_status=%s\n' "${cold_status}"
 
 # ---- Verdict ---------------------------------------------------------------
-# AC6 is nominally a hard gate (size <= 100 MB), but on PyOxidizer 0.24 +
-# CPython 3.10 the stripped binary lands at ~146 MB (documented deviation in
-# BINARY_BUILD.md; path forward is ISSUE-0009's PyOxidizer 0.4x upgrade).
-# We log size_status=over_budget as a warning rather than failing the bench,
-# so AC7 (cold-start) results are still reported. The size xfail is enforced
-# in tests/test_binary_smoke.py::test_binary_size_within_budget.
+# AC6 was reclassified advisory via the PM Amendment in ISSUE-0008: on
+# PyOxidizer 0.24 + CPython 3.10 the full distribution footprint (binary +
+# lib/ + companion dirs) is ~164 MB, and the budget reduction is owned by
+# ISSUE-0009 (PyOxidizer 0.4x + CPython 3.12 upgrade collapses lib/ into the
+# binary). We log size_status=over_budget as a warning rather than failing
+# the bench, so AC7 (cold-start) results are still reported. The skip is
+# enforced in tests/test_binary_smoke.py::test_binary_size_within_budget.
 # AC7 is an informational goal.
 if [[ "${size_status}" != "ok" ]]; then
     err "AC6 ADVISORY: size ${size_mb} MB exceeds 100 MB budget (documented deviation; see BINARY_BUILD.md)"

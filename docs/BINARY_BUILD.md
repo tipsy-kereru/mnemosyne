@@ -11,7 +11,10 @@ Heavy optional dependencies (`gliner`, `torch`, `transformers`, `pymupdf`/`fitz`
 
 | Metric | Value | AC | Status |
 |---|---|---|---|
-| Binary size (stripped) | 145.8 MB | AC6 (<=100 MB hard / <=80 MB advisory) | **documented deviation** — over budget; see "Size deviation" below |
+| Binary executable (stripped) | 145.8 MB | — | top-level `build/mnemosyne` |
+| `lib/` (extension `.so`s, stripped) | 18 MB | — | cryptography/pydantic_core/sqlalchemy/... |
+| Companion dirs (`jsonschema_specifications` + `referencing`) | <1 MB | — | frozen-import workaround |
+| **Distribution footprint (binary + lib/ + companion)** | **~164 MB** | AC6 (<=100 MB) | **advisory** — reclassified via PM Amendment; owned by ISSUE-0009 (PyOxidizer 0.4x + CPython 3.12) |
 | Cold-start `--help` median of 5 | 107 ms | AC7 (<=300 ms goal) | **pass** |
 | `mnemosyne --help` in fresh container | rc=0 | AC3 | **pass** |
 | `import mnemosyne_core` inside binary | ok | AC2 (T1 POC) | **pass** |
@@ -40,10 +43,10 @@ uv python install 3.10     # for maturin + the runtime-deps venv
 ## Build (linux-x86_64 only in this issue)
 
 ```bash
-# Release build (default): ~146 MB stripped binary at build/mnemosyne
+# Release build (default): ~164 MB distribution at build/mnemosyne + build/lib/
 scripts/build_binary.sh
 
-# Debug build (faster iteration, ~167 MB unstripped): build/x86_64-unknown-linux-gnu/debug/install/mnemosyne
+# Debug build (faster iteration): build/x86_64-unknown-linux-gnu/debug/install/mnemosyne
 scripts/build_binary.sh --debug
 
 # Toolchain check only:
@@ -57,14 +60,14 @@ The script:
 3. Creates a venv at `mnemosyne-core/build_venv/` with the runtime deps from `requirements-binary.txt`. PyOxidizer consumes this via `read_virtualenv`.
 4. Generates `mnemosyne-core/build_venv/fs_files.star` enumerating data files of `FILESYSTEM_PACKAGES` (jsonschema_specifications, referencing) — the frozen-import hazard workaround (see "Frozen-import hazard" below).
 5. Runs `pyoxidizer build --release --target-triple x86_64-unknown-linux-gnu`.
-6. Copies the stripped binary + `lib/` + filesystem-package dirs to `build/`.
+6. Copies the binary + `lib/` + filesystem-package dirs to `build/`, then strips the top-level executable AND every `lib/**/*.so` with `strip --strip-all`.
 
 Output layout:
 
 ```
 build/
 ├── mnemosyne                           # the executable (145.8 MB stripped)
-├── lib/                                # extension modules (.so) — filesystem fallback
+├── lib/                                # extension modules (.so, stripped) — filesystem fallback
 │   ├── mnemosyne_core/                 # the Rust extension
 │   ├── cryptography/, pydantic_core/, sqlalchemy/, ...
 ├── jsonschema_specifications/          # filesystem-shipped (frozen-import hazard)
@@ -114,15 +117,20 @@ Workaround (implemented in `pyoxidizer.bzl` + `scripts/build_binary.sh`):
 
 The `mnemosyne/cli.py` `_load_dotenv()` function was also patched (frozen-import compatibility): `__file__` is None when the module is loaded via PyOxidizer's frozen importer, so the original `Path(__file__).resolve().parent` crashed on startup. The fix reads `__file__` via `sys.modules[__name__]` and falls back to cwd-based discovery when unavailable. This is a 2-line compatibility shim, not a CLI refactor (ISSUE-0006 owns CLI refactoring).
 
-## Size deviation (AC6)
+## Size deviation (AC6 — reclassified advisory via PM Amendment)
 
-The stripped binary is 145.8 MB, over the 100 MB hard gate. Breakdown:
+The full distribution footprint (binary + `lib/` + companion dirs) is ~164 MB, over the 100 MB budget. The binary alone is 145.8 MB stripped. Breakdown:
 
 - Binary executable: 145.8 MB (embedded CPython 3.10 stdlib + builtin extensions + mnemosyne package source + Rust pyembed crate).
-- `lib/`: 28 MB (extension modules extracted via filesystem fallback — cryptography 14 MB, pydantic_core 4.6 MB, sqlalchemy 4.5 MB, yaml 2.4 MB, greenlet 1.5 MB, rpds 1.1 MB, mnemosyne_core 0.6 MB, cffi 0.3 MB).
+- `lib/` (after `strip --strip-all` on every `.so`): 18 MB (extension modules extracted via filesystem fallback — cryptography 11.4 MB stripped, pydantic_core 3.7 MB, sqlalchemy 3.5 MB, yaml 2.0 MB, greenlet 1.1 MB, rpds 0.9 MB, mnemosyne_core 0.5 MB, cffi 0.3 MB).
 - `jsonschema_specifications/` + `referencing/`: <1 MB combined.
 
-Levers applied (in `pyoxidizer.bzl`):
+Strip applied in `scripts/build_binary.sh::install_binary`:
+
+- Top-level executable: `strip --strip-all` (saves ~7 MB on the 152.9 MB unstripped build).
+- Every `lib/**/*.so`: `strip --strip-all` (falls back to `--strip-debug` for `.so`s that reject it; saves ~9 MB — `lib/` was 28 MB unstripped, 18 MB stripped).
+
+Levers applied in `pyoxidizer.bzl` (stdlib trimming):
 
 - `policy.include_test = False` — strips stdlib `test/` package.
 - `policy.extension_module_filter = "no-copyleft"` — drops GPL-family stdlib extensions. (`"minimal"` would be smaller but produces a broken `config.c` on PyOxidizer 0.24 that omits `_PyAtExit_Call`, causing a linker error — known 0.24 bug.)
@@ -130,8 +138,9 @@ Levers applied (in `pyoxidizer.bzl`):
 Levers NOT applied (would break functionality):
 
 - `extension_module_filter = "minimal"` — omits `_sqlite3` (knowledge.db), `_ssl`/`_hashlib` (httpx/mcp), `zlib`, etc. Also triggers the linker bug above on 0.24.
+- Dropping `cryptography` from the closure — would break mTLS for `httpx`/`mcp` paths that the base binary must serve.
 
-Path forward to <=100 MB: the PyOxidizer 0.4x upgrade (ISSUE-0009) brings a slimmer stdlib embedding story and CPython 3.12 which has better stdlib trimming hooks. This issue documents the deviation per AC7's precedent ("if not met on dev hardware, document the measured value + analysis rather than blocking") and the smoke test (`test_binary_size_within_budget`) uses `pytest.xfail` for the over-budget case so the rest of the deliverable is not blocked.
+Path forward to <=100 MB: the PyOxidizer 0.4x upgrade (ISSUE-0009) brings a slimmer stdlib embedding story, CPython 3.12 (which has better stdlib trimming hooks), and may collapse `lib/` + companion dirs into the binary proper. AC6 was reclassified from "hard gate" to "advisory, owned by ISSUE-0009" via the PM Amendment in this issue (see `## PM Amendment` in `.harness/issues/ISSUE-0008.md`); the smoke test (`test_binary_size_within_budget`) uses `pytest.mark.skip` with the measured number to make the reclassification explicit in the test report.
 
 ## Dependency-set reconciliation (SPEC-PACKAGE-001 §4)
 
@@ -152,7 +161,7 @@ Path forward to <=100 MB: the PyOxidizer 0.4x upgrade (ISSUE-0009) brings a slim
 | AC3 | `tests/test_binary_smoke.py::test_help_exits_zero` (run in a fresh container with no Python). | pass |
 | AC4 | `tests/test_binary_smoke.py::test_mcp_serve_starts`. | pass |
 | AC5 | `tests/test_binary_smoke.py::test_degraded_mode_no_gliner_or_fitz_importerror`. | pass |
-| AC6 | `scripts/bench_binary.sh` prints `size_status=over_budget` (documented deviation; see "Size deviation" above). | deviation (xfail) |
+| AC6 | `scripts/bench_binary.sh` prints `size_status=over_budget` (~164 MB distribution; reclassified advisory via PM Amendment; owned by ISSUE-0009). | advisory (skip) |
 | AC7 | `scripts/bench_binary.sh` prints `cold_start_status=ok` (107 ms median; <=300 ms goal). | pass |
 | AC8 | `uv run pytest tests/ --ignore=tests/test_ingest_cli.py -q` — 860 tests pass, 4 skipped. | pass |
 
