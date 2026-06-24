@@ -1185,7 +1185,19 @@ def _load_dotenv() -> None:
     try:
         from pathlib import Path
         from dotenv import load_dotenv  # type: ignore[import-not-found]
-        current = Path(__file__).resolve().parent
+        # Frozen-import compatibility (PyOxidizer / ISSUE-0008 PACKAGE-C):
+        # Read `__file__` via sys.modules so it resolves to this module's
+        # frozen-import path (or None when unavailable), independent of the
+        # caller's exec scope. PyOxidizer's frozen importer leaves `__file__`
+        # as None for frozen modules; the legacy bare `__file__` reference
+        # crashed the binary on startup in that case.
+        import sys as _sys
+        _this_module = _sys.modules.get(__name__)
+        module_file = getattr(_this_module, "__file__", None) if _this_module else None
+        if not module_file:
+            load_dotenv()
+            return
+        current = Path(module_file).resolve().parent
         for _ in range(4):
             env_path = current / ".env"
             if env_path.exists():
