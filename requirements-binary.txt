@@ -1,0 +1,26 @@
+# Lightweight runtime dependencies embedded into the PyOxidizer base binary
+# (REQ-PKG-001). This file is consumed by `pyoxidizer.bzl` via
+# `pip_install(["-r", "requirements-binary.txt", "."])`.
+#
+# Heavy optional deps are deliberately OMITTED (REQ-PKG-002 degraded mode):
+#   - gliner / transformers / torch  (SLM layer; delivered via extension in PACKAGE-B)
+#   - pymupdf (fitz)                  (PDF layer; delivered via extension in PACKAGE-B)
+#
+# Dependency-set reconciliation (ISSUE-0008 PM flag / SPEC-PACKAGE-001 §4):
+#   * `mcp` is a core dep in pyproject.toml — embedded here.
+#   * `httpx` is under [ingest] extras in pyproject.toml; the base binary
+#     needs HTTP client functionality for the MCP/ingest paths, so it is
+#     promoted into the binary closure here. NOTE: this does NOT change
+#     pyproject.toml — the binary closure is an independent view.
+#   * `json-repair` is named in the SPEC but is NOT a declared dependency
+#     in pyproject.toml and NOT imported anywhere in the mnemosyne source
+#     tree (grep-verified 2026-06-23). It is therefore OMITTED from the
+#     base binary. If a future commit starts `import json_repair`, this
+#     file must add it.
+networkx>=3.2.1
+sqlalchemy>=2.0.25
+python-dateutil>=2.8.2
+pyyaml>=6.0.1
+python-dotenv>=1.2.2
+mcp>=1.27.2
+httpx>=0.27.0
