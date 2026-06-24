@@ -435,6 +435,103 @@ class TestListInfoRemove:
 
 
 # ---------------------------------------------------------------------------
+# Path-traversal name validation (ISSUE-0007 security fix)
+#
+# remove/info/payload_dir/installed_versions used to join a user-supplied
+# ``name`` onto extensions_dir WITHOUT the isalnum() check that install()
+# applies. ``remove("..")`` -> shutil.rmtree(~/.mnemosyne). These tests pin
+# the guard at every public name entry point.
+# ---------------------------------------------------------------------------
+
+
+class TestNameValidation:
+    @pytest.mark.parametrize(
+        "evil_name",
+        ["..", "../..", "../etc/passwd", "/etc/passwd", "a/b", "a\\b", " ", ""],
+    )
+    def test_remove_rejects_traversal_without_touching_fs(
+        self, manager: ExtensionManager, home_dir: Path, evil_name: str
+    ):
+        marker = home_dir / "survivor.txt"
+        marker.write_text("must survive")
+        # The home parent must NOT be deleted even though remove("..")
+        # would otherwise resolve to it.
+        with pytest.raises(IntegrityError):
+            manager.remove(evil_name)
+        # Filesystem untouched: home still exists, marker intact.
+        assert home_dir.is_dir()
+        assert marker.read_text() == "must survive"
+        # And critically: extensions_dir was never created (remove bails
+        # before any filesystem work, so not even the parent dir appears).
+        assert not manager.extensions_dir.exists()
+
+    def test_remove_rejects_double_dot_parent(self, manager: ExtensionManager):
+        with pytest.raises(IntegrityError):
+            manager.remove("../..")
+
+    @pytest.mark.parametrize(
+        "evil_name", ["..", "../etc/passwd", "/etc/passwd", "a/b", ""]
+    )
+    def test_info_rejects_traversal(self, manager: ExtensionManager, evil_name: str):
+        with pytest.raises(IntegrityError):
+            manager.info(evil_name)
+
+    def test_payload_dir_rejects_traversal(self, manager: ExtensionManager):
+        with pytest.raises(IntegrityError):
+            manager.payload_dir("../..", "1.0.0")
+
+    @pytest.mark.parametrize(
+        "evil_name", ["..", "../etc", "a/b"]
+    )
+    def test_installed_versions_rejects_traversal(
+        self, manager: ExtensionManager, evil_name: str
+    ):
+        with pytest.raises(IntegrityError):
+            manager.installed_versions(evil_name)
+
+    def test_latest_installed_version_rejects_traversal(
+        self, manager: ExtensionManager
+    ):
+        with pytest.raises(IntegrityError):
+            manager.latest_installed_version("..")
+
+    @pytest.mark.parametrize(
+        "good_name", ["slm", "pdf", "my-ext", "my_ext", "Ext123", "a"]
+    )
+    def test_valid_names_accepted(
+        self, manager: ExtensionManager, good_name: str
+    ):
+        # payload_dir must succeed for any valid name (no raise, sane path).
+        p = manager.payload_dir(good_name, "1.0.0")
+        assert p.name == "1.0.0"
+        assert p.parent.name == good_name
+        # installed_versions / info on a missing-but-valid name do NOT raise
+        # IntegrityError (they return [] / ExtensionNotFoundError instead).
+        assert manager.installed_versions(good_name) == []
+        with pytest.raises(ExtensionNotFoundError):
+            manager.info(good_name)
+
+    def test_remove_does_not_call_rmtree_on_traversal(
+        self, manager: ExtensionManager, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Belt-and-braces: even if the validation somehow moved, rmtree must
+        # never run for a traversal name.
+        called: list[str] = []
+        import mnemosyne.extensions.installer as inst_mod
+
+        orig_rmtree = inst_mod.shutil.rmtree
+
+        def spy_rmtree(path, *a, **kw):
+            called.append(str(path))
+            return orig_rmtree(path, *a, **kw)
+
+        monkeypatch.setattr(inst_mod.shutil, "rmtree", spy_rmtree)
+        with pytest.raises(IntegrityError):
+            manager.remove("..")
+        assert called == []
+
+
+# ---------------------------------------------------------------------------
 # upgrade / search
 # ---------------------------------------------------------------------------
 

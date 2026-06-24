@@ -107,6 +107,9 @@ def cmd_remove(args: Any) -> int:
         except ExtensionNotFoundError as exc:
             failed = True
             results.append({"name": name, "status": "error", "error": str(exc)})
+        except IntegrityError as exc:
+            failed = True
+            results.append({"name": name, "status": "error", "error": str(exc)})
     if getattr(args, "format", "text") == "json":
         _print_json(results)
     else:
@@ -162,6 +165,9 @@ def cmd_info(args: Any) -> int:
     try:
         info = manager.info(args.name)
     except ExtensionNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except IntegrityError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if getattr(args, "format", "text") == "json":

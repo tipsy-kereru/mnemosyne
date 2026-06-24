@@ -55,6 +55,21 @@ class ExtensionNotFoundError(RuntimeError):
     """Raised when an extension is not installed (list/remove/info)."""
 
 
+def _validate_extension_name(name: str) -> str:
+    """Reject names that could escape ``extensions_dir`` via path traversal.
+
+    Every public method that takes a user-supplied ``name`` and joins it onto
+    ``extensions_dir`` MUST call this before touching the filesystem --
+    otherwise ``remove("..")`` resolves to ``~/.mnemosyne`` and ``shutil.rmtree``
+    deletes the user's home (ISSUE-0007 security fix). Mirrors the predicate
+    historically inlined in ``install`` (line 180): alnum after stripping
+    ``-`` and ``_`` separators. Returns the validated name on success.
+    """
+    if not name or not name.replace("-", "").replace("_", "").isalnum():
+        raise IntegrityError(f"invalid extension name: {name!r}")
+    return name
+
+
 def _detect_platform() -> str:
     """Return a platform tag matching release asset naming (e.g. linux-x86_64)."""
     os_name = platform.system().lower()
@@ -133,9 +148,11 @@ class ExtensionManager:
     # ------------------------------------------------------------------
 
     def payload_dir(self, name: str, version: str) -> Path:
+        _validate_extension_name(name)
         return self.extensions_dir / name / version
 
     def installed_versions(self, name: str) -> list[Path]:
+        _validate_extension_name(name)
         base = self.extensions_dir / name
         if not base.is_dir():
             return []
@@ -177,8 +194,7 @@ class ExtensionManager:
         place. On any :class:`IntegrityError` or :class:`ManifestError` we
         remove the temp dir so no partial install survives.
         """
-        if not name or not name.replace("-", "").replace("_", "").isalnum():
-            raise IntegrityError(f"invalid extension name: {name!r}")
+        _validate_extension_name(name)
 
         release = (
             self.registry.release(name, version)
@@ -327,6 +343,7 @@ class ExtensionManager:
 
     def info(self, name: str) -> dict[str, Any]:
         """Return metadata for an installed extension, or registry hint."""
+        _validate_extension_name(name)
         inst = self.latest_installed_version(name)
         if inst is not None:
             return {
@@ -353,6 +370,7 @@ class ExtensionManager:
 
     def remove(self, name: str) -> dict[str, Any]:
         """Delete all installed versions of ``name`` and record a tombstone."""
+        _validate_extension_name(name)
         base = self.extensions_dir / name
         if not base.is_dir():
             raise ExtensionNotFoundError(f"no such extension: {name}")
