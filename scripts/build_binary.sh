@@ -134,10 +134,17 @@ build_dependency_venv() {
             venv_sp_dir="${VENV_DIR}/lib/python${PYTHON_VERSION}/site-packages"
             ;;
     esac
-    local pip_bin="${venv_bin_dir}/pip"
-    # Pin to CPython-friendly deps. --no-deps is OFF so transitive closure ships.
-    "${pip_bin}" install --quiet --upgrade pip
-    "${pip_bin}" install --quiet -r "${REPO_ROOT}/requirements-binary.txt"
+    local venv_python
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) venv_python="${venv_bin_dir}/python.exe" ;;
+        *)                    venv_python="${venv_bin_dir}/python" ;;
+    esac
+    # Invoke pip via 'python -m pip' rather than the pip script: Windows
+    # refuses to upgrade pip in-place when called as the pip launcher
+    # ("To modify pip, please run: ... python.exe -m pip ..."), and the
+    # module form is uniformly safe on every platform.
+    "${venv_python}" -m pip install --quiet --upgrade pip
+    "${venv_python}" -m pip install --quiet -r "${REPO_ROOT}/requirements-binary.txt"
     log "venv populated ($(ls "${venv_sp_dir}" | wc -l) top-level packages)"
 
     # Generate fs_files.star enumerating data files of FILESYSTEM_PACKAGES.
