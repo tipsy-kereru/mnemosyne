@@ -179,17 +179,37 @@ build_dependency_venv() {
                 case "$f" in
                     *__pycache__*|*/tests/*) continue ;;
                 esac
+                # PyOxidizer runs FileManifest.add_path as a native Windows
+                # process and cannot resolve MSYS mount paths (/d/a/...).
+                # Convert to mixed-mode (D:/a/...) on Windows runners.
+                case "$(uname -s)" in
+                    MINGW*|MSYS*|CYGWIN*)
+                        if command -v cygpath >/dev/null 2>&1; then
+                            f="$(cygpath -m "$f")"
+                        fi
+                        ;;
+                esac
                 printf '    "%s",\n' "$f"
             done < <(find "${pkgdir}" -type f -print0)
         done
         printf ']\n'
     } > "${star}"
     # Also write the strip prefix so pyoxidizer.bzl can read it via load().
+    # Must be in the same path form as FS_FILES entries (mixed-mode on Windows)
+    # so strip_prefix actually matches.
+    local prefix_for_star="${sp}/"
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            if command -v cygpath >/dev/null 2>&1; then
+                prefix_for_star="$(cygpath -m "${sp}")/"
+            fi
+            ;;
+    esac
     cat > "${VENV_DIR}/fs_prefix.star" <<EOF
 # AUTO-GENERATED — strip_prefix matching FS_FILES absolute paths.
-FS_STRIP_PREFIX = "${sp}/"
+FS_STRIP_PREFIX = "${prefix_for_star}"
 EOF
-    log "fs_files.star generated ($(grep -c '    "' "${star}") files, prefix ${sp}/)"
+    log "fs_files.star generated ($(grep -c '    "' "${star}") files, prefix ${prefix_for_star})"
 }
 
 run_pyoxidizer() {
