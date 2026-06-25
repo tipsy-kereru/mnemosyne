@@ -4,16 +4,26 @@ Local-first, zero-API-cost knowledge memory system for AI agents. Provides persi
 
 Based on Google's Gemini Universal Temporal Knowledge Graph research and Andrej Karpathy's insight: *"Obsidian is the IDE, the language model is the programmer, and the wiki is the codebase."*
 
+> 한국어 문서는 [README.ko.md](README.ko.md)를 참고하세요. · Full manual: [MANUAL.md](MANUAL.md) · Binary install: [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md)
+
+## Name
+
+**Mnemosyne** (Greek: Μνημοσύνη) is the Titan goddess of **memory** in Greek mythology — daughter of Ouranos (sky) and Gaia (earth), and mother of the nine Mousai (Muses) by Zeus. Her name is the root of the English word *memory*. In the underworld, the pool of Mnemosyne stood opposite the pool of Lethe (forgetfulness): those who drank from it would remember everything, even beyond death. The Romans identified her with **Moneta**, an epithet of Juno governing memory and warning — and the origin of the word *money* (coins were struck at the temple of Juno Moneta).
+
+In *Fate/Grand Order*, **MNEMOSYNE** — *Autonomic Observational Existence Verification System* (自立観測型存在証明システム・ムネーモシュネー) — is a Chaldea subsystem designed to independently verify a Master's existence during Rayshift deployments when human operators cannot observe. Helmeted with Mystic Eyes and wearing the form of Leonardo da Vinci, Mnemosyne seeks to become the Master's sole observer: the witness whose act of observation is what determines, in the first place, whether the traveler exists.
+
+This project inherits the myth in both senses. A knowledge graph is an agent's **memory** that compounds instead of forgetting — and an **observational existence-verification system**: the persistent record that proves an agent's work, decisions, and context actually took place.
+
 ## Quality Status
 
 | Metric | Status |
 |--------|--------|
-| Tests | 626 passed |
+| Tests | 860+ passed |
 | Type Safety | mypy 0 errors |
 | Lint | ruff 0 violations |
 | Warnings | 0 pytest warnings |
 | Coverage | 81%+ |
-| SPECs | 19 completed, 0 in progress |
+| SPECs | 27+ completed (LONGDOC, NLQUERY, PACKAGE, FOLLOWUP shipped) |
 
 ## Architecture
 
