@@ -58,7 +58,68 @@
 
 ## 2. 설치 및 설정
 
-### 2.1 기본 설치
+Mnemosyne은 두 가지 형태로 배포됩니다. Python 없이 실행 가능한 자체 완결형 단일 바이너리와, pip로 설치하는 패키지(Python 3.11+)입니다. 대부분의 최종 사용자는 바이너리를, 기여자와 pip 기반 사용자는 패키지 형태를 사용합니다.
+
+### 2.1 바이너리 설치 (Python 불필요)
+
+`mnemosyne` CLI는 플랫폼별로 단일 PyOxidizer 바이너리로 빌드되어 각 [GitHub Release](https://github.com/tipsy-kereru/mnemosyne/releases)에 첨부됩니다. CPython이 바이너리 안에 내장되어 있어 호스트에 Python, pip, 가상환경이 전혀 필요하지 않습니다.
+
+원라인 설치 스크립트:
+
+```bash
+# Linux + macOS (curl | sh)
+curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
+
+# Windows (PowerShell 5.1+)
+iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.ps1 -UseBasicParsing | iex
+```
+
+기본 설치 경로: `/usr/local/bin/mnemosyne` (Linux/macOS) 또는 `%LOCALAPPDATA%\Programs\mnemosyne\mnemosyne.exe` (Windows). `MNEMOSYNE_INSTALL_DIR`로 재정의할 수 있습니다. 설치 스크립트는 복사 전에 `SHA256SUMS.txt`와 대조하여 SHA256을 검증하며, `--force` / `MNEMOSYNE_FORCE=1`을 지정하지 않으면 기존 설치를 덮어쓰지 않습니다.
+
+| 플랫폼         | 상태        | 비고 |
+|----------------|-------------|-------|
+| linux-x86_64   | GA          | `ubuntu-latest`에서 빌드. |
+| darwin-arm64   | GA          | `macos-14`에서 빌드. 미서명 — 아래 참고. |
+| windows-x86_64 | GA          | `windows-latest`에서 빌드. 미서명. |
+| darwin-x86_64  | 베스트에포트 | `macos-13`에서 빌드. |
+| linux-aarch64  | 베스트에포트 | `ubuntu-latest`에서 크로스 컴파일. |
+
+**macOS 미서명 바이너리:** 바이너리는 공증(notarization)을 거치지 않았습니다 (Apple Developer 인증서가 아직 없음). 최초 실행 시 Gatekeeper가 *"개발자를 확인할 수 없기 때문에 "mnemosyne"을(를) 열 수 없습니다."* 라고 차단할 수 있습니다. 검역 속성을 한 번 제거하면 됩니다:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/mnemosyne
+```
+
+**Windows 미서명 바이너리:** SmartScreen이 "인식되지 않은 앱" 경고를 표시할 수 있습니다. *추가 정보 → 실행*을 클릭하세요. 코드 서명(Authenticode)은 macOS 공증과 동일한 인증서 확보에 연계되어 후속으로 진행됩니다.
+
+**바이너리 크기:** linux-x86_64 배포판은 약 146MB입니다 (바이너리 자체와 내장 `lib/` 모듈, 파일시스템으로 함께 배포되는 `jsonschema_specifications` / `referencing` 동반 디렉토리 포함). 이는 100MB 목표를 초과하며, 크기 축소 지렛대는 PyOxidizer 0.4x + CPython 3.12 업그레이드로 후속 작업으로 추적 중입니다. 동반 디렉토리 없이 바이너리만 이동하면 부팅 시 `No module named 'referencing._cores'` 오류가 발생하니 주의하세요.
+
+**선택 확장 (SLM / PDF):** 바이너리에는 결정론적 추출, 위키 레이어, MCP 서버가 포함되어 있습니다. 로컬 SLM 엔티티 추출(GLiNER2)과 PDF 파싱은 베이스 바이너리를 작게 유지하기 위해 필요할 때 사이드카 확장으로 설치합니다:
+
+```bash
+mnemosyne extension install slm     # GLiNER2 + torch (로컬 SLM NER)
+mnemosyne extension install pdf     # PyMuPDF 긴 문서 인덱싱
+mnemosyne extension list
+```
+
+확장은 `${MNEMOSYNE_HOME:-~/.mnemosyne}/extensions/<name>/<version>/` 아래에 저장되며, 파일별 SHA256으로 검증되고 시작 시 `sys.path` 주입으로 로드됩니다.
+
+**서명 검증 (cosign keyless):** Linux 및 darwin 바이너리는 태그 푸시 시 cosign keyless (sigstore)로 서명됩니다. 다운로드한 바이너리를 검증하려면:
+
+```bash
+cosign verify-blob \
+  --certificate-identity-regexp 'https://github.com/tipsy-kereru/mnemosyne/.github/.+' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --signature mnemosyne-linux-x86_64.sigstore \
+  --bundle mnemosyne-linux-x86_64.sigstore \
+  mnemosyne-linux-x86_64
+```
+
+바이너리 설치 전체 참조(문제 해결 표, man 페이지, 지연 항목): [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md).
+
+### 2.2 pip 설치 (Python 3.11+)
+
+이미 Python을 사용 중이거나 에디터블 설치가 필요한 사용자:
 
 ```bash
 # 코어만
@@ -77,7 +138,7 @@ pip install -e ".[dev]"
 pip install -e ".[all]"
 ```
 
-### 2.2 Joplin 플러그인 설치
+### 2.3 Joplin 플러그인 설치
 
 ```bash
 cd joplin-plugin/knowledge-graph

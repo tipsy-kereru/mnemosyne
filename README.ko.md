@@ -48,9 +48,32 @@ Knowledge Graph (SQLite + NetworkX)
 
 ## 설치
 
-**요구 사항:** Python 3.11 이상 (3.13 권장).
+두 가지 설치 경로가 있습니다. **대부분의 사용자는 바이너리를 권장** — Python, pip, 가상환경이 전혀 필요 없습니다.
 
-### GitHub에서 (사용자 권장)
+### 옵션 A: 단일 바이너리 (Python 불필요)
+
+`mnemosyne` CLI는 CPython을 내장한 자체 완결형 바이너리로 플랫폼별로 제공됩니다. [GitHub Releases](https://github.com/tipsy-kereru/mnemosyne/releases)에서 다운로드하거나 원라인 설치 스크립트를 사용하세요:
+
+```bash
+# Linux + macOS (curl | sh)
+curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
+
+# Windows (PowerShell 5.1+)
+iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.ps1 -UseBasicParsing | iex
+```
+
+- 설치 경로: `/usr/local/bin/mnemosyne` (Linux/macOS) 또는 `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). `MNEMOSYNE_INSTALL_DIR`로 재정의 가능.
+- 설치 전 `SHA256SUMS.txt`로 SHA256 검증, 불일치 시 중단.
+- GA 플랫폼: **linux-x86_64, darwin-arm64, windows-x86_64**. (darwin-x86_64, linux-aarch64는 베스트에포트.)
+- macOS/Windows 바이너리는 **미서명**. macOS Gatekeeper 차단 시 한 번 실행: `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen → "추가 정보 → 실행".
+- 바이너리 크기 약 146MB (PyOxidizer 0.24 한계, 크기 축소는 후속 작업으로 추적 중).
+- SLM(GLiNER2)과 PDF 파싱은 **선택 확장** — 필요 시 설치: `mnemosyne extension install slm` / `mnemosyne extension install pdf`.
+
+전체 세부 사항, cosign 서명 검증, man 페이지, 문제 해결은 [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md)를 참고하세요.
+
+### 옵션 B: pip로 GitHub에서 설치 (Python 3.11+, 파워 유저)
+
+**요구 사항:** Python 3.11 이상 (3.13 권장).
 
 ```bash
 # GitHub에서 최신 버전 설치

@@ -48,9 +48,41 @@ Knowledge Graph (SQLite + NetworkX)
 
 ## Installation
 
-**Requirements:** Python 3.11 or later (3.13 recommended).
+Two install paths. **Most users want the binary** — no Python, no pip, no virtualenv.
 
-### From GitHub (recommended for users)
+### Option A: Single binary (no Python required)
+
+The `mnemosyne` CLI ships as a self-contained binary per platform, with CPython
+embedded. Download from [GitHub Releases](https://github.com/tipsy-kereru/mnemosyne/releases)
+or use the one-line installer:
+
+```bash
+# Linux + macOS (curl | sh)
+curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
+
+# Windows (PowerShell 5.1+)
+iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.ps1 -UseBasicParsing | iex
+```
+
+- Installs to `/usr/local/bin/mnemosyne` (Linux/macOS) or
+  `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). Override with
+  `MNEMOSYNE_INSTALL_DIR`.
+- Verifies SHA256 against `SHA256SUMS.txt` before install; aborts on mismatch.
+- GA platforms: **linux-x86_64, darwin-arm64, windows-x86_64**.
+  (darwin-x86_64, linux-aarch64 are best-effort.)
+- macOS/Windows binaries are **unsigned**. macOS Gatekeeper block → run once:
+  `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen
+  → "More info → Run anyway".
+- Binary size ~146 MB (PyOxidizer 0.24 limit; reduction tracked as follow-up).
+- SLM (GLiNER2) and PDF parsing are **optional extensions** — install on demand:
+  `mnemosyne extension install slm` / `mnemosyne extension install pdf`.
+
+Full details, cosign signature verification, man pages, troubleshooting:
+[docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md).
+
+### Option B: pip from GitHub (Python 3.11+, power users)
+
+**Requirements:** Python 3.11 or later (3.13 recommended).
 
 ```bash
 # Install latest from GitHub

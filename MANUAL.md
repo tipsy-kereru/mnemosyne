@@ -58,7 +58,95 @@ A **local knowledge memory system for AI agents**. Based on Google Gemini's Univ
 
 ## 2. Installation and Setup
 
-### 2.1 Basic Installation
+Mnemosyne ships in two forms: a self-contained single binary (no Python
+required) and a pip-installable package (Python 3.11+). Most end users want
+the binary; contributors and pip-based users use the package form.
+
+### 2.1 Binary Install (no Python required)
+
+The `mnemosyne` CLI is published as a single PyOxidizer binary per platform,
+attached to each [GitHub Release](https://github.com/tipsy-kereru/mnemosyne/releases).
+CPython is embedded in the binary, so neither Python, pip, nor a virtualenv
+is required on the host.
+
+One-line installer:
+
+```bash
+# Linux + macOS (curl | sh)
+curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
+
+# Windows (PowerShell 5.1+)
+iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.ps1 -UseBasicParsing | iex
+```
+
+Default install paths: `/usr/local/bin/mnemosyne` (Linux/macOS) or
+`%LOCALAPPDATA%\Programs\mnemosyne\mnemosyne.exe` (Windows). Override with
+`MNEMOSYNE_INSTALL_DIR`. The installer verifies SHA256 against
+`SHA256SUMS.txt` before copying and refuses to overwrite an existing install
+unless `--force` / `MNEMOSYNE_FORCE=1`.
+
+| Platform       | Status      | Notes |
+|----------------|-------------|-------|
+| linux-x86_64   | GA          | Built on `ubuntu-latest`. |
+| darwin-arm64   | GA          | Built on `macos-14`. Unsigned — see below. |
+| windows-x86_64 | GA          | Built on `windows-latest`. Unsigned. |
+| darwin-x86_64  | best-effort | Built on `macos-13`. |
+| linux-aarch64  | best-effort | Cross-compiled from `ubuntu-latest`. |
+
+**macOS unsigned binary:** binaries are not notarized (no Apple Developer
+certificate yet). On first run Gatekeeper may report *"mnemosyne" cannot be
+opened because the developer cannot be verified.* Strip the quarantine
+attribute once:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/mnemosyne
+```
+
+**Windows unsigned binary:** SmartScreen may show an "unrecognized app"
+warning. Click *More info → Run anyway*. Code-signing (Authenticode) is
+deferred behind the same certificate gating as macOS notarization.
+
+**Binary size:** the linux-x86_64 distribution is ~146 MB (binary plus
+embedded `lib/` modules and filesystem-shipped `jsonschema_specifications`
+/ `referencing` companions). This is above the 100 MB target; the
+size-reduction lever is the PyOxidizer 0.4x + CPython 3.12 upgrade, tracked
+as a follow-up. Do not move the binary without its companion directories,
+or boot will fail with `No module named 'referencing._cores'`.
+
+**Optional extensions (SLM / PDF):** the binary ships deterministic
+extraction, the wiki layer, and the MCP server. Local SLM entity extraction
+(GLiNER2) and PDF parsing are installed on demand as sidecar extensions so
+the base binary stays small:
+
+```bash
+mnemosyne extension install slm     # GLiNER2 + torch (local SLM NER)
+mnemosyne extension install pdf     # PyMuPDF long-document indexing
+mnemosyne extension list
+```
+
+Extensions live under `${MNEMOSYNE_HOME:-~/.mnemosyne}/extensions/<name>/<version>/`,
+are verified by per-file SHA256, and are loaded via `sys.path` injection at
+startup.
+
+**Signature verification (cosign keyless):** Linux and darwin binaries are
+signed with cosign keyless (sigstore) on tag pushes. Verify a downloaded
+binary:
+
+```bash
+cosign verify-blob \
+  --certificate-identity-regexp 'https://github.com/tipsy-kereru/mnemosyne/.github/.+' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --signature mnemosyne-linux-x86_64.sigstore \
+  --bundle mnemosyne-linux-x86_64.sigstore \
+  mnemosyne-linux-x86_64
+```
+
+Full binary-install reference (troubleshooting matrix, man pages, deferred
+items): [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md).
+
+### 2.2 pip Install (Python 3.11+)
+
+For users who already run Python or want editable installs:
 
 ```bash
 # Core only
@@ -77,7 +165,7 @@ pip install -e ".[dev]"
 pip install -e ".[all]"
 ```
 
-### 2.2 Joplin Plugin Installation
+### 2.3 Joplin Plugin Installation
 
 ```bash
 cd joplin-plugin/knowledge-graph
