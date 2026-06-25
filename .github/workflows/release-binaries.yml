@@ -235,6 +235,9 @@ jobs:
           find ../all-artifacts -type f -name '*.sha256' -exec cp {} . \; 2>/dev/null || true
           # Man-pages tarball.
           find ../all-artifacts -name 'man-pages-*.tar.gz' -exec cp {} . \;
+          # One-line installers (curl|sh / iwr|iex fetch these by bare name).
+          cp ../scripts/install.sh install.sh
+          cp ../scripts/install.ps1 install.ps1
           ls -la
 
       - name: upload to GitHub Release
@@ -247,6 +250,8 @@ jobs:
             release-assets/mnemosyne-*
             release-assets/SHA256SUMS.txt
             release-assets/man-pages-*.tar.gz
+            release-assets/install.sh
+            release-assets/install.ps1
 
   sign:
     name: cosign sign (keyless)
