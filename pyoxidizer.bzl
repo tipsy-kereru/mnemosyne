@@ -92,8 +92,14 @@ FILESYSTEM_PACKAGES = ["jsonschema_specifications", "referencing"]
 # the filesystem workaround (mcp serve will fail at runtime — AC4).
 FS_FILES = []
 FS_STRIP_PREFIX = ""
+# Path to the pre-built mnemosyne-core wheel. Parameterized per platform
+# (ISSUE-0009 PACKAGE-D): the wheel filename encodes the ABI tag
+# (manylinux_2_34_x86_64, manylinux_2_34_aarch64, macosx_*_arm64, win_amd64).
+# scripts/build_binary.sh writes mnemosyne-core/wheel_path.star after `maturin build`.
+WHEEL_PATH = "mnemosyne-core/target/wheels/mnemosyne_core-0.1.0-cp310-cp310-manylinux_2_34_x86_64.whl"
 load("mnemosyne-core/build_venv/fs_files.star", "FS_FILES")
 load("mnemosyne-core/build_venv/fs_prefix.star", "FS_STRIP_PREFIX")
+load("mnemosyne-core/wheel_path.star", "WHEEL_PATH")
 
 
 def make_exe():
@@ -148,7 +154,7 @@ def make_exe():
     #    is the AC2 POC (R-PKG-001 de-risk): pip_install places the `.so` at
     #    the correct import path inside the embedded interpreter.
     exe.add_python_resources(
-        exe.pip_install(["mnemosyne-core/target/wheels/mnemosyne_core-0.1.0-cp310-cp310-manylinux_2_34_x86_64.whl"])
+        exe.pip_install([WHEEL_PATH])
     )
 
     # 5. Embed pure-Python runtime deps from the pre-built venv. We filter OUT
