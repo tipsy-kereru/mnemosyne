@@ -37,6 +37,9 @@ permissions:
 
 env:
   PYTHON_VERSION: '3.10'
+  # man-pages runs on the host (no PyOxidizer constraint), so use a Python
+  # that satisfies the package's requires-python >=3.11.
+  MANPAGES_PYTHON_VERSION: '3.13'
   PYOXIDIZER_VERSION: '0.24.0'
 
 jobs:
@@ -188,7 +191,7 @@ jobs:
       - name: setup python
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MANPAGES_PYTHON_VERSION }}
       - name: install mnemosyne (for gen_manpages)
         run: |
           python -m pip install --upgrade pip
