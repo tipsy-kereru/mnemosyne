@@ -114,7 +114,16 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install pyoxidizer==${{ env.PYOXIDIZER_VERSION }} maturin
+          pip install pyoxidizer==${{ env.PYOXIDIZER_VERSION }} maturin uv
+          # build_binary.sh resolves the interpreter as `python3.10` first,
+          # then via `uv python find`. setup-python exposes `python`/`python3`
+          # but not always the version-suffixed alias on every runner image,
+          # so install 3.10 via uv when the alias is missing — the uv fallback
+          # in build_binary.sh then resolves it.
+          if ! command -v "python${{ env.PYTHON_VERSION }}" >/dev/null 2>&1; then
+            uv python install "${{ env.PYTHON_VERSION }}"
+          fi
+          "python${{ env.PYTHON_VERSION }}" --version
 
       - name: build binary
         shell: bash
