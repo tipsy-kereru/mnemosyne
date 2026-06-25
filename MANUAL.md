@@ -175,6 +175,37 @@ npm run pack  # → creates knowledge-graph.jpl file
 # Install in Joplin: Tools > Options > Plugins > "Install from file"
 ```
 
+### 2.4 Uninstall
+
+There is no single uninstaller. Remove each artifact manually — order does
+not matter. Full reference: [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#uninstall).
+
+```bash
+# Binary (Linux/macOS)
+sudo rm -f /usr/local/bin/mnemosyne
+# Binary (Windows PowerShell)
+#   Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\mnemosyne"
+
+# pip package
+pip uninstall mnemosyne-kg
+
+# Optional extensions
+mnemosyne extension remove slm
+mnemosyne extension remove pdf
+# or all at once:
+rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
+
+# Agent skill
+rm -rf ~/.claude/skills/mnemosyne
+rm -rf ~/.agents/skills/mnemosyne
+
+# Data directory — KEEP to preserve graph.db / raw / wiki across reinstalls.
+# Remove only for a fully clean slate:
+rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}"
+```
+
+Also strip any `MNEMOSYNE_*` environment variables from your shell rc.
+
 ---
 
 ## 3. CLI Usage

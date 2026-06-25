@@ -148,6 +148,36 @@ npm run pack  # → knowledge-graph.jpl 파일 생성
 # Joplin에서 설치: 도구 > 옵션 > 플러그인 > "파일에서 설치"
 ```
 
+### 2.4 제거 (Uninstall)
+
+단일 제거 스크립트는 없습니다. 각 구성 요소를 수동으로 제거하며 순서는 상관없습니다. 전체 참조: [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#uninstall).
+
+```bash
+# 바이너리 (Linux/macOS)
+sudo rm -f /usr/local/bin/mnemosyne
+# 바이너리 (Windows PowerShell)
+#   Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\mnemosyne"
+
+# pip 패키지
+pip uninstall mnemosyne-kg
+
+# 선택 확장
+mnemosyne extension remove slm
+mnemosyne extension remove pdf
+# 또는 한 번에:
+rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
+
+# 에이전트 스킬
+rm -rf ~/.claude/skills/mnemosyne
+rm -rf ~/.agents/skills/mnemosyne
+
+# 데이터 디렉토리 — graph.db / raw / wiki를 재설치 후에도 유지하려면 삭제하지 마세요.
+# 완전히 초기화할 때만 제거:
+rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}"
+```
+
+셸 rc에서 `MNEMOSYNE_*` 환경변수도 함께 제거하세요.
+
 ---
 
 ## 3. CLI 사용법

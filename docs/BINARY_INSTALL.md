@@ -108,6 +108,95 @@ tar -xzf man-pages-v0.1.0.tar.gz -C /usr/local/share/man
 man mnemosyne-ingest-add
 ```
 
+## Uninstall
+
+There is no single uninstall script. Remove each install artifact manually in
+any order — the binary, the pip package, the optional extensions, the agent
+skill, and (optionally) the data directory.
+
+### Binary
+
+```bash
+# Linux + macOS (default install path)
+sudo rm -f /usr/local/bin/mnemosyne
+
+# Linux + macOS (custom MNEMOSYNE_INSTALL_DIR)
+rm -f "${MNEMOSYNE_INSTALL_DIR:-/usr/local/bin}/mnemosyne"
+
+# Windows (PowerShell)
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\mnemosyne"
+```
+
+The binary ships next to a `lib/` directory and filesystem-shipped companion
+packages (`jsonschema_specifications`, `referencing`). On Windows the whole
+`mnemosyne\` folder is removed by the `Remove-Item -Recurse` above; on Linux
+and macOS the companions are embedded resources inside the single binary, so
+deleting the binary is sufficient.
+
+### pip package
+
+```bash
+pip uninstall mnemosyne-kg
+```
+
+This also covers editable (`pip install -e .`) installs — `pip` resolves both
+to the same distribution name.
+
+### Optional extensions (SLM / PDF)
+
+```bash
+# Remove one extension at a time
+mnemosyne extension list                # see what is installed
+mnemosyne extension remove slm
+mnemosyne extension remove pdf
+
+# Or remove every extension at once
+rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
+```
+
+### Agent skill
+
+```bash
+# Claude Code default
+rm -rf ~/.claude/skills/mnemosyne
+
+# Generic agent frameworks
+rm -rf ~/.agents/skills/mnemosyne
+
+# Custom --path passed to `mnemosyne skill install`
+rm -rf <your-custom-path>/mnemosyne
+```
+
+### Data directory (optional — preserves your knowledge graph)
+
+The data directory holds `graph/knowledge.db`, `raw/`, and `wiki/`. **Keep it
+if you want to reinstall later and continue from the same knowledge base.**
+Remove it only for a fully clean slate:
+
+```bash
+rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}"
+```
+
+### Environment variables
+
+Strip any of these you set in your shell rc (`~/.zshrc`, `~/.bashrc`,
+PowerShell profile):
+
+- `MNEMOSYNE_HOME`
+- `MNEMOSYNE_LOCK_DIR`
+- `MNEMOSYNE_CHAT_RETENTION_DAYS`
+- `MNEMOSYNE_LLM_MAX_TOKENS`
+- `MNEMOSYNE_INSTALL_DIR`
+- `MNEMOSYNE_FORCE`
+
+### Verify
+
+```bash
+which mnemosyne                # should print nothing
+mnemosyne --version            # should report "command not found"
+ls ~/.mnemosyne 2>/dev/null    # should print nothing if data dir removed
+```
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
