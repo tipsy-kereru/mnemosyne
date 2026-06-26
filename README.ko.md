@@ -281,4 +281,4 @@ pip install --force-reinstall --no-deps "mnemosyne-kg @ git+https://github.com/t
 - **증분 추출**: SHA-256 콘텐츠 해시 추적
 - **다중 도메인**: 코딩, 일상 생활, 법률 스키마
 - **프로토콜 기반**: 확장 가능한 언어 지원을 위한 `LanguageExtractor` 프로토콜
-- **프로덕션 준비 완료**: mypy strict, ruff clean, 626 테스트, 81%+ 커버리지
+- **프로덕션 준비 완료**: mypy strict, ruff clean, 860+ 테스트, 81%+ 커버리지

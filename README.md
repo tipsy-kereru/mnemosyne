@@ -676,4 +676,4 @@ mnemosyne purge-retention --dry-run --db-path /path/to/knowledge.db
 - **Incremental Extraction**: SHA-256 content hash tracking
 - **Multi-domain**: Coding, daily life, and legal schemas
 - **Protocol-based**: `LanguageExtractor` protocol for extensible language support
-- **Production Ready**: mypy strict, ruff clean, 626 tests, 81%+ coverage
+- **Production Ready**: mypy strict, ruff clean, 860+ tests, 81%+ coverage

@@ -112,4 +112,4 @@ Updated: 2026-06-20 22:50:19 NZST
 | Quality summary | 27 completed SPECs, 0 planned SPECs, 1 candidate SPECs (1 existing + 2 Joplin) | SPEC-JOPLIN-002 completed 2026-05-31 |
 | Root bridge policy | AGENTS.md has Moon Cell pointer; CLAUDE.md not modified | SPEC-HARNESS-001 decision |
 | Moon Cell tracking | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception | SPEC-HARNESS-001 tracking policy |
-| Package version | 0.2.0 | pyproject.toml |
+| Package version | 0.5.0 | pyproject.toml |

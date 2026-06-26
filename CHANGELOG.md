@@ -5,6 +5,42 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-26
+
+### Added
+- **PageIndex-style long-document indexing** (SPEC-LONGDOC-001): tree-indexer + retriever for PDF and large Markdown documents. Caps: `MAX_LONGDOC_PAGES=1000`, `MAX_LONGDOC_BYTES=50MiB`, `MAX_LONGDOC_NODES=5000`. Streaming page parse, adversarial-input rejection.
+- **Natural-language query + multi-turn chat** (SPEC-NLQUERY-001): `NLQueryRouter` + `AnswerSynthesizer` with citation integrity filter (REQ-NL-008 drops fabricated entity IDs), `ChatStore` with rolling context, project-scope isolation (IDOR fix). HTTP + MCP dual surface.
+- **Single-binary distribution** (SPEC-PACKAGE-001): PyOxidizer-built self-contained binary embedding CPython. One-line installers (`install.sh` / `install.ps1`), SHA256 verification, cosign keyless signing, man pages. GA platforms: linux-x86_64 + darwin-arm64.
+- **Extension sidecar system** (SPEC-PACKAGE-001 PACKAGE-B): `mnemosyne extension install|list|remove|info` for optional SLM (GLiNER2) and PDF modules. Per-file SHA256 manifest, atomic rollback, path-traversal validation at all entry points. Extensions live under `${MNEMOSYNE_HOME:-~/.mnemosyne}/extensions/<name>/<version>/`.
+- **gh-style CLI refactor** (SPEC-PACKAGE-001 PACKAGE-A): 8 command groups (ingest / graph / project / wiki / serve / mcp / config / retention), `GhHelpFormatter`, man-page generation, 10 deprecation aliases preserving old verbs.
+- **Chat retention (tombstone-only)** (SPEC-FOLLOWUP-001): `mnemosyne purge-retention --dry-run|--apply` reclaims turns older than `MNEMOSYNE_CHAT_RETENTION_DAYS` (default 90) via UPDATE tombstone — no row ever deleted (no-delete contract). Redact-on-persist applies the inline secret redactor to `chat_turns.content` before INSERT.
+- **Long-doc benchmark + adversarial fuzz** (SPEC-FOLLOWUP-001): `scripts/bench/` harness (50-page PDF + 100k-token Markdown fixtures), streaming-parse audit, malformed-PDF / decompression-bomb / zero-page rejection tests.
+- **NL query E2E suite** (SPEC-FOLLOWUP-001): `tests/e2e/test_nlquery_flow.py` — 12 scenarios covering ask / multi-turn chat / archive tombstone / citation integrity / scope isolation / MCP parity.
+- **Release pipeline** (`.github/workflows/release-binaries.yml`): tag-triggered (`v*`), 2-platform matrix, SHA256SUMS, cosign keyless, man-page regeneration, one-line installer upload.
+
+### Changed
+- CLI reorganized to gh-style command groups; legacy verbs retained as aliases.
+- `mnemosyne serve` HTTP API gains `/ask` and `/chat` NL endpoints.
+- MCP server gains `mnemosyne_ask` and `mnemosyne_chat` tools.
+
+### Security
+- Long-doc path-traversal hardening: `raw_root` required, `ValueError` on `None`.
+- Extension name validation shared across install/remove/info to block path traversal (`shutil.rmtree` target protection).
+- Chat content redact-on-persist (GitHub / AWS / JWT / Slack / private-key patterns).
+- Per-turn content cap (16 KiB) on `chat_turns.content`.
+
+### Known Limitations
+- **Windows / linux-aarch64 / darwin-x86_64 binaries not shipped** (ISSUE-0010). Windows builds but cannot boot (`DLL load failed while importing _socket` — PyOxidizer 0.24 C-extension DLL gap; PyOxidizer is abandoned since 2023, no 0.4x exists). linux-aarch64 cross-compile hits `Exec format error`. Windows users use pip install.
+- **v0.4.x binary releases report version `0.3.0` internally** (pyproject was not bumped before tagging). Fixed in 0.5.0; `mnemosyne --version` will be consistent from 0.5.0 onward.
+- Binary size ~146 MB (PyOxidizer 0.24 limit; reduction tracked in ISSUE-0010).
+
+### Quality Metrics
+- pytest: 860+ passed (was 626)
+- ruff: 0 violations
+- mypy: 0 errors
+- Coverage: 81%+
+- SPECs completed: 27+ (LONGDOC, NLQUERY, PACKAGE, FOLLOWUP added)
+
 ## [0.4.0] - 2026-06-14
 
 ### Added
