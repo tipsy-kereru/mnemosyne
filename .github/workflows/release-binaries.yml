@@ -8,11 +8,9 @@
 # linux + darwin artifacts (keyless, OIDC), regenerates man pages, and
 # uploads everything to the GitHub Release.
 #
-# Pragmatic floor (AC2, amended): linux-x86_64 + darwin-arm64 MUST succeed.
-# windows-x86_64 is temporarily optional (ISSUE-0010: PyOxidizer 0.24 Windows
-# C-extension DLL load failure — '_socket' cannot boot). darwin-x86_64 and
-# linux-aarch64 remain best-effort. Optional slots stay in the matrix so they
-# light up green as soon as runner/cross-compile/Windows-packaging work lands.
+# Pragmatic floor (AC2): the matrix ships linux-x86_64 + darwin-arm64 only.
+# windows-x86_64 / linux-aarch64 / darwin-x86_64 are intentionally OMITTED
+# (not optional) — see the matrix note below for re-add criteria.
 #
 # Actions are pinned by SHA per supply-chain hygiene (PM Technical Note 7).
 # Bump by resolving the new tag's commit SHA via the GitHub API:
@@ -47,13 +45,7 @@ jobs:
   build:
     name: build (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
-    # Optional legs (windows-x86_64, darwin-x86_64, linux-aarch64) are
-    # fast-follow; allow failure without blocking the release upload. Cap at
-    # 30 min so a hung cross-compile / PyOxidizer build fails loudly instead of
-    # running until a human cancels it (a cancel blocks downstream `needs` even
-    # under continue-on-error, skipping the release).
     timeout-minutes: 30
-    continue-on-error: ${{ matrix.optional || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -62,37 +54,20 @@ jobs:
             runner: ubuntu-latest
             target_triple: x86_64-unknown-linux-gnu
             asset_name: mnemosyne-linux-x86_64
-          - platform: linux-aarch64
-            runner: ubuntu-latest
-            target_triple: aarch64-unknown-linux-gnu
-            asset_name: mnemosyne-linux-aarch64
-            optional: true
-            # Cross-compile from x86_64 (requires aarch64 cross toolchain +
-            # manylinux_aarch64 wheel from maturin). If GH's native arm64
-            # runner (ubuntu-24.04-arm) is out of preview, switch runner +
-            # drop the cross toolchain step.
           - platform: darwin-arm64
             runner: macos-14
             target_triple: aarch64-apple-darwin
             asset_name: mnemosyne-darwin-arm64
-          - platform: darwin-x86_64
-            runner: macos-13
-            target_triple: x86_64-apple-darwin
-            asset_name: mnemosyne-darwin-x86_64
-            optional: true
-          - platform: windows-x86_64
-            runner: windows-latest
-            target_triple: x86_64-pc-windows-msvc
-            asset_name: mnemosyne-windows-x86_64.exe
-            # Windows is deferred (ISSUE-0010): PyOxidizer 0.24 + python-build-
-            # standalone Windows distribution fails to load CPython C-extension
-            # DLLs at runtime ('DLL load failed while importing _socket'), so
-            # the binary builds but cannot boot. The fix requires either
-            # shipping the CPython DLLs/ tree as companion files or upgrading
-            # to PyOxidizer 0.4x + CPython 3.12. Marked optional so the release
-            # proceeds on Linux + macOS GA. Windows users fall back to pip
-            # install (Option B in the README) until the native binary ships.
-            optional: true
+    # Note: linux-aarch64, darwin-x86_64, and windows-x86_64 were removed from
+    # the matrix. They were previously `optional: true` but their slow / hung /
+    # failing runs still delayed the release job (needs:[build, man-pages]
+    # waits on every matrix leg) and occasionally blocked it when a leg was
+    # canceled. Re-add when the platform is genuinely shippable:
+    #   - windows-x86_64  : ISSUE-0010 (PyOxidizer 0.24 _socket DLL load; ship
+    #                        CPython DLLs/ as companions, or migrate packager).
+    #   - linux-aarch64   : native arm64 runner (ubuntu-24.04-arm) or PyOxidizer
+    #                        cross-compile support (exec-format today).
+    #   - darwin-x86_64   : re-add on macos-13 once the 11-min build is stable.
 
     steps:
       - name: checkout (full history for man pages)

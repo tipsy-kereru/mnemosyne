@@ -36,14 +36,14 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 |---------------------|--------------------------------|-------------|-------|
 | linux-x86_64        | `mnemosyne-linux-x86_64`       | GA          | Built natively on `ubuntu-latest`. |
 | darwin-arm64        | `mnemosyne-darwin-arm64`       | GA          | Native on `macos-14`. Unsigned (see below). |
-| windows-x86_64      | `mnemosyne-windows-x86_64.exe` | deferred    | Builds but cannot boot — PyOxidizer 0.24 fails to load CPython C-extension DLLs at runtime (`DLL load failed while importing _socket`). Tracked in ISSUE-0010. Windows users: use pip install (Option B) for now. |
-| darwin-x86_64       | `mnemosyne-darwin-x86_64`      | best-effort | Native on `macos-13`. Fast-follow if runner churn. |
-| linux-aarch64       | `mnemosyne-linux-aarch64`      | best-effort | Cross-compiled from `ubuntu-latest`. Fast-follow if cross toolchain breaks. |
+| windows-x86_64      | —                              | not shipped | PyOxidizer 0.24 `_socket` DLL load failure (ISSUE-0010). Use pip install. |
+| darwin-x86_64       | —                              | not shipped | Removed from matrix (slow macos-13 build blocked release). Re-add when stable. |
+| linux-aarch64       | —                              | not shipped | PyOxidizer cross-compile exec-format limitation. Needs native arm64 runner. |
 
-The pragmatic floor (AC2, amended): linux-x86_64 + darwin-arm64 MUST succeed
-on every release. windows-x86_64 is temporarily optional pending the
-PyOxidizer packaging fix (ISSUE-0010); darwin-x86_64 and linux-aarch64 are
-allowed to land as follow-ups.
+The release matrix ships **linux-x86_64 + darwin-arm64** only. The other
+platforms were removed because their failing/hung runs delayed the release
+job (which waits on every matrix leg). They will be re-added when each is
+genuinely shippable.
 
 ## Windows status (deferred — ISSUE-0010)
 

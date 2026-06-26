@@ -89,9 +89,9 @@ unless `--force` / `MNEMOSYNE_FORCE=1`.
 |----------------|-------------|-------|
 | linux-x86_64   | GA          | Built on `ubuntu-latest`. |
 | darwin-arm64   | GA          | Built on `macos-14`. Unsigned — see below. |
-| windows-x86_64 | deferred    | Builds but cannot boot — PyOxidizer 0.24 `_socket` DLL load failure (ISSUE-0010). Use pip install (§2.2) on Windows. |
-| darwin-x86_64  | best-effort | Built on `macos-13`. |
-| linux-aarch64  | best-effort | Cross-compiled from `ubuntu-latest`. |
+| windows-x86_64 | not shipped | PyOxidizer 0.24 `_socket` DLL load failure (ISSUE-0010). Use pip install (§2.2). |
+| darwin-x86_64  | not shipped | Removed from matrix (slow build). Re-add when stable. |
+| linux-aarch64  | not shipped | Cross-compile limitation. Needs native arm64 runner. |
 
 **macOS unsigned binary:** binaries are not notarized (no Apple Developer
 certificate yet). On first run Gatekeeper may report *"mnemosyne" cannot be
