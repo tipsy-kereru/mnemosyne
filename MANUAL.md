@@ -89,7 +89,7 @@ unless `--force` / `MNEMOSYNE_FORCE=1`.
 |----------------|-------------|-------|
 | linux-x86_64   | GA          | Built on `ubuntu-latest`. |
 | darwin-arm64   | GA          | Built on `macos-14`. Unsigned — see below. |
-| windows-x86_64 | GA          | Built on `windows-latest`. Unsigned. |
+| windows-x86_64 | deferred    | Builds but cannot boot — PyOxidizer 0.24 `_socket` DLL load failure (ISSUE-0010). Use pip install (§2.2) on Windows. |
 | darwin-x86_64  | best-effort | Built on `macos-13`. |
 | linux-aarch64  | best-effort | Cross-compiled from `ubuntu-latest`. |
 

@@ -8,10 +8,11 @@
 # linux + darwin artifacts (keyless, OIDC), regenerates man pages, and
 # uploads everything to the GitHub Release.
 #
-# Pragmatic floor (AC2): linux-x86_64 + darwin-arm64 + windows-x86_64 MUST
-# succeed. darwin-x86_64 + linux-aarch64 are allowed to fail without breaking
-# the release upload (continue-on-error). Their slots remain in the matrix so
-# they light up green as soon as runner/cross-compile issues resolve.
+# Pragmatic floor (AC2, amended): linux-x86_64 + darwin-arm64 MUST succeed.
+# windows-x86_64 is temporarily optional (ISSUE-0010: PyOxidizer 0.24 Windows
+# C-extension DLL load failure — '_socket' cannot boot). darwin-x86_64 and
+# linux-aarch64 remain best-effort. Optional slots stay in the matrix so they
+# light up green as soon as runner/cross-compile/Windows-packaging work lands.
 #
 # Actions are pinned by SHA per supply-chain hygiene (PM Technical Note 7).
 # Bump by resolving the new tag's commit SHA via the GitHub API:
@@ -79,6 +80,15 @@ jobs:
             runner: windows-latest
             target_triple: x86_64-pc-windows-msvc
             asset_name: mnemosyne-windows-x86_64.exe
+            # Windows is deferred (ISSUE-0010): PyOxidizer 0.24 + python-build-
+            # standalone Windows distribution fails to load CPython C-extension
+            # DLLs at runtime ('DLL load failed while importing _socket'), so
+            # the binary builds but cannot boot. The fix requires either
+            # shipping the CPython DLLs/ tree as companion files or upgrading
+            # to PyOxidizer 0.4x + CPython 3.12. Marked optional so the release
+            # proceeds on Linux + macOS GA. Windows users fall back to pip
+            # install (Option B in the README) until the native binary ships.
+            optional: true
 
     steps:
       - name: checkout (full history for man pages)

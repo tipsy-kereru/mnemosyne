@@ -80,7 +80,7 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 |----------------|-------------|-------|
 | linux-x86_64   | GA          | `ubuntu-latest`에서 빌드. |
 | darwin-arm64   | GA          | `macos-14`에서 빌드. 미서명 — 아래 참고. |
-| windows-x86_64 | GA          | `windows-latest`에서 빌드. 미서명. |
+| windows-x86_64 | 지연        | 빌드는 되지만 부팅 불가 — PyOxidizer 0.24 `_socket` DLL 로드 실패 (ISSUE-0010). Windows에서는 pip 설치(§2.2)를 사용하세요. |
 | darwin-x86_64  | 베스트에포트 | `macos-13`에서 빌드. |
 | linux-aarch64  | 베스트에포트 | `ubuntu-latest`에서 크로스 컴파일. |
 

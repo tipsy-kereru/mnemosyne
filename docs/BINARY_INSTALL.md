@@ -32,17 +32,32 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 
 ## Platform matrix
 
-| Platform            | Asset                          | Status     | Notes |
-|---------------------|--------------------------------|------------|-------|
-| linux-x86_64        | `mnemosyne-linux-x86_64`       | GA         | Built natively on `ubuntu-latest`. |
-| darwin-arm64        | `mnemosyne-darwin-arm64`       | GA         | Native on `macos-14`. Unsigned (see below). |
-| windows-x86_64      | `mnemosyne-windows-x86_64.exe` | GA         | Native on `windows-latest`. Unsigned. |
-| darwin-x86_64       | `mnemosyne-darwin-x86_64`      | best-effort| Native on `macos-13`. Fast-follow if runner churn. |
-| linux-aarch64       | `mnemosyne-linux-aarch64`      | best-effort| Cross-compiled from `ubuntu-latest`. Fast-follow if cross toolchain breaks. |
+| Platform            | Asset                          | Status      | Notes |
+|---------------------|--------------------------------|-------------|-------|
+| linux-x86_64        | `mnemosyne-linux-x86_64`       | GA          | Built natively on `ubuntu-latest`. |
+| darwin-arm64        | `mnemosyne-darwin-arm64`       | GA          | Native on `macos-14`. Unsigned (see below). |
+| windows-x86_64      | `mnemosyne-windows-x86_64.exe` | deferred    | Builds but cannot boot — PyOxidizer 0.24 fails to load CPython C-extension DLLs at runtime (`DLL load failed while importing _socket`). Tracked in ISSUE-0010. Windows users: use pip install (Option B) for now. |
+| darwin-x86_64       | `mnemosyne-darwin-x86_64`      | best-effort | Native on `macos-13`. Fast-follow if runner churn. |
+| linux-aarch64       | `mnemosyne-linux-aarch64`      | best-effort | Cross-compiled from `ubuntu-latest`. Fast-follow if cross toolchain breaks. |
 
-The pragmatic floor (AC2): linux-x86_64 + darwin-arm64 + windows-x86_64 MUST
-succeed on every release; the other two are allowed to land as follow-ups if
-a runner or cross-compile issue surfaces.
+The pragmatic floor (AC2, amended): linux-x86_64 + darwin-arm64 MUST succeed
+on every release. windows-x86_64 is temporarily optional pending the
+PyOxidizer packaging fix (ISSUE-0010); darwin-x86_64 and linux-aarch64 are
+allowed to land as follow-ups.
+
+## Windows status (deferred — ISSUE-0010)
+
+The Windows binary builds successfully but fails its `--help` smoke test with
+`ImportError: DLL load failed while importing _socket`. This is a PyOxidizer
+0.24 + python-build-standalone packaging gap: the embedded CPython
+C-extension modules and their dependency DLLs are not resolved at runtime on
+Windows. The fix requires either shipping the CPython `DLLs/` tree as
+companion files or upgrading to PyOxidizer 0.4x + CPython 3.12.
+
+Until then, **Windows users should install via pip** (Option B in the README
+— `pip install "mnemosyne-kg[all] @ git+..."`), which requires Python 3.11+
+but runs natively on Windows. The Windows binary slot remains in the build
+matrix so it lights up green the moment ISSUE-0010 lands.
 
 ## macOS unsigned-binary workaround (R-PKG-005)
 

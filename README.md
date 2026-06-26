@@ -68,8 +68,10 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
   `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). Override with
   `MNEMOSYNE_INSTALL_DIR`.
 - Verifies SHA256 against `SHA256SUMS.txt` before install; aborts on mismatch.
-- GA platforms: **linux-x86_64, darwin-arm64, windows-x86_64**.
-  (darwin-x86_64, linux-aarch64 are best-effort.)
+- GA platforms: **linux-x86_64, darwin-arm64**.
+  (darwin-x86_64, linux-aarch64 are best-effort; windows-x86_64 is deferred —
+  see [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010).
+  Windows users: use the pip install below.)
 - macOS/Windows binaries are **unsigned**. macOS Gatekeeper block → run once:
   `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen
   → "More info → Run anyway".

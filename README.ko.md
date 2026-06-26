@@ -64,7 +64,8 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 
 - 설치 경로: `/usr/local/bin/mnemosyne` (Linux/macOS) 또는 `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). `MNEMOSYNE_INSTALL_DIR`로 재정의 가능.
 - 설치 전 `SHA256SUMS.txt`로 SHA256 검증, 불일치 시 중단.
-- GA 플랫폼: **linux-x86_64, darwin-arm64, windows-x86_64**. (darwin-x86_64, linux-aarch64는 베스트에포트.)
+- GA 플랫폼: **linux-x86_64, darwin-arm64**.
+  (darwin-x86_64, linux-aarch64는 베스트에포트; windows-x86_64는 지연 — [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010) 참고. Windows 사용자는 아래 pip 설치를 사용하세요.)
 - macOS/Windows 바이너리는 **미서명**. macOS Gatekeeper 차단 시 한 번 실행: `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen → "추가 정보 → 실행".
 - 바이너리 크기 약 146MB (PyOxidizer 0.24 한계, 크기 축소는 후속 작업으로 추적 중).
 - SLM(GLiNER2)과 PDF 파싱은 **선택 확장** — 필요 시 설치: `mnemosyne extension install slm` / `mnemosyne extension install pdf`.
