@@ -254,7 +254,7 @@ jobs:
         # softprops/action-gh-release@v2 — SHA-pinned.
         # Uploads all files in `files:` to the Release matching the tag.
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf6f9
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             release-assets/mnemosyne-*
@@ -293,7 +293,7 @@ jobs:
 
       - name: install cosign
         # sigstore/cosign-installer@v3 — SHA-pinned.
-        uses: sigstore/cosign-installer@dc72c7d5c4d10cd642cb0452ec9e2a40125bacf0
+        uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9
 
       - name: sign each artifact
         # cosign sign-blob --bundle writes <file>.sigstore bundle (keyless via
@@ -307,7 +307,7 @@ jobs:
           done
 
       - name: upload signatures to release
-        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf6f9
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             sign-assets/*.sigstore
