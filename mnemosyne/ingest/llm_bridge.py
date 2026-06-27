@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LLM_MAX_TOKENS = 8192
 
+# Track providers we have already warned about falling back from, so a missing
+# optional dependency (e.g. openai in the lightweight binary) does not spam one
+# warning per ingested file. Cleared only by process restart.
+_PROVIDER_FALLBACK_WARNED: set[str] = set()
+
 
 def _max_tokens() -> int:
     """Return per-request token budget, overridable via MNEMOSYNE_LLM_MAX_TOKENS."""
@@ -133,9 +138,13 @@ class LLMBridge:
             else:
                 raw = self._call_cli(prompt)
         except ImportError as exc:
-            logger.warning(
-                "Provider %s import failed (%s); falling back to cli", provider, exc
-            )
+            if provider not in _PROVIDER_FALLBACK_WARNED:
+                _PROVIDER_FALLBACK_WARNED.add(provider)
+                logger.warning(
+                    "Provider %s import failed (%s); falling back to cli (warned once)",
+                    provider,
+                    exc,
+                )
             try:
                 raw = self._call_cli(prompt)
             except Exception as cli_exc:
@@ -212,11 +221,14 @@ class LLMBridge:
             else:
                 raw = self._call_cli(user, system=system)
         except ImportError as exc:
-            logger.warning(
-                "synthesize provider %s import failed (%s); fallback cli",
-                provider,
-                exc,
-            )
+            syn_key = f"synthesize:{provider}"
+            if syn_key not in _PROVIDER_FALLBACK_WARNED:
+                _PROVIDER_FALLBACK_WARNED.add(syn_key)
+                logger.warning(
+                    "synthesize provider %s import failed (%s); fallback cli (warned once)",
+                    provider,
+                    exc,
+                )
             try:
                 raw = self._call_cli(user, system=system)
             except Exception as cli_exc:

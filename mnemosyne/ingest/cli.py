@@ -112,6 +112,13 @@ def add_main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--examples", action="store_true", help="Show usage examples.")
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument(
+        "--format",
+        choices=("summary", "json"),
+        default="summary",
+        help="Output form: 'summary' (default, human-readable counts + wiki root) "
+        "or 'json' (full result including every wiki path).",
+    )
 
     args = parser.parse_args(argv)
 
@@ -148,8 +155,58 @@ def add_main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     ingester.close()
-    sys.stdout.write(json.dumps(result_to_dict(result), indent=2) + "\n")
+    if getattr(args, "format", "summary") == "json":
+        sys.stdout.write(json.dumps(result_to_dict(result), indent=2) + "\n")
+    else:
+        _print_ingest_summary(result)
     return 0 if not result.errors else 1
+
+
+def _print_ingest_summary(result: "IngestResult") -> None:
+    """Human-readable ingest result: counts + wiki root, not a path dump."""
+    wiki_paths = list(result.wiki_paths)
+    wiki_root: str | None = None
+    page_counts: dict[str, int] = {}
+    if wiki_paths:
+        # Derive wiki root as the common ancestor (".../wiki") of all paths.
+        roots = {str(p).split("/wiki/")[0] + "/wiki" for p in wiki_paths if "/wiki/" in str(p)}
+        wiki_root = sorted(roots)[0] if roots else str(wiki_paths[0].parent)
+        # Group by entity type / sources / index for a compact breakdown.
+        for p in wiki_paths:
+            s = str(p)
+            if "/wiki/sources/" in s:
+                page_counts["sources"] = page_counts.get("sources", 0) + 1
+            elif "/wiki/entities/" in s:
+                etype = s.split("/wiki/entities/")[1].split("/")[0]
+                page_counts[f"entities/{etype}"] = page_counts.get(f"entities/{etype}", 0) + 1
+            elif s.endswith("/wiki/index.md"):
+                page_counts["index"] = page_counts.get("index", 0) + 1
+            elif s.endswith("/wiki/log.md"):
+                page_counts["log"] = page_counts.get("log", 0) + 1
+            else:
+                page_counts["other"] = page_counts.get("other", 0) + 1
+
+    lines = [
+        f"source:           {result.source}",
+        f"entities added:   {result.entities_added}",
+        f"relations added:  {result.relations_added}",
+    ]
+    if result.skipped:
+        lines.append(f"skipped:          {result.skipped} ({result.skip_reason or 'unknown reason'})")
+    if wiki_root:
+        lines.append(f"wiki root:        {wiki_root}")
+        lines.append(f"wiki pages:       {len(wiki_paths)}")
+        breakdown = ", ".join(f"{k}={v}" for k, v in sorted(page_counts.items()))
+        if breakdown:
+            lines.append(f"  breakdown:      {breakdown}")
+        lines.append("(pass --format json for the full path list)")
+    else:
+        lines.append("wiki:             (not maintained — pass without --no-wiki)")
+    if result.errors:
+        lines.append(f"errors:           {len(result.errors)}")
+        for err in result.errors[:5]:
+            lines.append(f"  - {err}")
+    sys.stdout.write("\n".join(lines) + "\n")
 
 
 _UPDATE_EXAMPLES = """\
