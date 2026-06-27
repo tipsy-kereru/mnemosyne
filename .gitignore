@@ -213,3 +213,6 @@ AGENTS.md
 
 # Stray session-transcript dumps (date-stamped .txt at repo root)
 /2*.txt
+
+# Auto-generated at PyOxidizer build time (scripts/build_binary.sh)
+mnemosyne/_version.py
