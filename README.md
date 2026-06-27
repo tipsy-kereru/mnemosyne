@@ -67,6 +67,10 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 - Installs to `/usr/local/bin/mnemosyne` (Linux/macOS) or
   `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). Override with
   `MNEMOSYNE_INSTALL_DIR`.
+- Refuses to overwrite an existing install unless you force it. **The flags are
+  for the installer, not curl** — pass them via `sh -s --` or an env var:
+  `curl ... | sh -s -- --force` or `MNEMOSYNE_FORCE=1 curl ... | sh`.
+  (`curl ... --force | sh` does *not* forward `--force` to the installer.)
 - Verifies SHA256 against `SHA256SUMS.txt` before install; aborts on mismatch.
 - GA platforms: **linux-x86_64, darwin-arm64**.
   (darwin-x86_64, linux-aarch64 are best-effort; windows-x86_64 is deferred —

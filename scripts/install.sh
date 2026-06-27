@@ -8,6 +8,11 @@
 #   curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
 #   curl -fsSL .../install.sh | MNEMOSYNE_INSTALL_DIR=$HOME/bin sh
 #   curl -fsSL .../install.sh | sh -s -- --force
+#   MNEMOSYNE_FORCE=1 curl -fsSL .../install.sh | sh
+#
+# NOTE: '--force' / '--dir' are flags for THIS script, not for curl. With the
+# pipe form they must reach sh, so use 'sh -s -- --force' or the MNEMOSYNE_*
+# env vars. 'curl ... --force | sh' does NOT pass --force to the installer.
 #
 # Behavior:
 #   1. Detect OS (uname -s) + arch (uname -m).
@@ -59,6 +64,12 @@ detect_platform() {
             esac
             ;;
         Darwin)
+            # Under Rosetta (translated shell) uname -m reports x86_64 even on
+            # Apple Silicon. sysctl_proc_translated=1 means we are translated,
+            # so the real machine is arm64.
+            if [ "${arch}" = "x86_64" ] && [ "$(sysctl -n sysctl_proc_translated 2>/dev/null || printf 0)" = "1" ]; then
+                arch="arm64"
+            fi
             case "${arch}" in
                 arm64) printf 'darwin-arm64' ;;
                 x86_64) printf 'darwin-x86_64' ;;
