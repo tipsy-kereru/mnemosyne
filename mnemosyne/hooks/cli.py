@@ -332,10 +332,18 @@ def _copilot_hooks_dir() -> Path:
 
 
 def _read_template(name: str) -> str:
+    # Bundled constants are the primary source — they ship inside the package
+    # and work identically in pip installs and the PyOxidizer frozen binary
+    # (where importlib.resources cannot read the non-Python template files).
+    from mnemosyne.hooks._templates_bundled import TEMPLATES
+
+    if name in TEMPLATES:
+        return TEMPLATES[name]
+    # Last-resort fallback for pip dev edits not yet bundled.
     try:
         templates = importlib.resources.files("mnemosyne.hooks.templates")
         return (templates / name).read_text(encoding="utf-8")
-    except (FileNotFoundError, AttributeError):
+    except (FileNotFoundError, AttributeError, ValueError):
         fallback = Path(__file__).parent / "templates" / name
         return fallback.read_text(encoding="utf-8")
 
