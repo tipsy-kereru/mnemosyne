@@ -237,10 +237,11 @@ jobs:
           # Flatten: every build-*/mnemosyne-<platform> + *.sha256 into one dir.
           find all-artifacts -type f -name 'mnemosyne-*' ! -name '*.sha256' \
             -exec cp {} release-assets/ \;
-          # Aggregate checksum file (AC3).
+          # Aggregate checksum file (AC3). Use bare filenames (no "./" prefix)
+          # so install.sh / install.ps1 can match entries by simple name.
           cd release-assets
           find . -maxdepth 1 -type f -name 'mnemosyne-*' ! -name '*.sha256' \
-            -exec sha256sum {} \; > SHA256SUMS.txt
+            -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt
           # Move per-asset checksums alongside (cosign-free verification path).
           find ../all-artifacts -type f -name '*.sha256' -exec cp {} . \; 2>/dev/null || true
           # Man-pages tarball.

@@ -120,7 +120,10 @@ main() {
     fetch "${BASE_URL}/SHA256SUMS.txt" "${sums_tmp}" || { err "download failed for SHA256SUMS.txt"; exit 1; }
 
     # Extract the expected hash for this asset from SHA256SUMS.txt.
-    expected="$(grep " ${asset}\$" "${sums_tmp}" | awk '{print $1}' | head -1)"
+    # Tolerate the leading "./" that GNU sha256sum emits when fed "./name"
+    # paths (the release workflow's find produces these); match a space or a
+    # slash immediately before the asset name.
+    expected="$(grep "[ /]${asset}\$" "${sums_tmp}" | awk '{print $1}' | head -1)"
     if [ -z "${expected}" ]; then
         err "no checksum entry for ${asset} in SHA256SUMS.txt"
         exit 1

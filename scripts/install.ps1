@@ -79,8 +79,10 @@ try {
     }
 
     # Parse "<sha256>  <asset>" from SHA256SUMS.txt.
+    # Tolerate the leading "./" the release workflow emits (sha256sum on
+    # "./name" paths): match a slash or whitespace before the asset name.
     $Sums = Get-Content $SumsTmp
-    $Expected = ($Sums | Where-Object { $_ -match "\s+mnemosyne-windows-x86_64\.exe\s*$" } |
+    $Expected = ($Sums | Where-Object { $_ -match "[/\s]mnemosyne-windows-x86_64\.exe\s*$" } |
         ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
     if (-not $Expected) {
         Write-Err "no checksum entry for $Asset in SHA256SUMS.txt"
