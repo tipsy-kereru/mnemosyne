@@ -1334,13 +1334,24 @@ def _run_skill(args):
         return
 
     if args.skill_command in ("install", "update"):
-        # Read the bundled SKILL.md from package data
+        # Read the bundled SKILL.md. In pip installs importlib.resources works,
+        # but in the PyOxidizer frozen binary the non-Python data file is not
+        # readable that way (ValueError), so prefer the build-baked constant.
+        content: str | None = None
         try:
-            skill_module = importlib.resources.files("mnemosyne.skills")
-            source = skill_module / "SKILL.md"
-            content = source.read_text(encoding="utf-8")
-        except (FileNotFoundError, AttributeError) as exc:
-            print(f"Error: Could not read bundled skill file: {exc}")
+            from mnemosyne._skill_bundled import SKILL_MD as _baked
+
+            content = _baked
+        except ImportError:
+            try:
+                skill_module = importlib.resources.files("mnemosyne.skills")
+                source = skill_module / "SKILL.md"
+                content = source.read_text(encoding="utf-8")
+            except (FileNotFoundError, AttributeError, ValueError) as exc:
+                print(f"Error: Could not read bundled skill file: {exc}")
+                return
+        if content is None:
+            print("Error: Could not read bundled skill file")
             return
 
         # Resolve target directory

@@ -216,3 +216,4 @@ AGENTS.md
 
 # Auto-generated at PyOxidizer build time (scripts/build_binary.sh)
 mnemosyne/_version.py
+mnemosyne/_skill_bundled.py
