@@ -65,9 +65,12 @@ detect_platform() {
             ;;
         Darwin)
             # Under Rosetta (translated shell) uname -m reports x86_64 even on
-            # Apple Silicon. sysctl_proc_translated=1 means we are translated,
-            # so the real machine is arm64.
-            if [ "${arch}" = "x86_64" ] && [ "$(sysctl -n sysctl_proc_translated 2>/dev/null || printf 0)" = "1" ]; then
+            # Apple Silicon. Probe the hardware directly: hw.optional.arm64=1
+            # means the physical CPU is arm64, so prefer the darwin-arm64
+            # binary regardless of what the translated shell reports. (We do
+            # NOT rely on sysctl_proc_translated — it is not populated on every
+            # macOS release / shell type.)
+            if [ "${arch}" = "x86_64" ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || printf 0)" = "1" ]; then
                 arch="arm64"
             fi
             case "${arch}" in
