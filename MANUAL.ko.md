@@ -421,6 +421,87 @@ mnemosyne mcp install --client openclaw
 
 **전송**: 직접 Python 가져오기(프로세스 내 KnowledgeGraph + Handlers 재사용, 별도의 `mnemosyne serve` 필요 없음).
 
+### 3.8 에이전트 연동 — 훅, 스킬, MCP
+
+Mnemosyne은 AI 코딩 에이전트(Claude Code, Codex, Gemini CLI, Copilot CLI 및 git 기반 워크플로우 전반)와 세 가지 상호 보완적 경로로 연동됩니다. 조합해서 사용할 수 있습니다.
+
+#### 자동 동기화 훅
+
+`mnemosyne hook install`은 에이전트가 작성하거나 편집한 파일을 다시 수집하여 그래프와 위키를 수동 명령 없이 최신으로 유지하는 PostToolUse 훅을 설치합니다. 에이전트 외 워크플로우용 git post-commit 훅도 있습니다.
+
+```bash
+mnemosyne hook install              # git + claude (기본)
+mnemosyne hook install claude codex # 특정 대상
+mnemosyne hook install --force      # 기존 훅 설정 덮어쓰기
+mnemosyne hook status               # 설치된 대상 표시
+mnemosyne hook remove               # 전체 제거
+mnemosyne hook remove codex         # 단일 대상 제거
+```
+
+지원 대상과 훅 위치:
+
+| 대상     | 훅 위치 | 트리거 |
+|---------|---------------|---------|
+| `git`     | `.git/hooks/post-commit`               | 커밋 후 → `mnemosyne update --quiet` |
+| `claude`  | `~/.claude/settings.json` (PostToolUse) | 에이전트 Write/Edit → `mnemosyne add <file>` |
+| `codex`   | codex `hooks.json`                      | 에이전트 Write/Edit → `mnemosyne add <file>` |
+| `gemini`  | gemini 설정 (AfterTool)                  | 에이전트 Write/Edit → `mnemosyne add <file>` |
+| `copilot` | copilot CLI 훅                          | 에이전트 Write/Edit → `mnemosyne add <file>` |
+
+각 에이전트 훅은 60초 타임아웃으로 `mnemosyne add <file> --quiet`를 실행하며, 실패해도 에이전트를 차단하지 않습니다(에러는 캡처 후 무시). 훅 스크립트는 mnemosyne이 관리합니다 — 업그레이드 후 `mnemosyne hook install`을 다시 실행해 갱신하세요.
+
+참고:
+- 훅은 파일 단위로 발화합니다. 대규모 리팩토링이나 브랜치 전환 후에는 `mnemosyne update`를 한 번 실행해 전체 재동기화하세요.
+- 훅은 `Write`/`Edit` 도구 호출에만 동작합니다. 읽기와 셸 명령은 수집을 트리거하지 않습니다.
+- 수집을 프로젝트로 한정하려면 프로젝트 루트에서 먼저 `mnemosyne add . --domain coding`을 실행하세요. 그래프는 콘텐츠 해시 기준이므로 변경 없는 파일의 재수집은 no-op입니다.
+
+#### 에이전트 스킬 (Claude Code)
+
+`/mnemosyne` 스킬을 통해 Claude Code가 대화 중에 지식 그래프를 수집, 쿼리, 추출, 관리할 수 있습니다.
+
+```bash
+mnemosyne skill install                       # ~/.claude/skills/mnemosyne/
+mnemosyne skill install --target agents       # ~/.agents/skills/ (프레임워크 범용)
+mnemosyne skill install --force               # 동일해도 재설치
+mnemosyne skill install --path ~/my-agent/skills
+```
+
+설치 후 Claude Code에서 `/mnemosyne`을 입력하세요. 스킬은 `mnemosyne` CLI의 얇은 래퍼이므로 이 매뉴얼의 모든 명령을 사용할 수 있습니다.
+
+#### MCP 서버
+
+15-도구 MCP 서버는 §3.7을 참고하세요. Claude Desktop / Claude Code MCP 연동:
+
+```bash
+mnemosyne mcp install --client claude-desktop   # 추가할 설정 조각 인쇄
+```
+
+MCP 경로가 가장 풍부한 질의 표면입니다: `mnemosyne_search`, `mnemosyne_query`, `mnemosyne_ask`(NL Q&A), `mnemosyne_chat`(멀티턴) 및 읽기/쓰기/위키 유지보수 도구. no-delete 계약을 따릅니다.
+
+#### Codex 특이사항
+
+Codex는 자동 동기화 훅으로만 지원됩니다(`mnemosyne hook install codex`). Codex 전용 스킬이나 MCP 설치 도우미는 없습니다. Codex에서 질의하려면 `mnemosyne` CLI를 직접 호출:
+
+```bash
+mnemosyne query --query "search:authenticate"
+mnemosyne ask "authenticate를 호출하는 함수는?"
+```
+
+또는 `mnemosyne mcp serve` 명령을 Codex의 MCP 설정에 수동으로 추가해 MCP 서버를 가리키세요.
+
+#### 전형적인 엔드투엔드 설정
+
+```bash
+cd ~/my-project
+mnemosyne add . --domain coding             # 그래프 + 위키 시딩
+mnemosyne project register .                # (선택) 스코핑용 프로젝트 등록
+mnemosyne hook install claude               # 에이전트 편집 시 자동 동기화
+mnemosyne skill install                     # Claude Code에서 /mnemosyne
+mnemosyne mcp install --client claude-desktop
+```
+
+이제: Claude Code가 코드를 편집 → 훅이 재수집 → 위키가 실시간 유지 → MCP나 스킬로 질문. Codex는 `mnemosyne hook install codex`로 같은 자동 동기화를 얻습니다.
+
 ---
 
 ## 4. Python API

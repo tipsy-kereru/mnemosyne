@@ -109,25 +109,51 @@ pip install --upgrade "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemos
 uv pip install --upgrade "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
 ```
 
-### 에이전트 스킬 설치
+### 에이전트 연동 (Claude Code / Codex / 기타)
 
-AI 에이전트(Claude Code 등)가 지식 그래프 명령을 직접 사용할 수 있도록 `/mnemosyne` 스킬을 설치하세요:
+Mnemosyne은 세 가지 상호 보완적 경로로 AI 코딩 에이전트와 연동됩니다. 워크플로우에 맞는 것을 설치하세요.
+
+**1. 자동 동기화 훅** — 에이전트가 코드를 고치면 위키가 자동으로 따라갑니다.
+
+`mnemosyne hook install`은 PostToolUse 훅을 설치하여, 에이전트의 모든 `Write`/`Edit`이 `mnemosyne add <file>`을 트리거하고 그래프 + 위키를 갱신합니다. 지원 대상: `git`(post-commit), `claude`(Claude Code `settings.json`), `codex`, `gemini`, `copilot`.
 
 ```bash
-# 기본: ~/.claude/skills/mnemosyne/에 설치
-mnemosyne skill install
+mnemosyne hook install              # git + claude (기본)
+mnemosyne hook install claude codex # 대상 지정
+mnemosyne hook status               # 설치된 훅 확인
+mnemosyne hook remove claude        # 특정 대상 제거
+```
 
-# 다른 에이전트 프레임워크 (전역 ~/.agents/skills/)
-mnemosyne skill install --target agents
+**2. 에이전트 스킬** — Claude Code에서 `/mnemosyne`으로 명시적 수집/쿼리/추출.
 
-# 강제 재설치 (동일하더라도)
-mnemosyne skill install --force
-
-# 사용자 정의 경로
+```bash
+mnemosyne skill install                       # ~/.claude/skills/mnemosyne/ (Claude Code)
+mnemosyne skill install --target agents       # ~/.agents/skills/ (프레임워크 범용)
+mnemosyne skill install --force               # 재설치
 mnemosyne skill install --path ~/my-agent/skills
 ```
 
-설치 후 Claude Code에서 `/mnemosyne`을 입력하여 지식 그래프를 수집, 쿼리, 추출 및 관리할 수 있습니다.
+**3. MCP 서버** — 대화 중 호출 가능한 15+ 도구 (읽기, 쓰기, 위키 유지보수, NL ask/chat).
+
+```bash
+mnemosyne mcp serve                            # 서버 시작
+mnemosyne mcp install --client claude-desktop  # 설정 조각 인쇄
+mnemosyne mcp install --client hermes
+mnemosyne mcp install --client openclaw
+```
+
+**개발 중인 프로젝트의 전형적 설정:**
+
+```bash
+cd ~/my-project
+mnemosyne add . --domain coding     # 현재 코드에서 그래프 + 위키 시딩
+mnemosyne hook install claude       # 에이전트 편집 시 자동 동기화
+mnemosyne mcp install --client claude-desktop
+```
+
+이후 Claude Code가 프로젝트를 편집하면 위키가 실시간으로 유지되고, MCP 도구나 `/mnemosyne` 스킬로 *"authenticate를 호출하는 함수는?"* 같은 질문을 할 수 있습니다. Codex는 `mnemosyne hook install codex`로 같은 자동 동기화를 얻습니다 (훅 전용; Codex에서 질의하려면 `mnemosyne` CLI를 직접 호출).
+
+전체 참조는 [MANUAL.ko.md §3.8](MANUAL.ko.md#38-에이전트-연동--훅-스킬-mcp)을 보세요.
 
 ### 소스에서 (기여자용)
 

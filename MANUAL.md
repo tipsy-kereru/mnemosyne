@@ -447,6 +447,87 @@ mnemosyne mcp install --client openclaw
 
 **Transport**: Direct Python import (reuses KnowledgeGraph + Handlers in-process; no separate `mnemosyne serve` needed).
 
+### 3.8 Agent Integration — Hooks, Skill, MCP
+
+Mnemosyne integrates with AI coding agents (Claude Code, Codex, Gemini CLI, Copilot CLI, and any git-based flow) through three complementary paths. You can use any combination.
+
+#### Auto-sync hooks
+
+`mnemosyne hook install` writes PostToolUse hooks that re-ingest files the agent writes or edits, keeping the graph and wiki current without manual commands. A git post-commit hook is also available for non-agent workflows.
+
+```bash
+mnemosyne hook install              # git + claude (defaults)
+mnemosyne hook install claude codex # specific targets
+mnemosyne hook install --force      # overwrite existing hook config
+mnemosyne hook status               # show installed targets
+mnemosyne hook remove               # remove all
+mnemosyne hook remove codex         # remove one target
+```
+
+Supported targets and where the hook lands:
+
+| Target  | Hook location | Trigger |
+|---------|---------------|---------|
+| `git`     | `.git/hooks/post-commit`               | after each commit → `mnemosyne update --quiet` |
+| `claude`  | `~/.claude/settings.json` (PostToolUse) | agent Write/Edit → `mnemosyne add <file>` |
+| `codex`   | codex `hooks.json`                      | agent Write/Edit → `mnemosyne add <file>` |
+| `gemini`  | gemini settings (AfterTool)             | agent Write/Edit → `mnemosyne add <file>` |
+| `copilot` | copilot CLI hooks                       | agent Write/Edit → `mnemosyne add <file>` |
+
+Each agent hook runs `mnemosyne add <file> --quiet` with a 60-second timeout and never blocks the agent on failure (errors are captured and swallowed). The hook scripts are managed by mnemosyne — re-run `mnemosyne hook install` after upgrading to refresh them.
+
+Notes:
+- Hooks fire per file. After a large refactor or branch switch, run `mnemosyne update` once to re-sync everything.
+- The hook only acts on `Write`/`Edit` tool calls; reads and shell commands do not trigger ingestion.
+- To scope ingestion to a project, run `mnemosyne add . --domain coding` from the project root first; the graph is keyed by content hash so re-ingestion of unchanged files is a no-op.
+
+#### Agent skill (Claude Code)
+
+The `/mnemosyne` skill lets Claude Code ingest, query, extract, and manage the knowledge graph directly from the conversation.
+
+```bash
+mnemosyne skill install                       # ~/.claude/skills/mnemosyne/
+mnemosyne skill install --target agents       # ~/.agents/skills/ (framework-agnostic)
+mnemosyne skill install --force               # reinstall even if identical
+mnemosyne skill install --path ~/my-agent/skills
+```
+
+After install, type `/mnemosyne` in Claude Code. The skill is a thin wrapper over the `mnemosyne` CLI, so every command in this manual is available.
+
+#### MCP server
+
+See §3.7 for the 15-tool MCP server. For Claude Desktop / Claude Code MCP integration:
+
+```bash
+mnemosyne mcp install --client claude-desktop   # prints the config snippet to add
+```
+
+The MCP path is the richest query surface: `mnemosyne_search`, `mnemosyne_query`, `mnemosyne_ask` (NL Q&A), `mnemosyne_chat` (multi-turn), plus read/write/wiki-maintenance tools. It follows the no-delete contract.
+
+#### Codex specifics
+
+Codex is supported via the auto-sync hook only (`mnemosyne hook install codex`). There is no Codex-specific skill or MCP install helper. To query from Codex, call the `mnemosyne` CLI directly:
+
+```bash
+mnemosyne query --query "search:authenticate"
+mnemosyne ask "which functions call authenticate?"
+```
+
+Or point Codex at the MCP server manually by adding the `mnemosyne mcp serve` command to Codex's MCP config.
+
+#### Typical end-to-end setup
+
+```bash
+cd ~/my-project
+mnemosyne add . --domain coding             # seed graph + wiki
+mnemosyne project register .                # (optional) register project for scoping
+mnemosyne hook install claude               # auto-sync as the agent edits
+mnemosyne skill install                     # /mnemosyne in Claude Code
+mnemosyne mcp install --client claude-desktop
+```
+
+Now: Claude Code edits code → hook re-ingests → wiki stays live → ask questions via MCP or skill. Codex gets the same auto-sync via `mnemosyne hook install codex`.
+
 ---
 
 ## 4. Python API
