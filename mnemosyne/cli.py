@@ -24,6 +24,8 @@ with identical arg semantics.
 import argparse
 import sys
 
+from mnemosyne import __version__
+
 QUERY_SYNTAX = """
 Query Syntax:
   search:TERM                      Fuzzy search across all entities
@@ -675,7 +677,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=GhHelpFormatter,
         epilog=TOP_LEVEL_EXAMPLES,
     )
-    parser.add_argument("--version", action="version", version="0.1.0")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"mnemosyne {__version__}",
+    )
     # Legacy global flags (REQ-PKG-006): --query/--stats forward to graph query /
     # graph stats with a deprecation warning. Kept for two minor releases.
     parser.add_argument(
