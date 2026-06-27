@@ -341,12 +341,32 @@ def _read_template(name: str) -> str:
 
 
 def _template_script_path(name: str) -> str:
+    """Return a filesystem path to the hook template script.
+
+    The host agent's settings point at this path so it can execute the script
+    later (``python3 <path>``). In a normal pip install the package path works
+    directly, but in the PyOxidizer frozen binary the templates are in-memory
+    resources with no ``__file__``, so we materialize the content under
+    ``$MNEMOSYNE_HOME/hooks/<name>`` and return that stable path.
+    """
+    # Fast path: package is on the filesystem (pip install).
     try:
         import mnemosyne.hooks.templates as _t
 
-        return str(Path(_t.__file__).parent / name)
+        pkg_file = getattr(_t, "__file__", None)
+        if pkg_file:
+            pkg_path = Path(pkg_file).parent / name
+            if pkg_path.is_file():
+                return str(pkg_path)
     except (ImportError, AttributeError):
-        return str(Path(__file__).parent / "templates" / name)
+        pass
+    # Frozen-binary path: write the template to a stable on-disk location.
+    home = Path(os.environ.get("MNEMOSYNE_HOME", str(Path.home() / ".mnemosyne")))
+    dest_dir = home / "hooks"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / name
+    dest.write_text(_read_template(name), encoding="utf-8")
+    return str(dest)
 
 
 # ── Settings File Helpers ──────────────────────────────────
