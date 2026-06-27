@@ -193,7 +193,7 @@ rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}"
 | `mnemosyne add <target>` | 파일, 디렉터리, URL 또는 `--text` 텍스트를 그래프에 수집 |
 | `mnemosyne update <path>` | 변경된 파일을 그래프 및 LLM Wiki에 증분 반영 |
 | `mnemosyne wiki <subcommand>` | Markdown LLM Wiki 검사 및 관리 |
-| `mnemosyne skill install` | Claude Code 또는 다른 에이전트용 에이전트 스킬 설치 |
+| `mnemosyne config skill install` | Claude Code 또는 다른 에이전트용 에이전트 스킬 설치 |
 | `mnemosyne mcp serve` | AI 에이전트 통합을 위한 MCP 서버 시작 |
 
 ### `mnemosyne add` 옵션
@@ -427,15 +427,15 @@ Mnemosyne은 AI 코딩 에이전트(Claude Code, Codex, Gemini CLI, Copilot CLI 
 
 #### 자동 동기화 훅
 
-`mnemosyne hook install`은 에이전트가 작성하거나 편집한 파일을 다시 수집하여 그래프와 위키를 수동 명령 없이 최신으로 유지하는 PostToolUse 훅을 설치합니다. 에이전트 외 워크플로우용 git post-commit 훅도 있습니다.
+`mnemosyne config hook install`은 에이전트가 작성하거나 편집한 파일을 다시 수집하여 그래프와 위키를 수동 명령 없이 최신으로 유지하는 PostToolUse 훅을 설치합니다. 에이전트 외 워크플로우용 git post-commit 훅도 있습니다.
 
 ```bash
-mnemosyne hook install              # git + claude (기본)
-mnemosyne hook install claude codex # 특정 대상
-mnemosyne hook install --force      # 기존 훅 설정 덮어쓰기
-mnemosyne hook status               # 설치된 대상 표시
-mnemosyne hook remove               # 전체 제거
-mnemosyne hook remove codex         # 단일 대상 제거
+mnemosyne config hook install              # git + claude (기본)
+mnemosyne config hook install claude codex # 특정 대상
+mnemosyne config hook install --force      # 기존 훅 설정 덮어쓰기
+mnemosyne config hook status               # 설치된 대상 표시
+mnemosyne config hook remove               # 전체 제거
+mnemosyne config hook remove codex         # 단일 대상 제거
 ```
 
 지원 대상과 훅 위치:
@@ -448,7 +448,7 @@ mnemosyne hook remove codex         # 단일 대상 제거
 | `gemini`  | gemini 설정 (AfterTool)                  | 에이전트 Write/Edit → `mnemosyne add <file>` |
 | `copilot` | copilot CLI 훅                          | 에이전트 Write/Edit → `mnemosyne add <file>` |
 
-각 에이전트 훅은 60초 타임아웃으로 `mnemosyne add <file> --quiet`를 실행하며, 실패해도 에이전트를 차단하지 않습니다(에러는 캡처 후 무시). 훅 스크립트는 mnemosyne이 관리합니다 — 업그레이드 후 `mnemosyne hook install`을 다시 실행해 갱신하세요.
+각 에이전트 훅은 60초 타임아웃으로 `mnemosyne add <file> --quiet`를 실행하며, 실패해도 에이전트를 차단하지 않습니다(에러는 캡처 후 무시). 훅 스크립트는 mnemosyne이 관리합니다 — 업그레이드 후 `mnemosyne config hook install`을 다시 실행해 갱신하세요.
 
 참고:
 - 훅은 파일 단위로 발화합니다. 대규모 리팩토링이나 브랜치 전환 후에는 `mnemosyne update`를 한 번 실행해 전체 재동기화하세요.
@@ -460,10 +460,10 @@ mnemosyne hook remove codex         # 단일 대상 제거
 `/mnemosyne` 스킬을 통해 Claude Code가 대화 중에 지식 그래프를 수집, 쿼리, 추출, 관리할 수 있습니다.
 
 ```bash
-mnemosyne skill install                       # ~/.claude/skills/mnemosyne/
-mnemosyne skill install --target agents       # ~/.agents/skills/ (프레임워크 범용)
-mnemosyne skill install --force               # 동일해도 재설치
-mnemosyne skill install --path ~/my-agent/skills
+mnemosyne config skill install                       # ~/.claude/skills/mnemosyne/
+mnemosyne config skill install --target agents       # ~/.agents/skills/ (프레임워크 범용)
+mnemosyne config skill install --force               # 동일해도 재설치
+mnemosyne config skill install --path ~/my-agent/skills
 ```
 
 설치 후 Claude Code에서 `/mnemosyne`을 입력하세요. 스킬은 `mnemosyne` CLI의 얇은 래퍼이므로 이 매뉴얼의 모든 명령을 사용할 수 있습니다.
@@ -480,7 +480,7 @@ MCP 경로가 가장 풍부한 질의 표면입니다: `mnemosyne_search`, `mnem
 
 #### Codex 특이사항
 
-Codex는 자동 동기화 훅으로만 지원됩니다(`mnemosyne hook install codex`). Codex 전용 스킬이나 MCP 설치 도우미는 없습니다. Codex에서 질의하려면 `mnemosyne` CLI를 직접 호출:
+Codex는 자동 동기화 훅으로만 지원됩니다(`mnemosyne config hook install codex`). Codex 전용 스킬이나 MCP 설치 도우미는 없습니다. Codex에서 질의하려면 `mnemosyne` CLI를 직접 호출:
 
 ```bash
 mnemosyne query --query "search:authenticate"
@@ -495,12 +495,12 @@ mnemosyne ask "authenticate를 호출하는 함수는?"
 cd ~/my-project
 mnemosyne add . --domain coding             # 그래프 + 위키 시딩
 mnemosyne project register .                # (선택) 스코핑용 프로젝트 등록
-mnemosyne hook install claude               # 에이전트 편집 시 자동 동기화
-mnemosyne skill install                     # Claude Code에서 /mnemosyne
+mnemosyne config hook install claude               # 에이전트 편집 시 자동 동기화
+mnemosyne config skill install                     # Claude Code에서 /mnemosyne
 mnemosyne mcp install --client claude-desktop
 ```
 
-이제: Claude Code가 코드를 편집 → 훅이 재수집 → 위키가 실시간 유지 → MCP나 스킬로 질문. Codex는 `mnemosyne hook install codex`로 같은 자동 동기화를 얻습니다.
+이제: Claude Code가 코드를 편집 → 훅이 재수집 → 위키가 실시간 유지 → MCP나 스킬로 질문. Codex는 `mnemosyne config hook install codex`로 같은 자동 동기화를 얻습니다.
 
 ---
 
