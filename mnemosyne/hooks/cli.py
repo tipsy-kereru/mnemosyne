@@ -10,7 +10,7 @@ import os
 import stat
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional, Union
 
 ALL_TARGETS = ["git", "claude", "codex", "gemini", "copilot"]
 DEFAULT_TARGETS = ["git", "claude"]
@@ -19,19 +19,15 @@ DEFAULT_TARGETS = ["git", "claude"]
 _MNEMOSYNE_MARKER = "# mnemosyne-hook: managed"
 
 
-def install(target: Optional[str], force: bool = False) -> None:
-    """Install hooks for the specified target (or all default targets)."""
-    targets = _resolve_targets(target)
-    for t in targets:
+def install(target: Optional[Union[str, Iterable[str]]], force: bool = False) -> None:
+    """Install hooks for the specified target(s) (or all default targets)."""
+    for t in _resolve_targets(target):
         _install_one(t, force)
 
 
-def remove(target: Optional[str], remove_all: bool = False) -> None:
-    """Remove hooks for the specified target."""
-    if remove_all:
-        targets = ALL_TARGETS
-    else:
-        targets = _resolve_targets(target)
+def remove(target: Optional[Union[str, Iterable[str]]], remove_all: bool = False) -> None:
+    """Remove hooks for the specified target(s)."""
+    targets = ALL_TARGETS if remove_all else _resolve_targets(target)
     for t in targets:
         _remove_one(t)
 
@@ -49,15 +45,20 @@ def status() -> None:
         print("  No hook platforms detected.")
 
 
-def _resolve_targets(target: Optional[str]) -> list[str]:
+def _resolve_targets(target: Optional[Union[str, Iterable[str]]]) -> list[str]:
     if target is None:
         return DEFAULT_TARGETS
-    if target == "all":
-        return ALL_TARGETS
-    if target not in ALL_TARGETS:
-        print(f"Unknown target: {target}. Choose from: {', '.join(ALL_TARGETS)}")
-        sys.exit(1)
-    return [target]
+    if isinstance(target, str):
+        target = [target]
+    resolved: list[str] = []
+    for t in target:
+        if t == "all":
+            return ALL_TARGETS
+        if t not in ALL_TARGETS:
+            print(f"Unknown target: {t}. Choose from: {', '.join(ALL_TARGETS)}")
+            sys.exit(1)
+        resolved.append(t)
+    return resolved
 
 
 # ── Installers ─────────────────────────────────────────────

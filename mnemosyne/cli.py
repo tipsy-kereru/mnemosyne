@@ -442,17 +442,20 @@ def _add_hook_verbs(hook_subparsers: argparse._SubParsersAction) -> None:
         description="Install mnemosyne hooks. Without a target, installs git + claude.",
     )
     hook_install.add_argument(
-        "target", nargs="?", default=None,
-        help="Platform: git, claude, codex, gemini, copilot, or 'all' (default: git+claude)",
+        "targets", nargs="*", default=None,
+        help="One or more platforms: git, claude, codex, gemini, copilot, or 'all' (default: git+claude)",
     )
     hook_install.add_argument("--force", action="store_true", help="Overwrite existing hooks")
     hook_install.set_defaults(hook_command="install")
 
     hook_remove = _new_parser(
         hook_subparsers, "remove", help="Remove hooks for a target platform",
-        description="Remove hooks for a target platform.",
+        description="Remove hooks for one or more target platforms.",
     )
-    hook_remove.add_argument("target", nargs="?", default=None, help="Platform to remove hooks from")
+    hook_remove.add_argument(
+        "targets", nargs="*", default=None,
+        help="One or more platforms to remove hooks from (or use --all)",
+    )
     hook_remove.add_argument(
         "--all", action="store_true", dest="remove_all",
         help="Remove hooks from all platforms",
@@ -1422,9 +1425,9 @@ def _run_hook(args):
         return
 
     if cmd == "install":
-        install(getattr(args, "target", None), force=getattr(args, "force", False))
+        install(getattr(args, "targets", None), force=getattr(args, "force", False))
     elif cmd == "remove":
-        remove(getattr(args, "target", None), remove_all=getattr(args, "remove_all", False))
+        remove(getattr(args, "targets", None), remove_all=getattr(args, "remove_all", False))
     elif cmd == "status":
         status()
 
