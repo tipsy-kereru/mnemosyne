@@ -253,6 +253,11 @@ run_pyoxidizer() {
     if [[ "${BUILD_MODE}" == "release" ]]; then
         mode_arg=(--release)
     fi
+    # Defensively clear the PyOxidizer output tree so incremental caching can
+    # never serve a stale mnemosyne package from a previous build (we saw
+    # --version report an old hardcoded value when a prior build's artifacts
+    # lingered). CI runners are fresh, but this also protects local re-runs.
+    rm -rf "${REPO_ROOT}/build"
     log "pyoxidizer build (target: ${TARGET_TRIPLE}, mode: ${BUILD_MODE})"
     (cd "${REPO_ROOT}" && \
         pyoxidizer build --target-triple "${TARGET_TRIPLE}" "${mode_arg[@]}")
