@@ -157,7 +157,12 @@ pip uninstall mnemosyne-kg
 This also covers editable (`pip install -e .`) installs — `pip` resolves both
 to the same distribution name.
 
-### Optional extensions (SLM / PDF)
+### Optional extensions (SLM / PDF) — not yet shipped
+
+The sidecar extension registry repos (`mnemosyne-ext-slm`, `mnemosyne-ext-pdf`)
+are **not published yet** (tracked in ISSUE-0011, follow-up release). Until then
+there are no extensions to remove; SLM/PDF are obtained via the pip extras path.
+When the payloads ship, the removal commands will be:
 
 ```bash
 # Remove one extension at a time

@@ -115,7 +115,7 @@ try {
 
     Write-Info "next steps (new shell):"
     Write-Info "  mnemosyne --help"
-    Write-Info "  mnemosyne extension install slm   # add the SLM payload"
+    Write-Info "  mnemosyne ingest add . --domain coding   # seed graph + wiki"
 }
 finally {
     Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue

@@ -113,20 +113,29 @@ size-reduction lever is the PyOxidizer 0.4x + CPython 3.12 upgrade, tracked
 as a follow-up. Do not move the binary without its companion directories,
 or boot will fail with `No module named 'referencing._cores'`.
 
-**Optional extensions (SLM / PDF):** the binary ships deterministic
-extraction, the wiki layer, and the MCP server. Local SLM entity extraction
-(GLiNER2) and PDF parsing are installed on demand as sidecar extensions so
-the base binary stays small:
+**Optional extras (SLM / PDF):** the binary ships deterministic extraction,
+the wiki layer, and the MCP server. Local SLM entity extraction (GLiNER2)
+and PDF parsing are **not yet shipped as sidecar extensions** — the
+`mnemosyne extension install` registry repos (`mnemosyne-ext-slm`,
+`mnemosyne-ext-pdf`) are not published yet (tracked in ISSUE-0011, follow-up
+release). Until then, install them via the pip path:
 
 ```bash
-mnemosyne extension install slm     # GLiNER2 + torch (local SLM NER)
-mnemosyne extension install pdf     # PyMuPDF long-document indexing
+pip install "mnemosyne-kg[semantic]"   # GLiNER2 + torch (local SLM NER)
+pip install "mnemosyne-kg[deterministic]"  # tree-sitter (already in base binary)
+pip install "mnemosyne-kg[all]"
+```
+
+When the extension payloads ship, the on-demand sidecar form will be:
+
+```bash
+mnemosyne extension install slm     # planned (ISSUE-0011)
+mnemosyne extension install pdf     # planned (ISSUE-0011)
 mnemosyne extension list
 ```
 
-Extensions live under `${MNEMOSYNE_HOME:-~/.mnemosyne}/extensions/<name>/<version>/`,
-are verified by per-file SHA256, and are loaded via `sys.path` injection at
-startup.
+Extensions will live under `${MNEMOSYNE_HOME:-~/.mnemosyne}/extensions/<name>/<version>/`,
+verified by per-file SHA256, and loaded via `sys.path` injection at startup.
 
 **Signature verification (cosign keyless):** Linux and darwin binaries are
 signed with cosign keyless (sigstore) on tag pushes. Verify a downloaded
@@ -189,11 +198,11 @@ sudo rm -f /usr/local/bin/mnemosyne
 # pip package
 pip uninstall mnemosyne-kg
 
-# Optional extensions
-mnemosyne extension remove slm
-mnemosyne extension remove pdf
+# Optional extensions (when shipped — ISSUE-0011; not yet published)
+# mnemosyne extension remove slm
+# mnemosyne extension remove pdf
 # or all at once:
-rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
+# rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
 
 # Agent skill
 rm -rf ~/.claude/skills/mnemosyne

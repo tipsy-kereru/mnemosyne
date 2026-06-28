@@ -185,7 +185,7 @@ EOF
 
     log "next steps:"
     log "  ${bin_path} --help"
-    log "  ${bin_path} extension install slm   # add the SLM payload"
+    log "  ${bin_path} ingest add . --domain coding   # seed graph + wiki"
 }
 
 main "$@"

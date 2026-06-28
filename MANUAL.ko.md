@@ -94,11 +94,19 @@ xattr -d com.apple.quarantine /usr/local/bin/mnemosyne
 
 **바이너리 크기:** linux-x86_64 배포판은 약 146MB입니다 (바이너리 자체와 내장 `lib/` 모듈, 파일시스템으로 함께 배포되는 `jsonschema_specifications` / `referencing` 동반 디렉토리 포함). 이는 100MB 목표를 초과하며, 크기 축소 지렛대는 PyOxidizer 0.4x + CPython 3.12 업그레이드로 후속 작업으로 추적 중입니다. 동반 디렉토리 없이 바이너리만 이동하면 부팅 시 `No module named 'referencing._cores'` 오류가 발생하니 주의하세요.
 
-**선택 확장 (SLM / PDF):** 바이너리에는 결정론적 추출, 위키 레이어, MCP 서버가 포함되어 있습니다. 로컬 SLM 엔티티 추출(GLiNER2)과 PDF 파싱은 베이스 바이너리를 작게 유지하기 위해 필요할 때 사이드카 확장으로 설치합니다:
+**선택 기능 (SLM / PDF):** 바이너리에는 결정론적 추출, 위키 레이어, MCP 서버가 포함되어 있습니다. 로컬 SLM 엔티티 추출(GLiNER2)과 PDF 파싱은 **사이드카 확장으로 아직 게시되지 않았습니다** — `mnemosyne extension install` 레지스트리 저장소(`mnemosyne-ext-slm`, `mnemosyne-ext-pdf`)가 아직 게시되지 않았습니다 (ISSUE-0011, 후속 릴리즈 예정). 현재는 pip 경로로 설치:
 
 ```bash
-mnemosyne extension install slm     # GLiNER2 + torch (로컬 SLM NER)
-mnemosyne extension install pdf     # PyMuPDF 긴 문서 인덱싱
+pip install "mnemosyne-kg[semantic]"      # GLiNER2 + torch (로컬 SLM NER)
+pip install "mnemosyne-kg[deterministic]" # tree-sitter (베이스 바이너리에 이미 포함)
+pip install "mnemosyne-kg[all]"
+```
+
+확장 페이로드가 게시되면 온디맨드 사이드카 형태는 다음과 같습니다:
+
+```bash
+mnemosyne extension install slm     # 예정 (ISSUE-0011)
+mnemosyne extension install pdf     # 예정 (ISSUE-0011)
 mnemosyne extension list
 ```
 
@@ -161,11 +169,11 @@ sudo rm -f /usr/local/bin/mnemosyne
 # pip 패키지
 pip uninstall mnemosyne-kg
 
-# 선택 확장
-mnemosyne extension remove slm
-mnemosyne extension remove pdf
+# 선택 확장 (게시 시 — ISSUE-0011; 아직 미게시)
+# mnemosyne extension remove slm
+# mnemosyne extension remove pdf
 # 또는 한 번에:
-rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
+# rm -rf "${MNEMOSYNE_HOME:-$HOME/.mnemosyne}/extensions"
 
 # 에이전트 스킬
 rm -rf ~/.claude/skills/mnemosyne

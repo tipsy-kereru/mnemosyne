@@ -69,7 +69,7 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
   (darwin-x86_64, linux-aarch64는 베스트에포트; windows-x86_64는 지연 — [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010) 참고. Windows 사용자는 아래 pip 설치를 사용하세요.)
 - macOS/Windows 바이너리는 **미서명**. macOS Gatekeeper 차단 시 한 번 실행: `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen → "추가 정보 → 실행".
 - 바이너리 크기 약 146MB (PyOxidizer 0.24 한계, 크기 축소는 후속 작업으로 추적 중).
-- SLM(GLiNER2)과 PDF 파싱은 **선택 확장** — 필요 시 설치: `mnemosyne extension install slm` / `mnemosyne extension install pdf`.
+- SLM(GLiNER2)과 PDF 파싱은 **선택 기능이나 사이드카 확장으로는 아직 게시되지 않음** — `mnemosyne extension install` 레지스트리 저장소가 아직 게시되지 않았습니다 (ISSUE-0011, 후속 릴리즈 예정). 현재는 pip 경로로 설치: `pip install "mnemosyne-kg[semantic]"` (GLiNER2) 또는 `[deterministic]` / `[all]`.
 
 전체 세부 사항, cosign 서명 검증, man 페이지, 문제 해결은 [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md)를 참고하세요.
 

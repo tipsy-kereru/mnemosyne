@@ -80,8 +80,11 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
   `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen
   → "More info → Run anyway".
 - Binary size ~146 MB (PyOxidizer 0.24 limit; reduction tracked as follow-up).
-- SLM (GLiNER2) and PDF parsing are **optional extensions** — install on demand:
-  `mnemosyne extension install slm` / `mnemosyne extension install pdf`.
+- SLM (GLiNER2) and PDF parsing are **optional extras, not yet shipped as
+  sidecar extensions** — the `mnemosyne extension install` registry repos are
+  not published yet (tracked in ISSUE-0011, follow-up release). For now, install
+  them via the pip path: `pip install "mnemosyne-kg[semantic]"` (GLiNER2) or
+  `[deterministic]` / `[all]`.
 
 Full details, cosign signature verification, man pages, troubleshooting:
 [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md).
