@@ -1,0 +1,5 @@
+[env]
+PYO3_PYTHON = "/Users/kereru/.pyenv/versions/3.11.15/bin/python3.11"
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup"]
