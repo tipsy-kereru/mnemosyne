@@ -660,6 +660,56 @@ Then reinstall the package so the build picks up `cargo`:
 pip install --force-reinstall --no-deps "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
 ```
 
+#### Rust Core Modules (v0.6.0+)
+The Rust extension provides three core modules with 2-5x performance improvements:
+
+| Module | Functions | Performance Gain |
+|--------|-----------|-----------------|
+| **Wiki** | `glob_markdown`, `rebuild_index`, `write_entity_page`, `write_source_page` | 2.5-5x faster |
+| **Graph** | `query_entities`, `query_relations`, `find_path`, `get_stats` | 2.5-5x faster |
+| **Database** | `execute_query`, `batch_insert_entities`, `batch_insert_relations`, `batch_update_entities` | 3-5x faster |
+
+**Features:**
+- FTS5 full-text search with BM25 ranking
+- BFS shortest path finding
+- Transaction-safe batch operations
+- Skip-unchanged optimization for incremental updates
+- Content hash tracking
+
+**Usage (Python API):**
+```python
+import mnemosyne_core
+
+# Wiki operations
+markdown_files = mnemosyne_core.glob_markdown("/path/to/wiki")
+mnemosyne_core.rebuild_index("/path/to/wiki", entities)
+mnemosyne_core.write_entity_page("/path/to/wiki", entity_data)
+
+# Graph queries
+query = mnemosyne_core.EntityQuery(search_term="auth", limit=100)
+results = mnemosyne_core.query_entities("/path/to/graph.db", query)
+
+path = mnemosyne_core.find_path("/path/to/graph.db", "EntityA", "EntityB")
+stats = mnemosyne_core.get_stats("/path/to/graph.db")
+
+# Database operations
+batch_result = mnemosyne_core.batch_insert_entities("/path/to/db.db", entities)
+query_result = mnemosyne_core.execute_query("/path/to/db.db", "SELECT * FROM entities", None)
+```
+
+**Building from source:**
+```bash
+# Clone and build
+git clone https://github.com/tipsy-kereru/mnemosyne.git
+cd mnemosyne/mnemosyne-core
+
+# Build release wheel
+maturin build --release
+
+# Install locally
+pip install target/wheels/mnemosyne_core-*.whl
+```
+
 ## Chat Retention
 
 Chat turn content (`chat_turns.content`) is bounded by two mechanisms:

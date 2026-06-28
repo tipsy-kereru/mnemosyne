@@ -298,6 +298,56 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install --force-reinstall --no-deps "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
 ```
 
+#### Rust Core 모듈 (v0.6.0+)
+Rust 확장은 2-5배 성능 향상을 제공하는 세 가지 핵심 모듈을 제공합니다:
+
+| 모듈 | 함수 | 성능 향상 |
+|--------|-----------|-----------------|
+| **Wiki** | `glob_markdown`, `rebuild_index`, `write_entity_page`, `write_source_page` | 2.5-5배 더 빠름 |
+| **Graph** | `query_entities`, `query_relations`, `find_path`, `get_stats` | 2.5-5배 더 빠름 |
+| **Database** | `execute_query`, `batch_insert_entities`, `batch_insert_relations`, `batch_update_entities` | 3-5배 더 빠름 |
+
+**기능:**
+- BM25 랭킹이 포함된 FTS5 전체 텍스트 검색
+- 최단 경로 찾기를 위한 BFS
+- 트랜잭션 안전 배치 작업
+- 증분 업데이트를 위한 skip-unchanged 최적화
+- 콘텐츠 해시 추적
+
+**사용법 (Python API):**
+```python
+import mnemosyne_core
+
+# Wiki 작업
+markdown_files = mnemosyne_core.glob_markdown("/path/to/wiki")
+mnemosyne_core.rebuild_index("/path/to/wiki", entities)
+mnemosyne_core.write_entity_page("/path/to/wiki", entity_data)
+
+# Graph 쿼리
+query = mnemosyne_core.EntityQuery(search_term="auth", limit=100)
+results = mnemosyne_core.query_entities("/path/to/graph.db", query)
+
+path = mnemosyne_core.find_path("/path/to/graph.db", "EntityA", "EntityB")
+stats = mnemosyne_core.get_stats("/path/to/graph.db")
+
+# Database 작업
+batch_result = mnemosyne_core.batch_insert_entities("/path/to/db.db", entities)
+query_result = mnemosyne_core.execute_query("/path/to/db.db", "SELECT * FROM entities", None)
+```
+
+**소스에서 빌드:**
+```bash
+# 복제 및 빌드
+git clone https://github.com/tipsy-kereru/mnemosyne.git
+cd mnemosyne/mnemosyne-core
+
+# 릴리즈 wheel 빌드
+maturin build --release
+
+# 로컬 설치
+pip install target/wheels/mnemosyne_core-*.whl
+```
+
 ## 핵심 기능
 
 - **제로 API 비용**: Tree-sitter AST 구문 분석(6개 언어), NLP용 로컬 SLM
