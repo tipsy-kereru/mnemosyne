@@ -846,6 +846,10 @@ def build_parser() -> argparse.ArgumentParser:
     retention_status.set_defaults(func=_run_purge_retention_status, group="retention", verb="status")
     retention.set_defaults(func=_run_retention_group, group="retention")
 
+    # -- upgrade command (self-update) --
+    from mnemosyne.update.cli import create_upgrade_parser
+    upgrade = create_upgrade_parser(subparsers)
+
     # -- extension group (REQ-PKG-004; ISSUE-0007 / SPEC-PACKAGE-001 PACKAGE-B) --
     extension = _new_parser(
         subparsers, "extension",
