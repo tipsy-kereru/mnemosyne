@@ -64,9 +64,9 @@ curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/in
 iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.ps1 -UseBasicParsing | iex
 ```
 
-- Installs to `/usr/local/bin/mnemosyne` (Linux/macOS) or
+- Installs to `~/.local/bin/mnemosyne` (Linux/macOS) or
   `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). Override with
-  `MNEMOSYNE_INSTALL_DIR`.
+  `MNEMOSYNE_INSTALL_DIR` (e.g., `MNEMOSYNE_INSTALL_DIR=$HOME/bin`).
 - Refuses to overwrite an existing install unless you force it. **The flags are
   for the installer, not curl** — pass them via `sh -s --` or an env var:
   `curl ... | sh -s -- --force` or `MNEMOSYNE_FORCE=1 curl ... | sh`.

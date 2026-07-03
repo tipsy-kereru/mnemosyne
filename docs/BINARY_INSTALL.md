@@ -13,8 +13,8 @@ workaround, the binary-size advisory, and deferred items.
 curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
 ```
 
-- Installs to `/usr/local/bin/mnemosyne` by default (override with
-  `MNEMOSYNE_INSTALL_DIR=$HOME/bin`).
+- Installs to `~/.local/bin/mnemosyne` by default (override with
+  `MNEMOSYNE_INSTALL_DIR`).
 - Verifies the SHA256 against `SHA256SUMS.txt` before install; aborts on
   mismatch.
 - Refuses to overwrite an existing install unless `--force` /
@@ -68,7 +68,7 @@ developer cannot be verified.`
 Fix: strip the quarantine attribute:
 
 ```bash
-xattr -d com.apple.quarantine /usr/local/bin/mnemosyne
+xattr -d com.apple.quarantine ~/.local/bin/mnemosyne
 ```
 
 `install.sh` prints this reminder at the end of a darwin install. The path to
@@ -133,10 +133,10 @@ skill, and (optionally) the data directory.
 
 ```bash
 # Linux + macOS (default install path)
-sudo rm -f /usr/local/bin/mnemosyne
+rm -f ~/.local/bin/mnemosyne
 
 # Linux + macOS (custom MNEMOSYNE_INSTALL_DIR)
-rm -f "${MNEMOSYNE_INSTALL_DIR:-/usr/local/bin}/mnemosyne"
+rm -f "${MNEMOSYNE_INSTALL_DIR:-~/.local/bin}/mnemosyne"
 
 # Windows (PowerShell)
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\mnemosyne"

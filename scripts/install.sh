@@ -27,7 +27,7 @@ set -eu
 
 REPO="tipsy-kereru/mnemosyne"
 BASE_URL="https://github.com/${REPO}/releases/latest/download"
-INSTALL_DIR="${MNEMOSYNE_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${MNEMOSYNE_INSTALL_DIR:-$HOME/.local/bin}"
 FORCE="${MNEMOSYNE_FORCE:-0}"
 
 err() { printf 'install.sh: ERROR: %s\n' "$*" >&2; }
@@ -162,7 +162,7 @@ main() {
     fi
 
     if [ ! -w "${INSTALL_DIR}" ]; then
-        err "${INSTALL_DIR} is not writable (retry with sudo, or set MNEMOSYNE_INSTALL_DIR=\$HOME/bin)"
+        err "${INSTALL_DIR} is not writable (ensure it exists and is writable, or set MNEMOSYNE_INSTALL_DIR)"
         exit 1
     fi
 
