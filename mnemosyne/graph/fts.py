@@ -13,10 +13,62 @@ an existence check against ``sqlite_master``, matching the existing
 """
 
 import logging
+import re
 import sqlite3
+import unicodedata
 from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_search_tokens(term: str) -> List[str]:
+    """Generate normalized search variants for Korean alias matching.
+
+    Expands a search term into variants that match different representations:
+    - "내부 처리" -> ["내부 처리", "내부처리", "내부", "처리"]
+    - "내부-처리" -> ["내부-처리", "내부처리", "내부", "처리"]
+
+    This handles Korean text that may be written with or without spaces/hyphens.
+
+    Args:
+        term: The raw search term from user input.
+
+    Returns:
+        List of normalized variants, ordered by specificity (exact > compact > split).
+    """
+    if not term:
+        return []
+
+    # NFKC normalization for Korean compatibility
+    normalized = unicodedata.normalize("NFKC", term).strip()
+
+    variants = {
+        normalized,  # exact: "내부 처리"
+    }
+
+    # Compact: remove spaces, hyphens, slashes, underscores -> "내부처리"
+    compact = re.sub(r"[\s\-_/]+", "", normalized)
+    if compact:
+        variants.add(compact)
+
+    # Split: individual tokens -> ["내부", "처리"]
+    split_tokens = [
+        token for token in re.split(r"[\s\-_/]+", normalized)
+        if token
+    ]
+    variants.update(split_tokens)
+
+    # Return ordered by specificity (exact > compact > split)
+    result = []
+    if normalized:
+        result.append(normalized)
+    if compact and compact != normalized:
+        result.append(compact)
+    for token in split_tokens:
+        if token not in result:
+            result.append(token)
+
+    return result
 
 
 def fts5_compile_available(conn: sqlite3.Connection) -> bool:
@@ -128,18 +180,57 @@ def fts_search_ready(conn: sqlite3.Connection) -> bool:
 
 
 def build_match_term(term: str) -> str:
-    """Translate a user search term into an FTS5 MATCH expression.
+    """Translate a user search term into a safe FTS5 MATCH expression.
 
-    For a single bare token we append ``*`` to enable prefix matching so that
-    ``search:auth`` surfaces ``authenticateUser`` / ``authMiddleware`` (AC1).
-    Terms that already contain FTS5 syntax, whitespace, or quotes are passed
-    through unchanged to avoid breaking explicit queries.
+    User search terms are treated as plain text, not FTS5 syntax. This prevents
+    characters like '-' from being interpreted as FTS5 operators (e.g.,
+    "내부-처리" causing "no such column: 처리" errors).
+
+    Strategy: split the term into tokens and match each with prefix search.
+    This enables bidirectional matching:
+    - "내부처리" -> "내부"* OR "처리"* matches "내부 처리"
+    - "내부 처리" -> "내부"* OR "처리"* matches "내부처리"
+
+    Terms that look like explicit FTS5 queries (already quoted, has AND/OR, etc.)
+    are passed through unchanged.
+
+    Args:
+        term: Raw user search term.
+
+    Returns:
+        FTS5 MATCH expression with OR logic for each token.
     """
     if not term:
+        return ""
+
+    # Detect explicit FTS5 syntax (user knows what they're doing)
+    # Look for quoted phrases, explicit AND/OR, parenthetical groups
+    if '"' in term or (' AND ' in term.upper()) or (' OR ' in term.upper()) or term.startswith('('):
         return term
-    if any(ch in term for ch in (' ', '"', '*', '(', ')', ':', '+', '-', 'OR', 'AND')):
-        return term
-    return f"{term}*"
+
+    # Generate normalized variants and get split tokens
+    tokens = normalize_search_tokens(term)
+    if not tokens:
+        return ""
+
+    # Use individual tokens for prefix matching (not phrase search)
+    # This enables "내부"* OR "처리"* to match both "내부 처리" and "내부처리"
+    # Extract individual tokens from all variants (unique, non-empty)
+    seen = set()
+    individual_tokens = []
+    for token in tokens:
+        # Split each variant further by delimiters
+        for part in re.split(r"[\s\-_/]+", token):
+            if part and part not in seen:
+                seen.add(part)
+                individual_tokens.append(part)
+
+    if not individual_tokens:
+        return ""
+
+    # Quote each token for phrase search and add prefix wildcard
+    # Join with OR to match any token
+    return " OR ".join(f'"{token}"*' for token in individual_tokens)
 
 
 def ranked_search(

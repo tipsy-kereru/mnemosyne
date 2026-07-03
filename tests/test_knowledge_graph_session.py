@@ -597,3 +597,44 @@ class TestEdgeCases:
 
         result = kg.query('entity:task@channel:code@after:2019-01-01T00:00:00')
         assert result['count'] == 1
+
+
+# -- Korean Search with Hyphens/Spaces (Issue: FTS5 escaping) --
+
+
+class TestKoreanSearchWithHyphensAndSpaces:
+    """Test Korean search terms with hyphens and spaces are properly escaped.
+
+    Addresses the issue where "내부-처리" was interpreted as FTS5 syntax
+    (MINUS operator) causing "no such column: 처리" errors.
+
+    Tests bidirectional matching between spaced/hyphenated forms.
+    """
+
+    def test_search_hyphenated_term_matches_spaced_name(self, kg):
+        """Hyphenated term "내부-처리" should match spaced name "내부 처리"."""
+        kg.add_entity(
+            Entity(id='k1', type='feature', name='내부 처리', properties={},
+                    created_at='', updated_at='')
+        )
+        # Should not raise sqlite3.OperationalError
+        result = kg.query('search:내부-처리')
+        assert 'k1' in [r['id'] for r in result['results']]
+
+    def test_search_spaced_term_matches_compact_name(self, kg):
+        """Spaced term "내부 처리" should match compact name "내부처리"."""
+        kg.add_entity(
+            Entity(id='k1', type='feature', name='내부처리', properties={},
+                    created_at='', updated_at='')
+        )
+        result = kg.query('search:내부 처리')
+        assert 'k1' in [r['id'] for r in result['results']]
+
+    def test_search_hyphenated_term_matches_compact_name(self, kg):
+        """Hyphenated term "내부-처리" should match compact name "내부처리"."""
+        kg.add_entity(
+            Entity(id='k1', type='feature', name='내부처리', properties={},
+                    created_at='', updated_at='')
+        )
+        result = kg.query('search:내부-처리')
+        assert 'k1' in [r['id'] for r in result['results']]

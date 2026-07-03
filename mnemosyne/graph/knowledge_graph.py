@@ -942,9 +942,16 @@ class KnowledgeGraph:
                 logger.warning(
                     "FTS5 unavailable or entity_fts absent; search:'%s' using LIKE fallback", term
                 )
-            pattern = f'%{term}%'
-            conditions = ['(e.name LIKE ? OR e.properties LIKE ?)']
-            params: List[Any] = [pattern, pattern]
+            # Use normalized variants for LIKE fallback to match Korean aliases
+            terms = fts_mod.normalize_search_tokens(term)
+            conditions = []
+            params: List[Any] = []
+            like_clauses = []
+            for t in terms:
+                pattern = f'%{t}%'
+                like_clauses.append('(e.name LIKE ? OR e.properties LIKE ?)')
+                params.extend([pattern, pattern])
+            conditions.append('(' + ' OR '.join(like_clauses) + ')')
             conditions.extend(mod_clauses)
             params.extend(mod_params)
             where = ' AND '.join(conditions)

@@ -1,9 +1,10 @@
 """Main ingestion orchestrator for mnemosyne add command."""
 
-from __future__ import annotations
+from __future__import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import sqlite3
 import uuid
@@ -204,6 +205,19 @@ class Ingester:
             result.skip_reason = f"unsupported extension: {path.suffix}"
             return result
 
+        # For wiki markdown files, read frontmatter to get scope_id
+        effective_scope = scope_id
+        if path.suffix in {".md", ".markdown"}:
+            try:
+                content = path.read_text(encoding="utf-8")
+                frontmatter = self._parse_frontmatter(content)
+                # If frontmatter has scope_id and no explicit scope_id was provided,
+                # use the frontmatter scope_id to preserve original scope
+                if frontmatter.get("scope_id") and scope_id is None:
+                    effective_scope = frontmatter["scope_id"]
+            except OSError:
+                pass  # Fall back to default scope_id
+
         try:
             content_hash = self._hash_file(path)
         except OSError as exc:
@@ -219,7 +233,7 @@ class Ingester:
         parsed = self._get_extractor().extract_file(
             path,
             domain=chosen_domain,
-            scope_id=scope_id,
+            scope_id=effective_scope,
             source_channel=source_channel,
         )
 
@@ -228,14 +242,14 @@ class Ingester:
             result.relations_added = len(parsed.relations)
             return result
 
-        added_e, added_r = self._store_result(parsed, scope_id, source_channel)
+        added_e, added_r = self._store_result(parsed, effective_scope, source_channel)
         result.entities_added = added_e
         result.relations_added = added_r
         result.wiki_paths = self._maintain_wiki(
             parsed,
             source=str(path),
             domain=chosen_domain,
-            scope_id=scope_id,
+            scope_id=effective_scope,
             source_channel=source_channel,
             raw_path=path,
             original_source=result.source,
@@ -590,6 +604,31 @@ class Ingester:
         if self._fetcher is None:
             self._fetcher = URLFetcher()
         return self._fetcher
+
+    @staticmethod
+    def _parse_frontmatter(text: str) -> dict[str, str]:
+        """Parse YAML frontmatter from a markdown file.
+
+        Returns a dict of frontmatter keys and values.
+        Returns empty dict if no frontmatter is found.
+        """
+        if not text.startswith("---\n"):
+            return {}
+        end = text.find("\n---", 4)
+        if end == -1:
+            return {}
+        out: dict[str, str] = {}
+        for line in text[4:end].splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            value = value.strip()
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = value.strip('"')
+            out[key.strip()] = str(parsed)
+        return out
 
     def _resolve_auto_scope(self, target: str, text: Optional[str]) -> Optional[str]:
         """Auto-detect project scope from target path or CWD."""
