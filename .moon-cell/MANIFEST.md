@@ -88,11 +88,17 @@ Updated: 2026-06-20 22:50:19 NZST
 | SPEC-PERF-001 | Hybrid Performance Optimization & SQLite Database Tuning | completed | .moon-cell/specs/SPEC-PERF-001.md |
 | SPEC-LONGDOC-001 | PageIndex-Style Long Document Tree Indexing | planned | .moon-cell/specs/SPEC-LONGDOC-001.md |
 | SPEC-NLQUERY-001 | Natural-Language Query and Chat Layer | planned | .moon-cell/specs/SPEC-NLQUERY-001.md |
+| SPEC-GBRAIN-001 | Hybrid Search Architecture (Phase 1) | completed | .moon-cell/specs/SPEC-GBRAIN-001.md |
+| SPEC-GBRAIN-002 | Schema Pack System (Phase 2) | completed | .moon-cell/specs/SPEC-GBRAIN-002.md |
+| SPEC-GBRAIN-003 | Auto-Link on Write (Phase 3) | completed | .moon-cell/specs/SPEC-GBRAIN-003.md |
+| SPEC-GBRAIN-004 | Job Queue/Minions (Phase 4) | completed | .moon-cell/specs/SPEC-GBRAIN-004.md |
+| SPEC-GBRAIN-005 | Bi-Temporal Ontology (Phase 5) | completed | .moon-cell/specs/SPEC-GBRAIN-005.md |
 
 ## Untracked Features (no SPEC)
 
 | Feature | Commit | Date | Notes |
 |---|---|---|---|
+| Hybrid search retrieval | 2026-07-04 | 2026-07-04 | mnemosyne/retrieval/ with RRF fusion, vector/BM25/graph strategies, intent classifier (SPEC-GBRAIN-001) |
 | `mnemosyne skill install` | c153d8a | 2026-05-06 | Install mnemosyne skill to agent skills directory |
 | `mnemosyne skill update` | 8ae7e9d | 2026-05-07 | Update installed mnemosyne skill to latest version |
 | `mnemosyne hook install` | 2411ecd | 2026-05-06 | Auto-sync hooks for git, claude, codex, gemini, copilot |
@@ -103,13 +109,18 @@ Updated: 2026-06-20 22:50:19 NZST
 
 | Evidence | Result | Source |
 |---|---|---|
-| Unit/regression tests | 642 passed (526 core + 116 plugin) | `uv run pytest -q` on 2026-05-31 |
+| Unit/regression tests | 687 passed (561 core + 116 plugin + 10 retrieval) | `uv run pytest -q` on 2026-07-04 |
 | Static checks | ruff 0 across 46 source + 32 test + scripts/bench/ | `ruff check mnemosyne tests scripts/bench/` |
 | Wiki CLI smoke | semantic discovery write, status/lint, rebuild, prune dry-run, and prune tombstone write succeeded | `python -m mnemosyne wiki ... --format json` |
 | Benchmark harness | scripts/bench/ fixture generators + extended benchmark_async.sh B1–B6 + BENCHMARK_RESULTS.md | SPEC-BENCH-001 implementation result |
 | Benchmark latest | B2 LLM batch PASS (187.38s > 60s), B1/B4/B5/B6 MISS (below threshold) | Run 2026-05-06, 921 pages |
 | Project CLI smoke | `mnemosyne project list|show|register|unregister|migrate` operational | SPEC-PROJECT-REGISTRY-001 implementation |
-| Quality summary | 27 completed SPECs, 0 planned SPECs, 1 candidate SPECs (1 existing + 2 Joplin) | SPEC-JOPLIN-002 completed 2026-05-31 |
+| Hybrid search module | RetrievalEngine with RRF fusion, vector/BM25/graph strategies, intent classifier | SPEC-GBRAIN-001 implementation |
+| Schema pack system | SchemaEngine with YAML pack loading, type inference, inheritance | SPEC-GBRAIN-002 implementation |
+| Auto-link system | LinkExtractor and AutoLinker for automatic relationship creation | SPEC-GBRAIN-003 implementation |
+| Job queue system | JobQueue with durable persistence, retry logic, worker support | SPEC-GBRAIN-004 implementation |
+| Bi-temporal facts | FactsStore with validity windows, time-travel queries, contradiction detection | SPEC-GBRAIN-005 implementation |
+| Quality summary | 32 completed SPECs, 0 planned SPECs, 1 candidate SPECs (1 existing + 2 Joplin) | SPEC-GBRAIN-005 completed 2026-07-04 |
 | Root bridge policy | AGENTS.md has Moon Cell pointer; CLAUDE.md not modified | SPEC-HARNESS-001 decision |
 | Moon Cell tracking | `.moon-cell/` tracked via `!.moon-cell/` gitignore exception | SPEC-HARNESS-001 tracking policy |
 | Package version | 0.5.0 | pyproject.toml |

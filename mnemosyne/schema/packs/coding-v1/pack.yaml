@@ -1,0 +1,169 @@
+# Mnemosyne Coding Schema Pack v1
+# Entity types for software development and code analysis
+
+api_version: "1.0"
+name: "coding"
+version: "1.0"
+inherits: "base"
+
+# Additional entity types for coding
+types:
+  function:
+    description: "A function or method"
+    primitive: entity
+    prefix_patterns:
+      - "functions/**"
+      - "methods/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      signature: string
+      return_type: string
+      parameters: list[string]
+      is_async: boolean
+      is_generator: boolean
+
+  class:
+    description: "A class or type definition"
+    primitive: entity
+    prefix_patterns:
+      - "classes/**"
+      - "types/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      inherits: list[string]
+      methods: list[string]
+      attributes: list[string]
+      is_abstract: boolean
+
+  module:
+    description: "A module or namespace"
+    primitive: entity
+    prefix_patterns:
+      - "modules/**"
+      - "packages/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      path: string
+      exports: list[string]
+      imports: list[string]
+
+  bug:
+    description: "A bug or issue"
+    primitive: temporal
+    prefix_patterns:
+      - "bugs/**"
+      - "issues/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      severity: string
+      status: string
+      reported_at: datetime
+      fixed_at: datetime
+
+  commit:
+    description: "A git commit or change"
+    primitive: temporal
+    prefix_patterns:
+      - "commits/**"
+      - "changes/**"
+    extractable: true
+    expert_routing: false
+    properties:
+      hash: string
+      author: person
+      date: datetime
+      message: string
+      files_changed: list[string]
+
+  code_review:
+    description: "A code review or pull request"
+    primitive: temporal
+    prefix_patterns:
+      - "reviews/**"
+      - "prs/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      author: person
+      reviewers: list[person]
+      created_at: datetime
+      merged_at: datetime
+
+  test:
+    description: "A test or test case"
+    primitive: annotation
+    prefix_patterns:
+      - "tests/**"
+      - "specs/**"
+    extractable: false
+    expert_routing: false
+    properties:
+      name: string
+      type: string
+      status: string
+      coverage: number
+
+# Coding-specific link types
+link_types:
+  implements:
+    description: "Function implements interface"
+    from: function
+    to: class
+    inferred: true
+
+  calls:
+    description: "Function calls another function"
+    from: function
+    to: function
+    inferred: true
+
+  belongs_to:
+    description: "Function belongs to class"
+    from: function
+    to: class
+    inferred: true
+
+  imports:
+    description: "Module imports another module"
+    from: module
+    to: module
+    inferred: true
+
+  fixes:
+    description: "Commit fixes bug"
+    from: commit
+    to: bug
+    inferred: true
+
+  tests:
+    description: "Test tests function or class"
+    from: test
+    to: function
+    inferred: true
+
+  reviews:
+    description: "Person reviewed code review"
+    from: person
+    to: code_review
+    inferred: true
+
+  authored:
+    description: "Person authored commit"
+    from: person
+    to: commit
+    inferred: true
+
+# Search mode overrides for coding
+search_defaults:
+  use_graph: true
+  use_reranker: false
+  max_results: 30

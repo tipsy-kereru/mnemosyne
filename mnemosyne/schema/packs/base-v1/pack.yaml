@@ -1,0 +1,234 @@
+# Mnemosyne Base Schema Pack v1
+# Default entity and relationship types for general knowledge graphs
+
+api_version: "1.0"
+name: "base"
+version: "1.0"
+
+# Entity type definitions
+types:
+  # Core entity types
+  entity:
+    description: "Generic entity - default for unclassified items"
+    primitive: entity
+    prefix_patterns:
+      - "entities/**"
+    extractable: false
+    expert_routing: false
+    properties: {}
+
+  person:
+    description: "A person or individual"
+    primitive: entity
+    prefix_patterns:
+      - "people/**"
+      - "contacts/**"
+      - "authors/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      role: string
+      email: string
+      contact: string
+      aliases: list[string]
+
+  organization:
+    description: "A company, organization, or group"
+    primitive: entity
+    prefix_patterns:
+      - "organizations/**"
+      - "companies/**"
+      - "orgs/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      type: string
+      founded: date
+      industry: string
+
+  project:
+    description: "A software project or codebase"
+    primitive: entity
+    prefix_patterns:
+      - "projects/**"
+      - "repos/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      language: string
+      repository: string
+      license: string
+
+  # Temporal types
+  event:
+    description: "An event or occurrence in time"
+    primitive: temporal
+    prefix_patterns:
+      - "events/**"
+      - "meetings/**"
+      - "conversations/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      date: datetime
+      duration: interval
+      attendees: list[person]
+
+  meeting:
+    description: "A meeting or conversation"
+    primitive: temporal
+    prefix_patterns:
+      - "meetings/**"
+      - "standups/**"
+      - "reviews/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      date: datetime
+      duration: interval
+      attendees: list[person]
+      notes: string
+
+  decision:
+    description: "A decision or resolution"
+    primitive: temporal
+    prefix_patterns:
+      - "decisions/**"
+    extractable: true
+    expert_routing: false
+    properties:
+      title: string
+      date: datetime
+      decided_by: list[person]
+      outcome: string
+
+  # Annotation types
+  note:
+    description: "A note or annotation"
+    primitive: annotation
+    prefix_patterns:
+      - "notes/**"
+      - "annotations/**"
+    extractable: false
+    expert_routing: false
+    properties:
+      title: string
+      content: string
+      tags: list[string]
+
+  reference:
+    description: "A reference or citation"
+    primitive: annotation
+    prefix_patterns:
+      - "references/**"
+      - "citations/**"
+    extractable: false
+    expert_routing: false
+    properties:
+      title: string
+      author: string
+      url: string
+      year: number
+
+# Relationship type definitions
+link_types:
+  # Generic relations
+  related_to:
+    description: "Generic relationship between entities"
+    from: entity
+    to: entity
+    inferred: false
+
+  mentions:
+    description: "Entity mentions another"
+    from: entity
+    to: entity
+    inferred: true
+
+  # Person relations
+  works_at:
+    description: "Person works at organization"
+    from: person
+    to: organization
+    inferred: true
+
+  employed_by:
+    description: "Person is employed by organization (inverse of works_at)"
+    from: organization
+    to: person
+    inferred: true
+
+  knows:
+    description: "Person knows another person"
+    from: person
+    to: person
+    inferred: true
+
+  # Organization relations
+  founded:
+    description: "Person founded organization"
+    from: person
+    to: organization
+    inferred: true
+
+  acquired:
+    description: "Organization acquired another organization"
+    from: organization
+    to: organization
+    inferred: true
+
+  # Project relations
+  contributes_to:
+    description: "Person contributes to project"
+    from: person
+    to: project
+    inferred: true
+
+  maintains:
+    description: "Person maintains project"
+    from: person
+    to: project
+    inferred: true
+
+  depends_on:
+    description: "Project depends on another project"
+    from: project
+    to: project
+    inferred: true
+
+  # Temporal relations
+  attended:
+    description: "Person attended event/meeting"
+    from: person
+    to: event
+    inferred: true
+
+  decided_at:
+    description: "Decision made at event/meeting"
+    from: decision
+    to: event
+    inferred: true
+
+  # Annotation relations
+  cites:
+    description: "Entity cites reference"
+    from: entity
+    to: reference
+    inferred: false
+
+  notes_about:
+    description: "Note is about entity"
+    from: note
+    to: entity
+    inferred: false
+
+# Search mode defaults
+search_defaults:
+  use_graph: true
+  use_reranker: false
+  max_results: 20
