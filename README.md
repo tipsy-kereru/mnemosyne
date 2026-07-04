@@ -57,8 +57,14 @@ embedded. Download from [GitHub Releases](https://github.com/tipsy-kereru/mnemos
 or use the one-line installer:
 
 ```bash
-# Linux + macOS (curl | sh)
-curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.sh | sh
+# Linux + macOS (curl | sh) - Latest version
+curl -fsSL https://raw.githubusercontent.com/tipsy-kereru/mnemosyne/main/install.sh | sh
+
+# Specific version (e.g., v0.7.0)
+curl -fsSL https://raw.githubusercontent.com/tipsy-kereru/mnemosyne/main/install.sh | sh -s -- --version 0.7.0
+
+# Force reinstall
+curl -fsSL https://raw.githubusercontent.com/tipsy-kereru/mnemosyne/main/install.sh | sh -s -- --force
 
 # Windows (PowerShell 5.1+)
 iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.ps1 -UseBasicParsing | iex
@@ -96,6 +102,12 @@ Full details, cosign signature verification, man pages, troubleshooting:
 ```bash
 # Install latest from GitHub
 pip install "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git"
+
+# Install specific version (e.g., v0.7.0)
+pip install "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git@v0.7.0"
+
+# Force reinstall
+pip install --force-reinstall "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne.git@v0.7.0"
 
 # With ingest extras (LLM extraction, URL fetching)
 pip install "mnemosyne-kg[ingest] @ git+https://github.com/tipsy-kereru/mnemosyne.git"
