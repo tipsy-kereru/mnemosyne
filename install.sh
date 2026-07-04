@@ -98,13 +98,19 @@ echo "📥 Using installer: $INSTALLER"
 if [ "$VERSION" = "latest" ]; then
     echo "📦 Installing latest from PyPI..."
     if [ "$FORCE" = "true" ]; then
-        $INSTALL_CMD --force-reinstall mnemosyne-kg
+        if $INSTALL_CMD --force-reinstall mnemosyne-kg; then
+            echo "✅ Installed from PyPI"
+        else
+            echo "⚠️  PyPI install failed, trying GitHub..."
+            VERSION="main"
+        fi
     else
-        $INSTALL_CMD mnemosyne-kg
-    else
-        # Try GitHub fallback
-        echo "   PyPI not available, installing from GitHub..."
-        VERSION="main"
+        if $INSTALL_CMD mnemosyne-kg; then
+            echo "✅ Installed from PyPI"
+        else
+            echo "⚠️  PyPI install failed, trying GitHub..."
+            VERSION="main"
+        fi
     fi
 fi
 
