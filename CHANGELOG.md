@@ -5,6 +5,19 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-02
+
+### Added
+- **ConnectionPool with read/write separation** (`mnemosyne/graph/connection_pool.py`): per-thread read connections (`query_only=1`) + singleton write connection. WAL mode allows N concurrent readers + 1 writer without blocking.
+- **ThreadingHTTPServer** (`serve/app.py`): replaces single-threaded `HTTPServer`. Concurrent agent requests no longer serialize. `daemon_threads=True` for clean shutdown.
+- **In-memory TTL cache** (`retrieval/engine.py`): thread-safe cache layer with `invalidate_cache()`, `invalidate_scope(scope_id)`, and module-level `invalidate_all_caches()`. Repeated identical searches return from memory.
+- **Crash-safe atomicity**: `KnowledgeGraph(synchronous="FULL")` option for power-loss durability. `wal_checkpoint()` method for periodic WAL merge.
+
+### Changed
+- `KnowledgeGraph.__init__` gains optional `synchronous` parameter (default `"NORMAL"`, backward compatible).
+- `KnowledgeGraph` gains `get_read_conn()` and `wal_checkpoint()` methods.
+- `serve/app.py` `create_server()` now returns `ThreadingHTTPServer` (drop-in replacement).
+
 ## [0.8.0] - 2026-08-02
 
 ### Added
