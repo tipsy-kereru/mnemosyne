@@ -5,6 +5,24 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-02
+
+### Added
+- **Onyx ↔ Mnemosyne bidirectional sync integration** (`mnemosyne/integrations/onyx/`): 14 modules implementing the Onyx integration plan. Contract Envelope with stable IDs, content-hash idempotency, ACL quarantine, and loop prevention (`do_not_reimport`).
+- **Mnemosyne → Onyx push** (`sync onyx push`): publishes curated knowledge (requirement, decision, meeting, risk, etc.) to Onyx Ingestion API with retry/backoff, accepted/indexed state tracking, and dry-run support.
+- **Onyx → Mnemosyne export worker** (`ExportWorker`): receives Envelopes from Onyx connectors with per-connector checkpoint/watermark, at-least-once idempotency, and source-deletion→tombstone flow.
+- **Project-domain schema pack** (`schema/packs/project-v1/pack.yaml`): requirement, client, stakeholder, action-item, risk, blocker, release entity types + REQUESTED_BY, DECIDED_IN, SUPERSEDES, CONFLICTS_WITH, IMPLEMENTS, BLOCKS, VERIFIED_BY, DERIVED_FROM relations.
+- **Entity tombstone + timeline** (`KnowledgeGraph.tombstone_entity`, `get_entity_timeline`): soft-delete with `valid_to`/`tombstoned_at`, never physical DELETE. `get_active_entities()` excludes tombstoned.
+- **Classification-based access control** (`permissions.py`): private > confidential > internal > public hierarchy with default-deny on unknown classification.
+- **Agent memory write gating** (`mnemosyne_create_entity --auto_write`): curated types (requirement, decision, risk, conflict, blocker, release) require explicit `auto_write=true` or go through ReviewPending.
+- **Sync observability** (`sync onyx status`, `sync onyx quarantine`): push/export metrics (throughput, failure rate, quarantine count), quarantine listing with resolution status.
+- **Mock Onyx server** (`MockOnyxServer`): in-process HTTP server for contract/integration testing without a live Onyx instance.
+
+### Changed
+- CLI gains `mnemosyne sync onyx <push|status|quarantine>` command group.
+- `mnemosyne_create_entity` MCP tool gains `auto_write` parameter for review gating.
+- `KnowledgeGraph` gains additive tombstone/timeline methods (no existing method signatures changed).
+
 ## [0.5.0] - 2026-06-26
 
 ### Added

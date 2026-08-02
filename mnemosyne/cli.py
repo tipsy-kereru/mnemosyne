@@ -13,7 +13,7 @@ Command tree (SPEC-PACKAGE-001, REQ-PKG-005):
     mnemosyne mcp <serve|install>                    # REMAINDER pass-through
     mnemosyne config <get|set|list|skill|hook>
     mnemosyne retention <purge|status>
-    mnemosyne extension <install|list|...>           # stub (ISSUE-0007)
+    mnemosyne sync onyx <push|status>                # Onyx integration
 
 Legacy top-level shapes (``add``, ``query``, ``purge-retention``, ...) are kept
 as deprecation aliases for two minor releases (REQ-PKG-006). Each alias prints
@@ -861,6 +861,50 @@ def build_parser() -> argparse.ArgumentParser:
     _add_extension_verbs(extension)
     extension.set_defaults(func=_run_extension_group, group="extension")
 
+    # -- sync group (Onyx integration) --
+    sync = _new_parser(
+        subparsers, "sync",
+        help="Sync with external systems (Onyx)",
+        description="Push curated knowledge to Onyx and view sync status.",
+        see_also="mnemosyne graph, mnemosyne ingest",
+    )
+    sync_sub = sync.add_subparsers(dest="sync_command")
+    sync_onyx = _new_parser(
+        sync_sub, "onyx",
+        help="Onyx integration commands",
+        description="Push curated knowledge to Onyx and view sync status.",
+    )
+    sync_onyx_sub = sync_onyx.add_subparsers(dest="sync_onyx_command")
+    onyx_push = _new_parser(
+        sync_onyx_sub, "push",
+        help="Push curated entities to Onyx",
+        description="Push publishable entities from a scope to Onyx.",
+    )
+    onyx_push.add_argument("--scope-id", required=True, help="Scope to push")
+    onyx_push.add_argument("--dry-run", action="store_true", help="Map without pushing")
+    onyx_push.add_argument("--config", default=None, help="Sync config YAML path")
+    onyx_push.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
+    onyx_push.set_defaults(func=_run_sync_onyx_push, group="sync", verb="push")
+    onyx_status = _new_parser(
+        sync_onyx_sub, "status",
+        help="Show push sync status for a scope",
+        description="Show push sync status (accepted/failed/noop counts) for a scope.",
+    )
+    onyx_status.add_argument("--scope-id", required=True, help="Scope to inspect")
+    onyx_status.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
+    onyx_status.set_defaults(func=_run_sync_onyx_status, group="sync", verb="status")
+    onyx_quarantine = _new_parser(
+        sync_onyx_sub, "quarantine",
+        help="List quarantined documents for a scope",
+        description="List documents held in ACL quarantine for a scope (unresolved by default).",
+    )
+    onyx_quarantine.add_argument("--scope-id", required=True, help="Scope to inspect")
+    onyx_quarantine.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
+    onyx_quarantine.add_argument("--all", action="store_true", help="Include resolved quarantine records")
+    onyx_quarantine.set_defaults(func=_run_sync_onyx_quarantine, group="sync", verb="quarantine")
+    sync_onyx.set_defaults(func=_run_sync_group, group="sync")
+    sync.set_defaults(func=_run_sync_group, group="sync")
+
     # -- legacy / deprecation aliases (REQ-PKG-006) --
     _register_legacy_aliases(subparsers)
 
@@ -1036,6 +1080,110 @@ def _run_extension_info(args):
     code = cmd_info(args)
     if code:
         sys.exit(code)
+
+
+def _run_sync_group(args):
+    """Print sync help when ``mnemosyne sync`` is invoked with no verb."""
+    print("Usage: mnemosyne sync onyx <push|status> [options]", file=sys.stderr)
+    sys.exit(2)
+
+
+def _load_sync_config(config_path):
+    """Load Onyx sync config from given path or default location."""
+    from pathlib import Path
+
+    from mnemosyne.integrations.onyx.config import SyncConfig
+
+    path = config_path or str(Path.home() / "mnemosyne" / "onyx-sync.yaml")
+    return SyncConfig.load(path)
+
+
+def _run_sync_onyx_push(args):
+    """Execute ``mnemosyne sync onyx push``."""
+    import json
+
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.integrations.onyx.client import OnyxClient
+    from mnemosyne.integrations.onyx.exporter import OnyxPushExporter
+    from mnemosyne.integrations.onyx.sync_state import SyncStateStore
+
+    kg = KnowledgeGraph(args.db_path)
+    sync_store = SyncStateStore(kg.db_path)
+
+    client = None
+    if not args.dry_run:
+        cfg = _load_sync_config(args.config)
+        client = OnyxClient(
+            base_url=cfg.onyx.base_url,
+            api_key=cfg.onyx.resolve_api_key(),
+            cc_pair_id=cfg.onyx.resolve_cc_pair_id(),
+            max_retries=cfg.sync.max_attempts,
+            initial_backoff=cfg.sync.initial_backoff_seconds,
+        )
+
+    exporter = OnyxPushExporter(kg.conn, client, sync_store, dry_run=args.dry_run)
+    outcome = exporter.push_scope(args.scope_id)
+
+    print(json.dumps(
+        {
+            "scope_id": outcome.scope_id,
+            "total": outcome.total,
+            "pushed": outcome.pushed,
+            "noop": outcome.noop,
+            "skipped": outcome.skipped,
+            "failed": outcome.failed,
+            "details": outcome.details,
+        },
+        indent=2,
+        ensure_ascii=False,
+    ))
+
+    kg.close()
+    sync_store.close()
+
+
+def _run_sync_onyx_status(args):
+    """Execute ``mnemosyne sync onyx status`` with observability metrics."""
+    import json
+
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.integrations.onyx.observability import get_sync_metrics
+
+    kg = KnowledgeGraph(args.db_path)
+    metrics = get_sync_metrics(kg.conn, args.scope_id)
+    print(json.dumps(metrics.to_dict(), indent=2, ensure_ascii=False))
+
+    kg.close()
+
+
+def _run_sync_onyx_quarantine(args):
+    """Execute ``mnemosyne sync onyx quarantine``."""
+    import json
+
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.integrations.onyx.observability import get_quarantine_list
+
+    kg = KnowledgeGraph(args.db_path)
+    entries = get_quarantine_list(
+        kg.conn, args.scope_id, include_resolved=args.all
+    )
+    output = [
+        {
+            "source_doc_id": e.source_doc_id,
+            "reason": e.reason,
+            "quarantined_at": e.quarantined_at,
+            "resolved": e.resolved,
+            "title": e.envelope_snapshot.get("title", ""),
+            "external_uri": e.envelope_snapshot.get("external_uri", ""),
+        }
+        for e in entries
+    ]
+    print(json.dumps(
+        {"scope_id": args.scope_id, "count": len(output), "entries": output},
+        indent=2, ensure_ascii=False,
+    ))
+
+    kg.close()
 
 
 def _run_config_get(args):

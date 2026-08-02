@@ -1,0 +1,171 @@
+# Mnemosyne Project Schema Pack v1
+# Entity and relationship types for project management and delivery tracking
+
+api_version: "1.0"
+name: "project"
+version: "1.0"
+inherits: "base-v1"
+
+# Additional entity types for project delivery.
+# The base pack already defines project, decision, meeting, event, person and
+# organization; those are inherited and NOT redefined here.
+types:
+  requirement:
+    description: "A tracked requirement or feature request"
+    primitive: entity
+    prefix_patterns:
+      - "requirements/**"
+      - "features/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      description: string
+      status: string
+      priority: string
+      requested_by: string
+      accepted_at: datetime
+
+  client:
+    description: "A client or customer engaged on a project"
+    primitive: entity
+    prefix_patterns:
+      - "clients/**"
+      - "customers/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      contact: string
+      contract_ref: string
+      scope_boundary: string
+
+  stakeholder:
+    description: "A stakeholder with interest in a project or requirement"
+    primitive: entity
+    prefix_patterns:
+      - "stakeholders/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      name: string
+      role: string
+      email: string
+      organization: string
+      influence: string
+
+  action-item:
+    description: "An actionable task with an assignee and due date"
+    primitive: entity
+    prefix_patterns:
+      - "actions/**"
+      - "action-items/**"
+      - "tasks/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      assignee: string
+      due_date: datetime
+      status: string
+      priority: string
+
+  risk:
+    description: "A project risk with severity, likelihood and mitigation"
+    primitive: entity
+    prefix_patterns:
+      - "risks/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      description: string
+      severity: string
+      likelihood: string
+      mitigation: string
+      status: string
+
+  blocker:
+    description: "An impediment blocking progress on an entity"
+    primitive: entity
+    prefix_patterns:
+      - "blockers/**"
+      - "impediments/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      title: string
+      description: string
+      blocking: string
+      status: string
+      raised_at: datetime
+
+  release:
+    description: "A release or delivery milestone at a point in time"
+    primitive: temporal
+    prefix_patterns:
+      - "releases/**"
+      - "milestones/**"
+    extractable: true
+    expert_routing: true
+    properties:
+      version: string
+      date: datetime
+      changes: list[string]
+      status: string
+
+# Project-domain relationship types
+link_types:
+  REQUESTED_BY:
+    description: "Requirement was requested by stakeholder"
+    from: requirement
+    to: stakeholder
+    inferred: false
+
+  DECIDED_IN:
+    description: "Decision was made at this meeting"
+    from: decision
+    to: meeting
+    inferred: false
+
+  SUPERSEDES:
+    description: "Newer version supersedes older"
+    from: entity
+    to: entity
+    inferred: false
+
+  CONFLICTS_WITH:
+    description: "Entities are in conflict"
+    from: entity
+    to: entity
+    inferred: false
+
+  IMPLEMENTS:
+    description: "Implements a requirement"
+    from: entity
+    to: requirement
+    inferred: false
+
+  BLOCKS:
+    description: "Blocker prevents progress on entity"
+    from: blocker
+    to: entity
+    inferred: false
+
+  VERIFIED_BY:
+    description: "Requirement verified by test or release"
+    from: requirement
+    to: release
+    inferred: false
+
+  DERIVED_FROM:
+    description: "Derived from another entity"
+    from: entity
+    to: entity
+    inferred: true
+
+# Search mode defaults
+search_defaults:
+  use_graph: true
+  use_reranker: false
+  max_results: 20

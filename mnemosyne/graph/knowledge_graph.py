@@ -1069,6 +1069,111 @@ class KnowledgeGraph:
         """Get a scope by ID. Delegates to ScopeManager."""
         return self.scope_manager.get_scope(scope_id)
 
+    # -- Tombstone and timeline support --
+
+    def tombstone_entity(self, entity_id: str, reason: str = '') -> bool:
+        """Soft-delete an entity by recording a tombstone.
+
+        Adds ``tombstoned_at``, ``valid_to`` (current ISO time) and
+        ``tombstone_reason`` to the entity's properties, then persists via
+        ``update_entity`` so the version is incremented and a history entry is
+        recorded. The entity is NOT physically deleted and remains queryable via
+        ``get_entity``. This mirrors the tombstone-only deletion pattern used
+        elsewhere in Mnemosyne.
+
+        Returns:
+            True if the entity existed and was tombstoned, False otherwise.
+        """
+        entity = self.get_entity(entity_id)
+        if entity is None:
+            return False
+
+        now = utc_now_iso()
+        entity.properties['tombstoned_at'] = now
+        entity.properties['valid_to'] = now
+        entity.properties['tombstone_reason'] = reason
+        self.update_entity(entity)
+        logger.info("Tombstoned entity %s (%s)", entity_id, reason)
+        return True
+
+    def is_tombstoned(self, entity_id: str) -> bool:
+        """Check whether an entity has been tombstoned."""
+        entity = self.get_entity(entity_id)
+        if entity is None:
+            return False
+        return 'tombstoned_at' in entity.properties
+
+    def get_active_entities(self, scope_id: Optional[str] = None,
+                            entity_type: Optional[str] = None) -> List[Entity]:
+        """Get entities that have not been tombstoned.
+
+        Like ``get_entities_by_type`` but excludes tombstoned entities.
+        Optionally filtered by scope and/or entity type.
+        """
+        cursor = self.conn.cursor()
+        sql = (
+            "SELECT * FROM entities "
+            "WHERE (properties IS NULL OR properties NOT LIKE '%tombstoned_at%')"
+        )
+        params: List[Any] = []
+        if scope_id is not None:
+            sql += " AND scope_id = ?"
+            params.append(scope_id)
+        if entity_type is not None:
+            sql += " AND type = ?"
+            params.append(entity_type)
+
+        rows = cursor.execute(sql, params).fetchall()
+        return [Entity(
+            id=row['id'],
+            type=row['type'],
+            name=row['name'],
+            properties=json.loads(row['properties'] or '{}'),
+            created_at=row['created_at'],
+            updated_at=row['updated_at'],
+            version=row['version'],
+            scope_id=row['scope_id'] if 'scope_id' in row.keys() else None,
+            source_channel=row['source_channel'] if 'source_channel' in row.keys() else 'legacy'
+        ) for row in rows]
+
+    def get_entity_timeline(self, entity_id: str) -> Dict[str, Any]:
+        """Return the current entity state and its full temporal history.
+
+        Structure::
+
+            {
+              "entity_id": ...,
+              "current": {...} or None,
+              "history": [...],   # ordered by version DESC
+              "is_tombstoned": bool,
+            }
+        """
+        entity = self.get_entity(entity_id)
+        if entity is not None:
+            current: Optional[Dict[str, Any]] = {
+                'id': entity.id,
+                'type': entity.type,
+                'name': entity.name,
+                'properties': entity.properties,
+                'created_at': entity.created_at,
+                'updated_at': entity.updated_at,
+                'version': entity.version,
+                'scope_id': entity.scope_id,
+                'source_channel': entity.source_channel,
+            }
+            tombstoned = 'tombstoned_at' in entity.properties
+        else:
+            current = None
+            tombstoned = False
+
+        history = self.get_entity_history(entity_id)
+        return {
+            'entity_id': entity_id,
+            'current': current,
+            'history': history,
+            'is_tombstoned': tombstoned,
+        }
+
     def close(self):
         """Close database connection"""
         self.conn.close()

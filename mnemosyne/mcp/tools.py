@@ -256,9 +256,29 @@ def _wiki_lint(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _create_entity(ctx: ToolContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    entity_type = args.get("type", "")
+    auto_write = bool(args.get("auto_write", False))
+
+    # Phase 4 §6: gate agent memory writes behind review for non-trivial types.
+    # Project-domain entities (requirement, decision, risk, etc.) require
+    # explicit auto_write=true; otherwise the write is returned as review_pending.
+    from mnemosyne.integrations.onyx.permissions import requires_review
+
+    if requires_review(entity_type, auto_write):
+        return {
+            "status": "review_pending",
+            "entity_id": args.get("id"),
+            "entity_type": entity_type,
+            "review_required": True,
+            "message": (
+                f"Entity type '{entity_type}' requires review before write. "
+                f"Pass auto_write=true to bypass, or accept via the review queue."
+            ),
+        }
+
     body: Dict[str, Any] = {
         "id": args.get("id"),
-        "type": args.get("type"),
+        "type": entity_type,
         "name": args.get("name"),
         "properties": args.get("properties", {}),
         "source_channel": args.get("source_channel", "mcp"),
@@ -740,6 +760,12 @@ def build_tool_specs() -> List[ToolSpec]:
                     "type": {"type": "string", "description": "Entity type (e.g. function, task, person)."},
                     "name": {"type": "string", "description": "Human-readable name."},
                     "properties": {"type": "object", "default": {}},
+                    "auto_write": {
+                        "type": "boolean", "default": False,
+                        "description": "Bypass review queue for non-trivial entity types (default false). "
+                                       "Project-domain types (requirement, decision, risk, etc.) require "
+                                       "explicit auto_write=true or manual review.",
+                    },
                 },
                 required=["id", "type", "name"],
                 add_scope=True,
