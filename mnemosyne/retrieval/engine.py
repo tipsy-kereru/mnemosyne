@@ -8,6 +8,9 @@ merges results using Reciprocal Rank Fusion (RRF).
 import hashlib
 import json
 import logging
+import threading
+import time
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,6 +19,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import sqlite3
 
 logger = logging.getLogger(__name__)
+
+# Registry of live RetrievalEngine instances. Used by invalidate_all_caches()
+# to bust every engine's in-memory cache after a KnowledgeGraph write. A
+# WeakSet is intentional: abandoned engines are garbage-collected without an
+# explicit unregister, so the registry can never leak engines.
+_LIVE_ENGINES: "weakref.WeakSet[RetrievalEngine]" = weakref.WeakSet()
 
 
 @dataclass
@@ -87,6 +96,14 @@ class SearchResult:
     properties: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class _CacheEntry:
+    """A single entry in the in-memory result cache."""
+
+    results: List[SearchResult]
+    timestamp: float
+
+
 class RetrievalEngine:
     """Main orchestration engine for hybrid search."""
 
@@ -110,10 +127,18 @@ class RetrievalEngine:
         self.mode = mode
         self.cache_ttl = cache_ttl_seconds
 
+        # In-memory TTL result cache (fast path; consulted before the
+        # persistent SQLite cache so repeated identical queries skip the DB).
+        self._cache: Dict[str, "_CacheEntry"] = {}
+        self._cache_lock = threading.Lock()
+
         # Initialize strategies
         self._init_strategies()
         self._init_db()
         self._init_intent_classifier()
+
+        # Register for cross-engine cache invalidation (WeakSet → auto-GC).
+        _LIVE_ENGINES.add(self)
 
     def _init_strategies(self):
         """Initialize search strategies based on mode."""
@@ -198,6 +223,7 @@ class RetrievalEngine:
         filters: Optional[Dict] = None,
         explain: bool = False,
         use_cache: bool = True,
+        scope_id: Optional[str] = None,
     ) -> List[SearchResult]:
         """Execute hybrid search query.
 
@@ -224,7 +250,15 @@ class RetrievalEngine:
         if not query_str or not query_str.strip():
             return []
 
-        # Check cache
+        # In-memory TTL cache — fast path; on a hit we skip all DB access.
+        mem_key = self._cache_key(query_str, scope_id, self.mode.name)
+        if use_cache:
+            mem_cached = self._cache_get(mem_key)
+            if mem_cached is not None:
+                logger.debug(f"In-memory cache hit for query: {query_str[:50]}...")
+                return mem_cached
+
+        # Persistent SQLite cache (secondary, survives process restarts).
         cache_key = None
         if use_cache:
             cache_key = self._make_cache_key(query_str, filters)
@@ -262,18 +296,79 @@ class RetrievalEngine:
         # 8. Fetch entity details
         results = self._fetch_entity_details(results)
 
-        # 9. Cache results
-        if use_cache and cache_key:
-            self._set_cache(cache_key, results)
+        # 9. Cache results. Slice to the mode's result cap first so that an
+        # in-memory hit returns exactly what a miss would.
+        final_results = results[: self.mode.max_results]
+        if use_cache:
+            self._cache_put(mem_key, final_results)
+            if cache_key:
+                self._set_cache(cache_key, results)
 
-        logger.debug(f"Query returned {len(results)} results")
-        return results[: self.mode.max_results]
+        logger.debug(f"Query returned {len(final_results)} results")
+        return final_results
 
     def _make_cache_key(self, query: str, filters: Optional[Dict]) -> str:
         """Generate cache key for query."""
         key_data = {"query": query, "filters": sorted((filters or {}).items())}
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.sha256(key_str.encode()).hexdigest()[:32]
+
+    # ------------------------------------------------------------------
+    # In-memory TTL result cache
+    # ------------------------------------------------------------------
+
+    def _cache_key(self, query: str, scope_id: Optional[str], mode_name: str) -> str:
+        """Build a deterministic in-memory cache key.
+
+        The key embeds the scope and search mode so identical queries under
+        different scopes/modes never collide. Scope is kept as a plain prefix
+        segment (not hashed) so invalidate_scope() can match it cheaply.
+        """
+        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:32]
+        return f"{scope_id}|{mode_name}|{query_hash}"
+
+    def _cache_get(self, key: str) -> Optional[List["SearchResult"]]:
+        """Return cached results if present and within TTL, else None.
+
+        Stale entries are evicted lazily on read.
+        """
+        with self._cache_lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            if time.time() - entry.timestamp > self.cache_ttl:
+                del self._cache[key]
+                return None
+            # Shallow copy so callers cannot mutate the cached list.
+            return list(entry.results)
+
+    def _cache_put(self, key: str, results: List["SearchResult"]) -> None:
+        """Store ``results`` under ``key`` with the current timestamp."""
+        with self._cache_lock:
+            self._cache[key] = _CacheEntry(
+                results=list(results), timestamp=time.time()
+            )
+
+    def invalidate_cache(self) -> None:
+        """Clear the entire in-memory result cache.
+
+        Call after any KnowledgeGraph write so stale results are never served.
+        """
+        with self._cache_lock:
+            self._cache.clear()
+
+    def invalidate_scope(self, scope_id: Optional[str]) -> int:
+        """Drop every in-memory cache entry belonging to ``scope_id``.
+
+        Returns the number of entries removed. Cheaper than
+        invalidate_cache() when only one scope changed.
+        """
+        prefix = f"{scope_id}|"
+        with self._cache_lock:
+            stale = [k for k in self._cache if k.startswith(prefix)]
+            for k in stale:
+                del self._cache[k]
+        return len(stale)
 
     def _get_cache(self, cache_key: str) -> Optional[str]:
         """Get cached results if available and not expired."""
@@ -472,3 +567,19 @@ class RetrievalEngine:
         self.conn.commit()
         logger.info(f"Cleared {deleted} cache entries")
         return deleted
+
+
+
+# Phase 2: KnowledgeGraph.add_entity / update_entity / tombstone_entity should
+# call mnemosyne.retrieval.engine.invalidate_all_caches() after committing a
+# write so stale retrieval results are evicted from every live engine.
+def invalidate_all_caches() -> int:
+    """Invalidate the in-memory caches of all live RetrievalEngine instances.
+
+    Returns the number of engines whose caches were invalidated.
+    """
+    invalidated = 0
+    for engine in list(_LIVE_ENGINES):
+        engine.invalidate_cache()
+        invalidated += 1
+    return invalidated

@@ -9,12 +9,12 @@ import json
 import logging
 import re
 import signal
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, Dict, Optional
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from mnemosyne.graph.knowledge_graph import KnowledgeGraph
-from mnemosyne.serve.handlers import APIError, Handlers
+from mnemosyne.serve.handlers import APIError, Handlers, _row_to_entity_dict, _row_to_relation_dict
 
 logger = logging.getLogger(__name__)
 
@@ -194,23 +194,106 @@ def _qs_to_dict(qs: Dict[str, list[str]]) -> Dict[str, str]:
     return {k: v[0] for k, v in qs.items() if v}
 
 
+class _ThreadingAPIServer(ThreadingHTTPServer):
+    """Threaded HTTP server whose per-request threads are daemons.
+
+    ``daemon_threads=True`` ensures in-flight request threads never block
+    interpreter exit, so ``server.shutdown()`` / SIGTERM tear the server
+    down promptly even while a request is mid-flight.
+    """
+
+    daemon_threads = True
+
+
+class _ThreadSafeHandlers(Handlers):
+    """Handlers that route direct-SQL reads through the connection pool.
+
+    Under a :class:`~http.server.ThreadingHTTPServer` every request runs
+    in its own thread. The two read handlers below obtain a thread-local
+    read-only connection via :meth:`KnowledgeGraph.get_read_conn`
+    (``query_only=1``) so concurrent GETs never contend on the single
+    serialized write connection. Write endpoints (POST/PUT/DELETE) keep
+    using the KG's write path (``kg.conn`` / KG mutator methods), which
+    SQLite serializes safely under WAL mode.
+
+    Reads implemented as KG methods (get_entity, search, query,
+    list_projects, ...) still resolve through the shared write connection;
+    WAL mode guarantees those readers never block the writer and vice
+    versa, so they remain safe. Only the handlers that issue raw SELECTs
+    against ``self.kg.conn`` are overridden here to use the pool.
+    """
+
+    def list_entities(
+        self, params: Dict[str, str]
+    ) -> Tuple[int, Dict[str, Any]]:
+        conn = self.kg.get_read_conn()
+        conditions: List[str] = []
+        sql_params: List[Any] = []
+
+        entity_type = params.get("type")
+        scope_id = params.get("scope_id")
+        if entity_type:
+            conditions.append("type = ?")
+            sql_params.append(entity_type)
+        if scope_id:
+            conditions.append("scope_id = ?")
+            sql_params.append(scope_id)
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+        rows = conn.execute(
+            f"SELECT * FROM entities WHERE {where}", sql_params
+        ).fetchall()
+
+        entities = [_row_to_entity_dict(r) for r in rows]
+        return 200, {"entities": entities, "count": len(entities)}
+
+    def list_relations(
+        self, params: Dict[str, str]
+    ) -> Tuple[int, Dict[str, Any]]:
+        conn = self.kg.get_read_conn()
+
+        source_id = params.get("source")
+        target_id = params.get("target")
+        rel_type = params.get("type")
+
+        conditions: List[str] = []
+        sql_params: List[Any] = []
+        if source_id:
+            conditions.append("source_id = ?")
+            sql_params.append(source_id)
+        if target_id:
+            conditions.append("target_id = ?")
+            sql_params.append(target_id)
+        if rel_type:
+            conditions.append("relation_type = ?")
+            sql_params.append(rel_type)
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+        rows = conn.execute(
+            f"SELECT * FROM relations WHERE {where}", sql_params
+        ).fetchall()
+
+        relations = [_row_to_relation_dict(r) for r in rows]
+        return 200, {"relations": relations, "count": len(relations)}
+
+
 def create_server(
     host: str = "127.0.0.1",
     port: int = 57832,
     db_path: Optional[str] = None,
-) -> HTTPServer:
-    """Create an HTTPServer wired to a KnowledgeGraph at *db_path*.
+) -> ThreadingHTTPServer:
+    """Create a ThreadingHTTPServer wired to a KnowledgeGraph at *db_path*.
 
     The caller is responsible for calling ``server.serve_forever()`` or
     ``server.handle_request()``.
     """
     kg = KnowledgeGraph(db_path)
-    handler_obj = Handlers(kg, str(kg.db_path))
+    handler_obj = _ThreadSafeHandlers(kg, str(kg.db_path))
 
     # Inject handlers reference onto the class so every request can see it
     _RequestHandler.handlers = handler_obj
 
-    server = HTTPServer((host, port), _RequestHandler)
+    server = _ThreadingAPIServer((host, port), _RequestHandler)
     server.timeout = 0.5  # Allows graceful shutdown checks
 
     logger.info("Mnemosyne API listening on http://%s:%d", host, port)
