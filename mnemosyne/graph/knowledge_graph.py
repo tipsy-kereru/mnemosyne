@@ -60,7 +60,7 @@ class KnowledgeGraph:
     Temporal knowledge graph with SQLite persistence and NetworkX analysis
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, synchronous: str = "NORMAL"):
         if db_path is None:
             _new_path = Path.home() / "mnemosyne" / "graph" / "knowledge.db"
             _legacy_path = Path.home() / "agent-memory" / "mnemosyne" / "graph" / "knowledge.db"
@@ -74,10 +74,16 @@ class KnowledgeGraph:
         self.db_path = resolved
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        self._synchronous = synchronous.upper()
         self.conn = sqlite3.connect(str(self.db_path), timeout=30.0, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute(f"PRAGMA synchronous={self._synchronous}")
+
+        # Connection pool for concurrent read access (Tier 2 hardening).
+        # Read connections are query_only=1, separate from this write conn.
+        from mnemosyne.graph.connection_pool import ConnectionPool
+        self._pool = ConnectionPool(self.db_path, synchronous=self._synchronous)
 
         self._init_db()
         self.nx_graph = self._build_networkx()
@@ -1174,8 +1180,22 @@ class KnowledgeGraph:
             'is_tombstoned': tombstoned,
         }
 
+    def get_read_conn(self):
+        """Return a thread-local read-only connection from the pool.
+
+        The connection has ``query_only=1`` set — any write attempt raises.
+        Use this for read-heavy paths (search, get_entity, timeline) to
+        avoid blocking on the single write connection.
+        """
+        return self._pool.get_read_conn()
+
+    def wal_checkpoint(self, mode: str = "TRUNCATE") -> dict:
+        """Run a WAL checkpoint. Call after batch writes to bound WAL growth."""
+        return self._pool.wal_checkpoint(mode)
+
     def close(self):
-        """Close database connection"""
+        """Close database connections (write conn + pool)."""
+        self._pool.close()
         self.conn.close()
 
     # -- Project registry helpers --

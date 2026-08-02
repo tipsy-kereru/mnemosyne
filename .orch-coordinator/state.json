@@ -1,0 +1,18 @@
+{
+  "coordinator_id": "tier2-hardening",
+  "current_phase": "phase-0-contract",
+  "program_status": "starting",
+  "work_packages": {
+    "wp-0-pool": {"status": "pending", "attempts": 0, "supervisor": null, "artifacts": []},
+    "wp-1-server": {"status": "blocked", "attempts": 0, "supervisor": null, "artifacts": [], "blocked_by": "gate-pool"},
+    "wp-2-cache": {"status": "blocked", "attempts": 0, "supervisor": null, "artifacts": [], "blocked_by": "gate-pool"},
+    "wp-3-integration": {"status": "blocked", "attempts": 0, "supervisor": null, "artifacts": [], "blocked_by": "gate-impl"}
+  },
+  "worktrees": {
+    "main": {"repo_id": "c0ad69f5-b082-40b8-b739-13a66877adb1", "role": "coordinator+phase0+phase2"},
+    "tier2-server": {"repo_id": null, "role": "wp-1-server", "status": "not_created"},
+    "tier2-cache": {"repo_id": null, "role": "wp-2-cache", "status": "not_created"}
+  },
+  "events": [],
+  "updated_at": "2026-08-02T00:00:00Z"
+}

@@ -1,0 +1,97 @@
+{
+  "coordinator_id": "tier2-hardening",
+  "goal": "Tier 2 local performance hardening: connection pool (read/write separation), in-memory TTL cache, crash-safe atomicity, and threaded HTTP server — all stdlib-only, no external deps",
+  "control_worktree": "main",
+  "repo_id": "c0ad69f5-b082-40b8-b739-13a66877adb1",
+  "max_worktrees": 3,
+  "max_iterations": 100,
+  "created_at": "2026-08-02T00:00:00Z",
+
+  "phases": [
+    {
+      "id": "phase-0-contract",
+      "name": "Connection Pool + Atomicity",
+      "type": "contract_gate",
+      "execution": "inline",
+      "description": "Define ConnectionPool interface (get_read_conn/get_write_conn), WAL hardening (synchronous=FULL), periodic checkpoint. This is the shared contract downstream worktrees depend on.",
+      "gate": "python3 -m pytest tests/test_knowledge_graph_session.py tests/integrations/onyx/ -q --tb=short",
+      "owner": "coordinator"
+    },
+    {
+      "id": "phase-1-implementation",
+      "name": "Threaded Server + Cache (parallel)",
+      "type": "implementation",
+      "execution": "parallel_worktrees",
+      "description": "Two independent worktrees building on the Phase 0 ConnectionPool contract.",
+      "gate": "per-worktree test suites pass",
+      "owner": "supervisors"
+    },
+    {
+      "id": "phase-2-integration",
+      "name": "Integration Tests",
+      "type": "integration",
+      "execution": "inline",
+      "description": "Concurrent access, cache invalidation on write, crash recovery integration tests.",
+      "gate": "integration test suite passes",
+      "owner": "coordinator"
+    }
+  ],
+
+  "work_packages": [
+    {
+      "id": "wp-0-pool",
+      "phase": "phase-0-contract",
+      "worktree": "main",
+      "objective": "Add ConnectionPool to KnowledgeGraph: read connections (query_only=1, WAL) separate from write connection. Add synchronous=FULL option and periodic WAL checkpoint.",
+      "allowed_paths": ["mnemosyne/graph/knowledge_graph.py", "tests/test_connection_pool.py"],
+      "inputs": ["mnemosyne/graph/knowledge_graph.py (current single-conn model)"],
+      "outputs": ["ConnectionPool class", "test_connection_pool.py"],
+      "acceptance_gates": ["existing KG tests pass", "pool tests pass", "read conn blocks writes"],
+      "dependencies": [],
+      "max_attempts": 3
+    },
+    {
+      "id": "wp-1-server",
+      "phase": "phase-1-implementation",
+      "worktree": "tier2-server",
+      "objective": "Replace HTTPServer with ThreadingHTTPServer in serve/app.py. Each request thread gets a read connection from the pool. Write endpoints use the write connection.",
+      "allowed_paths": ["mnemosyne/serve/app.py", "tests/test_threaded_serve.py"],
+      "inputs": ["wp-0-pool ConnectionPool interface"],
+      "outputs": ["threaded serve/app.py", "test_threaded_serve.py"],
+      "acceptance_gates": ["concurrent request test passes", "existing serve tests pass"],
+      "dependencies": ["wp-0-pool"],
+      "max_attempts": 3
+    },
+    {
+      "id": "wp-2-cache",
+      "phase": "phase-1-implementation",
+      "worktree": "tier2-cache",
+      "objective": "Add TTLCache to retrieval/engine.py: cache search results keyed by (query, scope, mode). Invalidate on entity add/update/delete via a cache-bust hook.",
+      "allowed_paths": ["mnemosyne/retrieval/engine.py", "tests/test_retrieval_cache.py"],
+      "inputs": ["wp-0-pool ConnectionPool interface"],
+      "outputs": ["cached retrieval/engine.py", "test_retrieval_cache.py"],
+      "acceptance_gates": ["cache hit/miss test passes", "invalidation on write test passes", "existing retrieval tests pass"],
+      "dependencies": ["wp-0-pool"],
+      "max_attempts": 3
+    },
+    {
+      "id": "wp-3-integration",
+      "phase": "phase-2-integration",
+      "worktree": "main",
+      "objective": "Integration tests: concurrent reads during write, cache invalidation across threads, WAL crash recovery.",
+      "allowed_paths": ["tests/test_tier2_integration.py"],
+      "inputs": ["wp-0-pool", "wp-1-server", "wp-2-cache"],
+      "outputs": ["test_tier2_integration.py"],
+      "acceptance_gates": ["all integration tests pass"],
+      "dependencies": ["wp-0-pool", "wp-1-server", "wp-2-cache"],
+      "max_attempts": 2
+    }
+  ],
+
+  "gates": [
+    {"id": "gate-pool", "blocks": ["wp-1-server", "wp-2-cache"], "condition": "wp-0-pool complete + tests green"},
+    {"id": "gate-impl", "blocks": ["wp-3-integration"], "condition": "wp-1-server + wp-2-cache complete"}
+  ],
+
+  "deferred_artifacts": []
+}
