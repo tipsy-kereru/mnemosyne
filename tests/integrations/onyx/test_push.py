@@ -17,8 +17,13 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from mnemosyne.integrations.onyx.client import OnyxClient
+from mnemosyne.integrations.onyx.client import (
+    IngestResult,
+    OnyxClient,
+    PushStatus,
+)
 from mnemosyne.integrations.onyx.exporter import OnyxPushExporter
+from mnemosyne.integrations.onyx.mapper import DestinationPolicy
 from mnemosyne.integrations.onyx.mock_server import MockOnyxServer
 from mnemosyne.integrations.onyx.sync_state import SyncStateStore
 
@@ -68,10 +73,15 @@ def _seed_entity(
     name: str,
     props: dict,
 ) -> None:
+    safe_props = {"classification": "public", "visibility": "public"}
+    safe_props.update(props)
     conn.execute(
         "INSERT INTO entities (id, type, name, properties, created_at, updated_at, "
         "version, scope_id, source_channel) VALUES (?, ?, ?, ?, ?, ?, 1, 'client-a', 'github')",
-        (eid, etype, name, json.dumps(props), "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z"),
+        (
+            eid, etype, name, json.dumps(safe_props),
+            "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z",
+        ),
     )
 
 
@@ -166,8 +176,15 @@ class TestRealPush:
             # Modify one entity
             kg_conn.execute(
                 "UPDATE entities SET properties = ? WHERE id = ?",
-                (json.dumps({"outcome": "rejected", "decided_by": ["Bob"]}),
-                 "client-a:decision:use-oauth"),
+                (
+                    json.dumps({
+                        "classification": "public",
+                        "visibility": "public",
+                        "outcome": "rejected",
+                        "decided_by": ["Bob"],
+                    }),
+                    "client-a:decision:use-oauth",
+                ),
             )
             kg_conn.commit()
 
@@ -221,3 +238,85 @@ class TestStateRecording:
         assert summary["total_documents"] == 3
         assert summary["by_status"]["accepted"] == 3
         assert summary["last_pushed_at"] is not None
+
+
+class _SpyPushClient:
+    def __init__(self):
+        self.ingest_ids: list[str] = []
+
+    def ingest(self, document_id, semantic_identifier, title, sections, metadata=None, doc_updated_at=None):
+        self.ingest_ids.append(document_id)
+        return IngestResult(document_id, PushStatus.ACCEPTED, status_code=200, attempts=1)
+
+
+def _matrix_conn(rows):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE entities (id TEXT PRIMARY KEY, type TEXT, name TEXT, properties TEXT, "
+        "updated_at TEXT, scope_id TEXT, source_channel TEXT, version INTEGER)"
+    )
+    conn.executemany(
+        "INSERT INTO entities VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows,
+    )
+    conn.commit()
+    return conn
+
+
+def _props(**overrides):
+    props = {"classification": "public", "visibility": "public", "outcome": "approved"}
+    props.update(overrides)
+    return props
+
+
+def test_t27_fixed_live_and_tombstoned_matrix_never_sends_denied_ids(tmp_path):
+    rows = [
+        ("public-live", "decision", "Public live", json.dumps(_props()), "2026-08-06", "scope-a", "test", 1),
+        ("private-live", "decision", "Private live", json.dumps(_props(classification="private")), "2026-08-06", "scope-a", "test", 1),
+        ("public-tombstoned", "decision", "Public tombstoned", json.dumps(_props(tombstoned_at="2026-08-06")), "2026-08-06", "scope-a", "test", 1),
+        ("private-tombstoned", "decision", "Private tombstoned", json.dumps(_props(classification="private", tombstoned_at="2026-08-06")), "2026-08-06", "scope-a", "test", 1),
+    ]
+    conn = _matrix_conn(rows)
+    client = _SpyPushClient()
+    outcome = OnyxPushExporter(
+        conn, client, SyncStateStore(tmp_path / "sync.db"),
+        destination_policy=DestinationPolicy(),
+    ).push_scope("scope-a")
+    assert outcome.pushed == 1
+    assert outcome.skipped == 1
+    assert client.ingest_ids == ["mnemosyne:scope-a:decision:public-live"]
+
+
+def test_t28_denied_entity_does_not_create_push_state_row(tmp_path):
+    conn = _matrix_conn([
+        ("private", "decision", "Private", json.dumps(_props(classification="private")), "2026-08-06", "scope-a", "test", 1),
+    ])
+    store = SyncStateStore(tmp_path / "sync.db")
+    outcome = OnyxPushExporter(
+        conn, _SpyPushClient(), store, destination_policy=DestinationPolicy(),
+    ).push_scope("scope-a")
+    assert outcome.skipped == 1
+
+
+def test_t29_valid_to_text_inside_unrelated_property_does_not_filter_live_entity(tmp_path):
+    props = _props(note="contains valid_to as ordinary text")
+    conn = _matrix_conn([
+        ("live", "decision", "Live", json.dumps(props), "2026-08-06", "scope-a", "test", 1),
+    ])
+    outcome = OnyxPushExporter(
+        conn, _SpyPushClient(), SyncStateStore(tmp_path / "sync.db"),
+        destination_policy=DestinationPolicy(),
+    ).push_scope("scope-a")
+    assert outcome.pushed == 1
+
+
+def test_t30_dry_run_details_contain_ids_and_codes_not_titles(tmp_path):
+    conn = _matrix_conn([
+        ("live", "decision", "Synthetic title", json.dumps(_props()), "2026-08-06", "scope-a", "test", 1),
+    ])
+    outcome = OnyxPushExporter(
+        conn, None, SyncStateStore(tmp_path / "sync.db"), dry_run=True,
+    ).push_scope("scope-a")
+    detail_text = json.dumps(outcome.details)
+    assert "mnemosyne:scope-a:decision:live" in detail_text
+    assert "Synthetic title" not in detail_text

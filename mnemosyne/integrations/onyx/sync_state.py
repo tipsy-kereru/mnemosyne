@@ -22,12 +22,14 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Push lifecycle states (§4 state machine subset for the push direction).
-PUSH_PENDING = "pending"        # queued, not yet sent
-PUSH_ACCEPTED = "accepted"      # Onyx API returned 200
-PUSH_INDEXED = "indexed"        # confirmed in Onyx index
-PUSH_FAILED = "failed"          # terminal failure after retries
-PUSH_NOOP = "noop"              # same content hash, skipped
+PUSH_PENDING = "pending"
+PUSH_ACCEPTED = "accepted"
+PUSH_INDEXED = "indexed"
+PUSH_FAILED = "failed"
+PUSH_NOOP = "noop"
+PUSH_WITHDRAW_PENDING = "withdraw_pending"
+PUSH_WITHDRAW_BLOCKED = "withdraw_blocked"
+PUSH_WITHDRAWN = "withdrawn"
 
 
 def _utc_now() -> str:
@@ -50,6 +52,16 @@ class PushState:
     error: str = ""
     attempts: int = 0
 
+
+@dataclass(frozen=True)
+class PreflightRecord:
+    scope_id: str
+    destination_id: str
+    destination_fingerprint: str
+    reviewed_at: str
+    actor: str
+    candidate_count: int
+    deny_count: int
 
 class SyncStateStore:
     """Persists push state in a SQLite table alongside the KG."""
@@ -91,6 +103,17 @@ class SyncStateStore:
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_onyx_push_status "
             "ON onyx_push_state(status)"
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS onyx_preflight (
+                scope_id TEXT PRIMARY KEY,
+                destination_id TEXT NOT NULL,
+                destination_fingerprint TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                candidate_count INTEGER NOT NULL,
+                deny_count INTEGER NOT NULL
+            )"""
         )
         self.conn.commit()
 
@@ -194,6 +217,69 @@ class SyncStateStore:
             params,
         )
         self.conn.commit()
+    def list_scope(self, scope_id: str) -> list[PushState]:
+        rows = self.conn.execute(
+            "SELECT * FROM onyx_push_state WHERE scope_id=?",
+            (scope_id,),
+        ).fetchall()
+        return [
+            PushState(
+                document_id=row["document_id"], scope_id=row["scope_id"],
+                entity_type=row["entity_type"], entity_id=row["entity_id"],
+                status=row["status"], content_hash=row["content_hash"],
+                pushed_at=row["pushed_at"], accepted_at=row["accepted_at"],
+                indexed_at=row["indexed_at"], error=row["error"],
+                attempts=row["attempts"],
+            )
+            for row in rows
+        ]
+
+    def mark_withdraw_blocked(self, document_id: str, reason: str) -> None:
+        self._update_status(document_id, PUSH_WITHDRAW_BLOCKED)
+        self.conn.execute(
+            "UPDATE onyx_push_state SET error=? WHERE document_id=?",
+            (reason, document_id),
+        )
+        self.conn.commit()
+
+    def mark_withdrawn(self, document_id: str) -> None:
+        self._update_status(document_id, PUSH_WITHDRAWN)
+
+    def record_preflight(self, record: PreflightRecord) -> None:
+        self.conn.execute(
+            """INSERT INTO onyx_preflight
+               (scope_id, destination_id, destination_fingerprint,
+                reviewed_at, actor, candidate_count, deny_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(scope_id) DO UPDATE SET
+                 destination_id=excluded.destination_id,
+                 destination_fingerprint=excluded.destination_fingerprint,
+                 reviewed_at=excluded.reviewed_at, actor=excluded.actor,
+                 candidate_count=excluded.candidate_count,
+                 deny_count=excluded.deny_count""",
+            (
+                record.scope_id, record.destination_id,
+                record.destination_fingerprint, record.reviewed_at,
+                record.actor, record.candidate_count, record.deny_count,
+            ),
+        )
+        self.conn.commit()
+
+    def get_preflight(self, scope_id: str) -> Optional[PreflightRecord]:
+        row = self.conn.execute(
+            "SELECT * FROM onyx_preflight WHERE scope_id=?", (scope_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return PreflightRecord(
+            scope_id=row["scope_id"],
+            destination_id=row["destination_id"],
+            destination_fingerprint=row["destination_fingerprint"],
+            reviewed_at=row["reviewed_at"],
+            actor=row["actor"],
+            candidate_count=row["candidate_count"],
+            deny_count=row["deny_count"],
+        )
 
     def get_scope_summary(self, scope_id: str) -> dict[str, Any]:
         """Aggregate push state for a scope (for `sync status`)."""

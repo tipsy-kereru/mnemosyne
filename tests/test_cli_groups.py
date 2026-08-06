@@ -39,6 +39,30 @@ class TestIngestGroupDispatch:
         assert ns.group == "ingest" and ns.verb == "update"
         assert ns.stats is True
 
+    def test_ingest_update_accepts_personal_runtime_overrides(self):
+        from mnemosyne.cli import build_parser
+
+        ns = build_parser().parse_args([
+            "ingest", "update", "notes", "--db-path", "/tmp/personal.db",
+            "--raw-root", "/tmp/raw", "--source-channel", "obsidian", "--quiet",
+        ])
+        assert ns.db_path == "/tmp/personal.db"
+        assert ns.raw_root == "/tmp/raw"
+        assert ns.source_channel == "obsidian"
+        assert ns.quiet is True
+
+    def test_ingest_add_accepts_personal_runtime_overrides(self):
+        from mnemosyne.cli import build_parser
+
+        ns = build_parser().parse_args([
+            "ingest", "add", "notes", "--db-path", "/tmp/personal.db",
+            "--raw-root", "/tmp/raw", "--wiki-root", "/tmp/wiki", "--quiet",
+        ])
+        assert ns.db_path == "/tmp/personal.db"
+        assert ns.raw_root == "/tmp/raw"
+        assert ns.wiki_root == "/tmp/wiki"
+        assert ns.quiet is True
+
     def test_ingest_extract_dispatches_to_run_extract(self):
         from mnemosyne.cli import build_parser
         ns = build_parser().parse_args(
@@ -54,6 +78,14 @@ class TestGraphGroupDispatch:
         ns = build_parser().parse_args(["graph", "query", "entity:function[foo]"])
         assert ns.group == "graph" and ns.verb == "query"
         assert ns.query == "entity:function[foo]"
+
+    def test_graph_query_accepts_db_path(self):
+        from mnemosyne.cli import build_parser
+
+        ns = build_parser().parse_args([
+            "graph", "query", "search:private", "--db-path", "/tmp/personal.db",
+        ])
+        assert ns.db_path == "/tmp/personal.db"
 
     def test_graph_stats_verb(self):
         from mnemosyne.cli import build_parser

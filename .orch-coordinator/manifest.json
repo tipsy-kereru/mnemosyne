@@ -1,97 +1,130 @@
 {
-  "coordinator_id": "tier2-hardening",
-  "goal": "Tier 2 local performance hardening: connection pool (read/write separation), in-memory TTL cache, crash-safe atomicity, and threaded HTTP server — all stdlib-only, no external deps",
-  "control_worktree": "main",
-  "repo_id": "c0ad69f5-b082-40b8-b739-13a66877adb1",
-  "max_worktrees": 3,
-  "max_iterations": 100,
-  "created_at": "2026-08-02T00:00:00Z",
-
+  "coordinator_id": "mnemosyne-personal-obsidian-2026-08-05",
+  "revision": 3,
+  "run_id": "run_af0ee969cbcf",
+  "prior_run_id": "run_9cf35d22a4c5",
+  "goal": "Close Onyx outbound ACL/classification, tombstone/withdrawal, lifecycle, preflight, and credential-boundary gaps without private-note ingest or external publication.",
+  "control_worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+  "max_worktrees": 1,
+  "max_iterations": 40,
+  "max_tabs": 3,
+  "assumptions": [
+    "Work stays in the current dirty main worktree; existing user changes are preserved.",
+    "Only synthetic fixtures and /tmp paths may be used; no credential or private-note files may be read.",
+    "External Onyx publication, provider calls with personal content, git push, PR creation, and dependency installation remain blocked.",
+    "The prior lifecycle dispatch was rejected by missing capability; its report is preserved and a fresh retry task is authoritative."
+  ],
   "phases": [
     {
-      "id": "phase-0-contract",
-      "name": "Connection Pool + Atomicity",
+      "id": "phase-1-design",
+      "name": "Lifecycle review and contract synthesis",
       "type": "contract_gate",
-      "execution": "inline",
-      "description": "Define ConnectionPool interface (get_read_conn/get_write_conn), WAL hardening (synchronous=FULL), periodic checkpoint. This is the shared contract downstream worktrees depend on.",
-      "gate": "python3 -m pytest tests/test_knowledge_graph_session.py tests/integrations/onyx/ -q --tb=short",
+      "execution": "worktree_supervisor",
+      "description": "Complete a fresh lifecycle review, then synthesize it with the completed security review into one implementation contract.",
+      "gate": "Design artifact defines per-scope policy, deny/quarantine semantics, ACL-before-noop, checkpoint/replay, tombstone/withdrawal state, preflight, credential boundaries, and tests.",
       "owner": "coordinator"
     },
     {
-      "id": "phase-1-implementation",
-      "name": "Threaded Server + Cache (parallel)",
+      "id": "phase-2-implementation",
+      "name": "Policy lifecycle and preflight implementation",
       "type": "implementation",
-      "execution": "parallel_worktrees",
-      "description": "Two independent worktrees building on the Phase 0 ConnectionPool contract.",
-      "gate": "per-worktree test suites pass",
-      "owner": "supervisors"
+      "execution": "worktree_supervisor",
+      "description": "Implement only the approved design in the existing dirty worktree and focused synthetic tests.",
+      "gate": "Scoped tests pass; blocked entities never call Onyx; lifecycle and preflight fail closed; no private data or credentials are used.",
+      "owner": "wp-implementation-v3"
     },
     {
-      "id": "phase-2-integration",
-      "name": "Integration Tests",
-      "type": "integration",
-      "execution": "inline",
-      "description": "Concurrent access, cache invalidation on write, crash recovery integration tests.",
-      "gate": "integration test suite passes",
-      "owner": "coordinator"
+      "id": "phase-3-validation",
+      "name": "Independent security and regression validation",
+      "type": "validation",
+      "execution": "worktree_supervisor",
+      "description": "Review the implementation independently and run focused synthetic probes and scoped suites.",
+      "gate": "No unresolved P0 privacy/ACL/tombstone/preflight defect remains; exact evidence and deferred gates are reported.",
+      "owner": "wp-validation-v3"
     }
   ],
-
   "work_packages": [
     {
-      "id": "wp-0-pool",
-      "phase": "phase-0-contract",
-      "worktree": "main",
-      "objective": "Add ConnectionPool to KnowledgeGraph: read connections (query_only=1, WAL) separate from write connection. Add synchronous=FULL option and periodic WAL checkpoint.",
-      "allowed_paths": ["mnemosyne/graph/knowledge_graph.py", "tests/test_connection_pool.py"],
-      "inputs": ["mnemosyne/graph/knowledge_graph.py (current single-conn model)"],
-      "outputs": ["ConnectionPool class", "test_connection_pool.py"],
-      "acceptance_gates": ["existing KG tests pass", "pool tests pass", "read conn blocks writes"],
-      "dependencies": [],
-      "max_attempts": 3
+      "id": "wp-arch-security",
+      "task_id": "task_718fa9a5906c",
+      "phase": "phase-1-design",
+      "status": "completed",
+      "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+      "supervisor_skill": "orca-orchestrator",
+      "objective": "Read-only security architect review of outbound classification, ACL, tombstone, destination capability, and privacy boundaries.",
+      "outputs": ["/private/tmp/claude-501/-Users-kereru-Development-mnemosyne/85af37ed-944d-4b46-ad2e-6970aff34bf0/scratchpad/SECURITY_ARCH_REVIEW_ONYX.md"],
+      "acceptance_gates": ["read-only", "no secrets/private notes", "exact code evidence"]
     },
     {
-      "id": "wp-1-server",
-      "phase": "phase-1-implementation",
-      "worktree": "tier2-server",
-      "objective": "Replace HTTPServer with ThreadingHTTPServer in serve/app.py. Each request thread gets a read connection from the pool. Write endpoints use the write connection.",
-      "allowed_paths": ["mnemosyne/serve/app.py", "tests/test_threaded_serve.py"],
-      "inputs": ["wp-0-pool ConnectionPool interface"],
-      "outputs": ["threaded serve/app.py", "test_threaded_serve.py"],
-      "acceptance_gates": ["concurrent request test passes", "existing serve tests pass"],
-      "dependencies": ["wp-0-pool"],
-      "max_attempts": 3
+      "id": "wp-arch-lifecycle-retry",
+      "task_id": "task_c7c6e3853a89",
+      "phase": "phase-1-design",
+      "status": "dispatched",
+      "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+      "supervisor_skill": "orca-orchestrator",
+      "objective": "Fresh read-only lifecycle review against the current dirty source and prior escalation.",
+      "inputs": ["task_718fa9a5906c result", "docs/ONYX_READ_ONLY_EXPORT_CONTRACT.md", "current source and focused tests"],
+      "outputs": ["lifecycle review report", "state invariants", "regression matrix"],
+      "acceptance_gates": ["read-only", "no secrets/private notes", "worker_done with exact evidence"],
+      "dependencies": []
     },
     {
-      "id": "wp-2-cache",
-      "phase": "phase-1-implementation",
-      "worktree": "tier2-cache",
-      "objective": "Add TTLCache to retrieval/engine.py: cache search results keyed by (query, scope, mode). Invalidate on entity add/update/delete via a cache-bust hook.",
-      "allowed_paths": ["mnemosyne/retrieval/engine.py", "tests/test_retrieval_cache.py"],
-      "inputs": ["wp-0-pool ConnectionPool interface"],
-      "outputs": ["cached retrieval/engine.py", "test_retrieval_cache.py"],
-      "acceptance_gates": ["cache hit/miss test passes", "invalidation on write test passes", "existing retrieval tests pass"],
-      "dependencies": ["wp-0-pool"],
-      "max_attempts": 3
+      "id": "wp-design-synthesis-v3",
+      "task_id": "task_31177f4c8ff3",
+      "phase": "phase-1-design",
+      "status": "pending",
+      "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+      "supervisor_skill": "orca-orchestrator",
+      "objective": "Synthesize security and lifecycle reports into one minimal approved design artifact.",
+      "outputs": ["docs/ONYX_OUTBOUND_ENFORCEMENT_DESIGN.ko.md"],
+      "acceptance_gates": ["both reports reconciled", "no unresolved contract ambiguity", "test matrix included"],
+      "dependencies": ["task_718fa9a5906c", "task_c7c6e3853a89"]
     },
     {
-      "id": "wp-3-integration",
-      "phase": "phase-2-integration",
-      "worktree": "main",
-      "objective": "Integration tests: concurrent reads during write, cache invalidation across threads, WAL crash recovery.",
-      "allowed_paths": ["tests/test_tier2_integration.py"],
-      "inputs": ["wp-0-pool", "wp-1-server", "wp-2-cache"],
-      "outputs": ["test_tier2_integration.py"],
-      "acceptance_gates": ["all integration tests pass"],
-      "dependencies": ["wp-0-pool", "wp-1-server", "wp-2-cache"],
-      "max_attempts": 2
+      "id": "wp-implementation-v3",
+      "task_id": "task_992a5d8d1422",
+      "phase": "phase-2-implementation",
+      "status": "pending",
+      "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+      "supervisor_skill": "orca-orchestrator",
+      "objective": "Implement approved outbound policy, inbound lifecycle, withdrawal/suppression, preflight, and credential boundaries with focused tests.",
+      "allowed_paths": ["mnemosyne/integrations/onyx/", "mnemosyne/cli.py", "tests/integrations/onyx/", "docs/ONYX_READ_ONLY_EXPORT_CONTRACT.md", "docs/ONYX_OUTBOUND_ENFORCEMENT_DESIGN.ko.md"],
+      "outputs": ["implementation diff", "regression tests", "scoped test evidence"],
+      "acceptance_gates": ["blocked mapper results are non-publishable", "blocked exporter never calls client", "ACL revalidation before no-op", "checkpoint/quarantine semantics covered", "tombstone/withdrawal state covered", "blocking preflight before client creation", "scoped tests pass"],
+      "dependencies": ["task_31177f4c8ff3"]
+    },
+    {
+      "id": "wp-validation-v3",
+      "task_id": "task_3551191472ae",
+      "phase": "phase-3-validation",
+      "status": "pending",
+      "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+      "supervisor_skill": "orca-orchestrator",
+      "objective": "Independent security and regression validation of the v3 implementation.",
+      "outputs": ["independent validation report", "synthetic probe evidence", "pass/fail verdict"],
+      "acceptance_gates": ["scoped suite passes", "negative ACL/tombstone/preflight cases pass", "no client call for blocked entity", "no secret/private-note mutation", "no unresolved P0 finding"],
+      "dependencies": ["task_992a5d8d1422"]
     }
   ],
-
-  "gates": [
-    {"id": "gate-pool", "blocks": ["wp-1-server", "wp-2-cache"], "condition": "wp-0-pool complete + tests green"},
-    {"id": "gate-impl", "blocks": ["wp-3-integration"], "condition": "wp-1-server + wp-2-cache complete"}
+  "superseded_tasks": [
+    {"task_id": "task_9ef0cfd0b5e0", "reason": "worker_done was rejected by missing dispatch capability; report preserved in orchestration inbox"},
+    {"task_id": "task_36f33db657ea", "reason": "blocked by superseded lifecycle task; replaced by task_31177f4c8ff3"},
+    {"task_id": "task_769732922fc1", "reason": "blocked by superseded synthesis task; replaced by task_992a5d8d1422"},
+    {"task_id": "task_b985fe24491c", "reason": "blocked by superseded implementation task; replaced by task_3551191472ae"}
   ],
-
-  "deferred_artifacts": []
+  "gates": [
+    {"id": "gate-no-private-data", "status": "passed", "blocks": [], "condition": "No private-note content, credentials, provider calls, or external Onyx destination may be used."},
+    {"id": "gate-design-consensus-v3", "status": "pending", "blocks": ["task_992a5d8d1422"], "condition": "Fresh lifecycle report and security report are reconciled into the approved design artifact."},
+    {"id": "gate-outbound-enforcement-v3", "status": "pending", "blocks": ["task_3551191472ae"], "condition": "Policy, lifecycle, tombstone/withdrawal, and preflight enforcement pass synthetic negative cases before client calls."},
+    {"id": "gate-external-publication", "status": "blocked", "blocks": [], "condition": "Provider/privacy approval, target Onyx withdrawal verification, destination ACL approval, reviewed dry-run, and credential injection approval remain required; no live publication in this program."},
+    {"id": "gate-delivery-v3", "status": "pending", "blocks": [], "condition": "Implementation and independent validation artifacts exist and all scoped gates pass."}
+  ],
+  "deferred_artifacts": [
+    "Provider/privacy/retention approval for real personal Markdown",
+    "Target Onyx API withdrawal/delete verification",
+    "Per-scope destination ACL/capability approval",
+    "Reviewed synthetic dry-run evidence",
+    "macOS Keychain or approved secret-manager injection record",
+    "Actual external publication and watcher/launchd automation"
+  ]
 }

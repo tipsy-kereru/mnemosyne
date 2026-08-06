@@ -1,0 +1,16 @@
+{
+  "maxTabs": 3,
+  "defaultToolByRole": {
+    "implementer": "omp",
+    "reviewer": "codex",
+    "explorer": "opencode",
+    "handoffWriter": "opencode"
+  },
+  "modelClassDefaults": {
+    "reasoning-heavy": {"effort": "high"},
+    "implementation": {"effort": "medium"},
+    "cheap-fast": {"effort": "low", "preferOpencodeGo": true}
+  },
+  "worktreeId": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
+  "idleTimeoutMs": 900000
+}

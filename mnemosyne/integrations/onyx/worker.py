@@ -35,6 +35,7 @@ from mnemosyne.integrations.onyx.checkpoint import CheckpointStore
 from mnemosyne.integrations.onyx.config import ConnectorMapping, SyncConfig
 from mnemosyne.integrations.onyx.contract import (
     Envelope,
+    PUBLISHABLE_ENTITY_TYPES,
     entity_stable_id,
     validate_envelope,
 )
@@ -48,12 +49,44 @@ STATUS_QUARANTINED = "quarantined"
 STATUS_REJECTED = "rejected"
 STATUS_FAILED = "failed"
 
-# Entity type used when an envelope carries no source_type.
 _DEFAULT_ENTITY_TYPE = "document"
+_CLASSIFICATION_ORDER = ("private", "confidential", "internal", "public")
+ALLOWED_SOURCE_TYPES: frozenset[str] = frozenset({
+    "github", "slack", "gmail", "file", "confluence", "notion", "web",
+    "document",
+})
+
+
+def _classification_rank(level: str) -> int:
+    return _CLASSIFICATION_ORDER.index(level)
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _resolve_entity_type(envelope: Envelope) -> str:
+    """Resolve only allowlisted inbound source types."""
+    source_type = (envelope.source_type or "").strip()
+    if source_type not in ALLOWED_SOURCE_TYPES:
+        return _DEFAULT_ENTITY_TYPE
+    if source_type in PUBLISHABLE_ENTITY_TYPES:
+        return _DEFAULT_ENTITY_TYPE
+    return source_type
+
+
+def _safe_watermark(
+    committed: list[str], unresolved: list[str], previous: str
+) -> str:
+    """Return the greatest committed timestamp strictly before unresolved."""
+    floor = min(unresolved) if unresolved else None
+    candidates = [
+        timestamp for timestamp in committed
+        if timestamp and (floor is None or timestamp < floor)
+    ]
+    if previous:
+        candidates.append(previous)
+    return max(candidates, default=previous)
 
 
 @dataclass
@@ -105,6 +138,12 @@ class ExportWorker:
 
     # ── Schema ────────────────────────────────────────────────────
 
+    def _table_exists(self, table: str) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone() is not None
+
     def _init_tables(self) -> None:
         """Idempotently create the worker-owned tables in the KG DB.
 
@@ -115,16 +154,38 @@ class ExportWorker:
         The ``entities`` and ``entity_history`` tables are owned by the
         knowledge graph and assumed to already exist.
         """
+        source_info = self.conn.execute(
+            "PRAGMA table_info(onyx_source_index)"
+        ).fetchall()
+        if source_info and not any(
+            row["name"] == "scope_id" and row["pk"] == 2
+            for row in source_info
+        ):
+            self.conn.execute(
+                "ALTER TABLE onyx_source_index RENAME TO onyx_source_index_old"
+            )
+            source_info = []
         self.conn.execute('''
             CREATE TABLE IF NOT EXISTS onyx_source_index (
-                source_doc_id  TEXT PRIMARY KEY,
+                source_doc_id  TEXT NOT NULL,
                 scope_id       TEXT NOT NULL,
                 content_hash   TEXT NOT NULL,
                 entity_id      TEXT NOT NULL,
                 version        INTEGER NOT NULL DEFAULT 1,
-                ingested_at    TEXT NOT NULL
+                ingested_at    TEXT NOT NULL,
+                PRIMARY KEY (source_doc_id, scope_id)
             )
         ''')
+        if self._table_exists("onyx_source_index_old"):
+            self.conn.execute('''
+                INSERT OR IGNORE INTO onyx_source_index
+                    (source_doc_id, scope_id, content_hash, entity_id,
+                     version, ingested_at)
+                SELECT source_doc_id, scope_id, content_hash, entity_id,
+                       version, ingested_at
+                FROM onyx_source_index_old
+            ''')
+            self.conn.execute("DROP TABLE onyx_source_index_old")
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_onyx_source_scope "
             "ON onyx_source_index(scope_id)"
@@ -133,57 +194,121 @@ class ExportWorker:
             "CREATE INDEX IF NOT EXISTS idx_onyx_source_entity "
             "ON onyx_source_index(entity_id)"
         )
+        quarantine_info = self.conn.execute(
+            "PRAGMA table_info(onyx_quarantine)"
+        ).fetchall()
+        if quarantine_info and not (
+            any(row["name"] == "source_doc_id" and row["pk"] == 1
+                for row in quarantine_info)
+            and any(row["name"] == "scope_id" and row["pk"] == 2
+                    for row in quarantine_info)
+        ):
+            self.conn.execute(
+                "ALTER TABLE onyx_quarantine RENAME TO onyx_quarantine_old"
+            )
+            quarantine_info = []
         self.conn.execute('''
             CREATE TABLE IF NOT EXISTS onyx_quarantine (
-                source_doc_id     TEXT PRIMARY KEY,
+                source_doc_id     TEXT NOT NULL,
                 scope_id          TEXT NOT NULL,
                 reason            TEXT NOT NULL,
                 quarantined_at    TEXT NOT NULL,
                 envelope_snapshot TEXT,
                 resolved          INTEGER NOT NULL DEFAULT 0,
                 resolved_at       TEXT,
-                resolution        TEXT
+                resolved_by       TEXT,
+                resolution        TEXT,
+                resolution_reason TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (source_doc_id, scope_id)
             )
         ''')
+        if self._table_exists("onyx_quarantine_old"):
+            old_columns = {
+                row["name"] for row in self.conn.execute(
+                    "PRAGMA table_info(onyx_quarantine_old)"
+                ).fetchall()
+            }
+            columns = (
+                "source_doc_id", "scope_id", "reason", "quarantined_at",
+                "envelope_snapshot", "resolved", "resolved_at",
+                "resolved_by", "resolution", "resolution_reason",
+            )
+            expressions = []
+            for name in columns:
+                if name not in old_columns:
+                    expressions.append(
+                        "0" if name == "resolved" else
+                        "''" if name in {
+                            "scope_id", "reason", "quarantined_at",
+                            "resolution_reason",
+                        } else "NULL"
+                    )
+                elif name in {
+                    "scope_id", "reason", "quarantined_at",
+                }:
+                    expressions.append(f"COALESCE({name}, '')")
+                else:
+                    expressions.append(name)
+            self.conn.execute(
+                f"INSERT OR IGNORE INTO onyx_quarantine ({', '.join(columns)}) "
+                f"SELECT {', '.join(expressions)} FROM onyx_quarantine_old"
+            )
+            self.conn.execute("DROP TABLE onyx_quarantine_old")
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_onyx_quarantine_scope "
+            "ON onyx_quarantine(scope_id)"
+        )
         self.conn.commit()
 
     # ── Single-envelope processing ────────────────────────────────
 
     def process_envelope(self, envelope: Envelope) -> ProcessResult:
-        """Process one document through the export pipeline.
-
-        Order follows the §4 state machine:
-
-        1. **Validate** — contract violations → ``rejected``.
-        2. **Idempotency** — same content hash already ingested → ``noop``.
-        3. **ACL quarantine** — unverifiable access → ``quarantined``.
-        4. **Ingest** — upsert the entity into the KG → ``ingested``.
-        """
-        # 1. Validate against the data contract.
+        """Process one document through validation, ACL, and ingestion."""
         errors = validate_envelope(envelope)
         if errors:
-            logger.warning(
-                "Envelope rejected (external_document_id=%s): %s",
-                envelope.external_document_id,
-                "; ".join(errors),
-            )
             return ProcessResult(
                 status=STATUS_REJECTED,
                 content_hash=envelope.content_hash,
-                error="; ".join(errors),
+                error="reject:contract_violation: " + "; ".join(errors),
                 skipped=True,
             )
 
-        # 2. Idempotency: same source + same content hash = no-op.
-        existing = self._lookup_source(envelope.source_doc_id)
+        mapping = self.config.mapping_for_connector(
+            envelope.onyx_connector_id
+        )
+        quarantined, reason = should_quarantine(envelope, mapping)
+        if quarantined:
+            self._store_quarantine(create_quarantine(envelope, reason))
+            return ProcessResult(
+                status=STATUS_QUARANTINED,
+                content_hash=envelope.content_hash,
+                error=reason,
+                skipped=True,
+            )
+        if mapping is not None:
+            self._apply_mapping_policy(envelope, mapping)
+
+        existing = self._lookup_source(
+            envelope.source_doc_id, envelope.scope_id
+        )
+        if existing is not None:
+            entity_row = self.conn.execute(
+                "SELECT properties FROM entities WHERE id = ?",
+                (existing["entity_id"],),
+            ).fetchone()
+            current_props = _parse_json(
+                entity_row["properties"] if entity_row else None
+            )
+            if current_props.get("tombstoned_at") or current_props.get("valid_to"):
+                return ProcessResult(
+                    status=STATUS_REJECTED,
+                    error="reject:tombstoned_source: explicit reinstatement is required",
+                    skipped=True,
+                )
         if (
             existing is not None
             and existing["content_hash"] == envelope.content_hash
         ):
-            logger.debug(
-                "No-op: source_doc_id=%s already ingested with same hash",
-                envelope.source_doc_id,
-            )
             return ProcessResult(
                 status=STATUS_NOOP,
                 entity_id=existing["entity_id"],
@@ -191,30 +316,9 @@ class ExportWorker:
                 skipped=True,
             )
 
-        # 3. ACL quarantine.
-        mapping = self.config.mapping_for_connector(
-            envelope.onyx_connector_id
-        )
-        quarantined, reason = should_quarantine(envelope, mapping)
-        if quarantined:
-            record = create_quarantine(envelope, reason)
-            self._store_quarantine(record)
-            logger.info(
-                "Envelope quarantined (source_doc_id=%s): %s",
-                envelope.source_doc_id,
-                reason,
-            )
-            return ProcessResult(
-                status=STATUS_QUARANTINED,
-                content_hash=envelope.content_hash,
-                error=reason,
-                skipped=True,
-            )
-
-        # 4. Ingest.
         try:
             entity_id = self._upsert_entity(envelope, existing)
-        except Exception as exc:  # noqa: BLE001 - surface as failed status
+        except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Ingest failed for source_doc_id=%s", envelope.source_doc_id
             )
@@ -223,12 +327,27 @@ class ExportWorker:
                 content_hash=envelope.content_hash,
                 error=str(exc),
             )
-
         return ProcessResult(
             status=STATUS_INGESTED,
             entity_id=entity_id,
             content_hash=envelope.content_hash,
         )
+
+    @staticmethod
+    def _apply_mapping_policy(
+        envelope: Envelope, mapping: ConnectorMapping
+    ) -> None:
+        """Apply the mapping classification as a restrictive floor."""
+        source = envelope.classification
+        floor = mapping.default_classification
+        if source not in _CLASSIFICATION_ORDER:
+            envelope.classification = floor
+            return
+        if floor not in _CLASSIFICATION_ORDER:
+            envelope.classification = "private"
+            return
+        if _classification_rank(source) > _classification_rank(floor):
+            envelope.classification = floor
 
     # ── Batch processing ──────────────────────────────────────────
 
@@ -237,92 +356,204 @@ class ExportWorker:
         envelopes: list[Envelope],
         connector_id: str,
     ) -> BatchResult:
-        """Process a batch, then advance the connector checkpoint.
-
-        Each envelope is processed independently; a failure on one does
-        not abort the rest (at-least-once with idempotent re-tries).
-        """
+        """Process a batch and advance only past unresolved timestamps."""
         result = BatchResult(connector_id=connector_id)
-        watermark = ""
+        committed: list[str] = []
+        unresolved: list[str] = []
+        unresolved_errors: list[str] = []
         scope_id = ""
 
         for env in envelopes:
             result.total += 1
-            if not scope_id:
-                scope_id = env.scope_id
-
+            scope_id = scope_id or env.scope_id
             pr = self.process_envelope(env)
             if pr.status == STATUS_INGESTED:
                 result.ingested += 1
+                committed.append(env.source_updated_at or env.captured_at)
             elif pr.status == STATUS_NOOP:
                 result.noop += 1
+                committed.append(env.source_updated_at or env.captured_at)
             elif pr.status == STATUS_QUARANTINED:
                 result.quarantined += 1
+                unresolved.append(env.source_updated_at or env.captured_at)
+                unresolved_errors.append(pr.error)
             elif pr.status == STATUS_REJECTED:
                 result.rejected += 1
+                unresolved.append(env.source_updated_at or env.captured_at)
+                unresolved_errors.append(pr.error)
             elif pr.status == STATUS_FAILED:
                 result.failed += 1
-                self.checkpoint_store.record_error(connector_id, pr.error)
+                unresolved.append(env.source_updated_at or env.captured_at)
+                unresolved_errors.append(pr.error)
 
-            # Watermark = the latest source timestamp seen (ISO-sortable).
-            candidate = env.source_updated_at or env.captured_at
-            if candidate and candidate > watermark:
-                watermark = candidate
-
-        # Resolve scope from the mapping when envelopes were empty/blank.
         if not scope_id:
             mapping = self.config.mapping_for_connector(connector_id)
             scope_id = mapping.scope_id if mapping else ""
-
-        # Advance checkpoint (§6 Phase 2: resume from watermark).
         existing = self.checkpoint_store.get(connector_id)
+        previous = existing.last_watermark if existing else ""
+        watermark = _safe_watermark(committed, unresolved, previous)
         processed = (existing.documents_processed if existing else 0) + result.ingested
-        mark = watermark or _utc_now()
-        self.checkpoint_store.save(connector_id, scope_id, mark, processed)
-        result.checkpoint_watermark = self.checkpoint_store.get(
-            connector_id
-        ).last_watermark  # type: ignore[union-attr]
-
+        if watermark and (watermark != previous or not unresolved):
+            self.checkpoint_store.save(
+                connector_id, scope_id, watermark, processed
+            )
+        if unresolved:
+            self.checkpoint_store.record_error(
+                connector_id,
+                "; ".join(error for error in unresolved_errors if error)
+                or "unresolved export item",
+            )
+        checkpoint = self.checkpoint_store.get(connector_id)
+        result.checkpoint_watermark = (
+            checkpoint.last_watermark if checkpoint else ""
+        )
         return result
+
 
     # ── Deletion (tombstone) ──────────────────────────────────────
 
     def handle_deletion(self, source_doc_id: str, scope_id: str) -> str:
-        """Tombstone entities sourced from ``source_doc_id``.
-
-        Per §3 rule 5, deletion is recorded as a tombstone —
-        ``properties['tombstoned_at']`` and ``properties['valid_to']`` —
-        and an ``entity_history`` row with ``change_type='deleted'``. The
-        entity row is never physically removed, preserving past evidence.
-
-        Returns ``'tombstoned'`` if any entity was marked, else
-        ``'not_found'``.
-        """
-        # Primary lookup: the worker-maintained source index.
+        """Write an idempotent, scope-bound tombstone."""
         rows = self.conn.execute(
-            "SELECT entity_id FROM onyx_source_index WHERE source_doc_id = ?",
-            (source_doc_id,),
+            "SELECT entity_id FROM onyx_source_index "
+            "WHERE source_doc_id = ? AND scope_id = ?",
+            (source_doc_id, scope_id),
         ).fetchall()
         entity_ids = [r["entity_id"] for r in rows]
-
-        # Fallback: entities whose JSON properties reference the doc.
         if not entity_ids:
             entity_ids = self._find_by_property(source_doc_id, scope_id)
-
         if not entity_ids:
             return "not_found"
 
+        changed = False
         now = _utc_now()
         for entity_id in entity_ids:
-            self._tombstone_entity(entity_id, now)
-        return "tombstoned"
+            changed = self._tombstone_entity(entity_id, now) or changed
+        return "tombstoned" if changed else "tombstoned_noop"
+
+    def resolve_quarantine(
+        self,
+        source_doc_id: str,
+        scope_id: str,
+        *,
+        actor: str,
+        decision: str,
+        reason: str = "",
+    ) -> str:
+        """Apply an explicit, auditable quarantine decision."""
+        if not actor:
+            return "reject:replay_unauthorized"
+        row = self.conn.execute(
+            "SELECT * FROM onyx_quarantine "
+            "WHERE source_doc_id = ? AND scope_id = ? AND resolved = 0",
+            (source_doc_id, scope_id),
+        ).fetchone()
+        if row is None:
+            return "not_found"
+        if decision == "reject":
+            self.conn.execute(
+                "UPDATE onyx_quarantine SET resolved=1, resolved_at=?, "
+                "resolved_by=?, resolution='rejected', resolution_reason=? "
+                "WHERE source_doc_id=? AND scope_id=?",
+                (_utc_now(), actor, reason, source_doc_id, scope_id),
+            )
+            self.conn.commit()
+            return "rejected"
+        if decision != "replay":
+            return "reject:replay_unauthorized"
+        snapshot = _parse_json(row["envelope_snapshot"])
+        envelope = Envelope.from_dict(snapshot)
+        return self.replay_quarantine(
+            source_doc_id, scope_id, actor=actor, envelope=envelope,
+            reason=reason,
+        ).status
+
+    def replay_quarantine(
+        self,
+        source_doc_id: str,
+        scope_id: str,
+        *,
+        actor: str,
+        envelope: Envelope,
+        reason: str = "",
+    ) -> ProcessResult:
+        """Re-run validation, scope mapping, ACL, and ingestion."""
+        if not actor:
+            return ProcessResult(
+                status=STATUS_REJECTED, error="reject:replay_unauthorized",
+                skipped=True,
+            )
+        if envelope.source_doc_id != source_doc_id or envelope.scope_id != scope_id:
+            return ProcessResult(
+                status=STATUS_REJECTED, error="reject:replay_unauthorized",
+                skipped=True,
+            )
+        result = self.process_envelope(envelope)
+        if result.status != STATUS_QUARANTINED:
+            self.conn.execute(
+                "UPDATE onyx_quarantine SET resolved=1, resolved_at=?, "
+                "resolved_by=?, resolution='replayed', resolution_reason=? "
+                "WHERE source_doc_id=? AND scope_id=? AND resolved=0",
+                (_utc_now(), actor, reason, source_doc_id, scope_id),
+            )
+            self.conn.commit()
+        return result
+
+    def reinstate(
+        self,
+        source_doc_id: str,
+        scope_id: str,
+        *,
+        actor: str,
+        reason: str,
+    ) -> str:
+        """Explicitly clear a tombstone and make withdrawn state pending."""
+        if not actor or not reason:
+            return "reject:replay_unauthorized"
+        row = self._lookup_source(source_doc_id, scope_id)
+        if row is None:
+            return "not_found"
+        entity = self.conn.execute(
+            "SELECT type, name, properties, version FROM entities WHERE id=?",
+            (row["entity_id"],),
+        ).fetchone()
+        if entity is None:
+            return "not_found"
+        properties = _parse_json(entity["properties"])
+        if not (properties.get("tombstoned_at") or properties.get("valid_to")):
+            return "not_found"
+        properties.pop("tombstoned_at", None)
+        properties.pop("valid_to", None)
+        now = _utc_now()
+        properties["reinstated_by"] = actor
+        properties["reinstated_reason"] = reason
+        serialized = json.dumps(properties, ensure_ascii=False)
+        self.conn.execute(
+            "UPDATE entities SET properties=?, updated_at=? WHERE id=?",
+            (serialized, now, row["entity_id"]),
+        )
+        self._record_history(
+            row["entity_id"], entity["type"], entity["name"],
+            properties, now, "reinstated", int(entity["version"] or 1),
+        )
+        if self._table_exists("onyx_push_state"):
+            self.conn.execute(
+                "UPDATE onyx_push_state SET status='pending', error='' "
+                "WHERE entity_id=? AND scope_id=? AND status='withdrawn'",
+                (row["entity_id"], scope_id),
+            )
+        self.conn.commit()
+        return "reinstated"
 
     # ── Internals ─────────────────────────────────────────────────
 
-    def _lookup_source(self, source_doc_id: str) -> Optional[sqlite3.Row]:
+    def _lookup_source(
+        self, source_doc_id: str, scope_id: str = ""
+    ) -> Optional[sqlite3.Row]:
         return self.conn.execute(
-            "SELECT * FROM onyx_source_index WHERE source_doc_id = ?",
-            (source_doc_id,),
+            "SELECT * FROM onyx_source_index "
+            "WHERE source_doc_id = ? AND scope_id = ?",
+            (source_doc_id, scope_id),
         ).fetchone()
 
     def _upsert_entity(
@@ -336,7 +567,7 @@ class ExportWorker:
         (``external_document_id``), so a content change on the same
         document bumps the version rather than creating a sibling.
         """
-        entity_type = envelope.source_type or _DEFAULT_ENTITY_TYPE
+        entity_type = _resolve_entity_type(envelope)
         entity_id = entity_stable_id(
             envelope.scope_id, entity_type, envelope.external_document_id
         )
@@ -375,14 +606,12 @@ class ExportWorker:
             properties, now, change_type, version,
         )
 
-        # Maintain the source index (idempotency + provenance).
         self.conn.execute('''
             INSERT INTO onyx_source_index
                 (source_doc_id, scope_id, content_hash, entity_id,
                  version, ingested_at)
             VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(source_doc_id) DO UPDATE SET
-                scope_id     = excluded.scope_id,
+            ON CONFLICT(source_doc_id, scope_id) DO UPDATE SET
                 content_hash = excluded.content_hash,
                 entity_id    = excluded.entity_id,
                 version      = excluded.version,
@@ -416,6 +645,7 @@ class ExportWorker:
             "classification": envelope.classification,
             "visibility": envelope.visibility.value,
             "access_snapshot": envelope.access_snapshot.to_dict(),
+            "owner_id": envelope.owner_id,
             "sync_origin": envelope.sync_origin.value,
             "do_not_reimport": envelope.do_not_reimport,
         }
@@ -447,14 +677,15 @@ class ExportWorker:
                 (source_doc_id, scope_id, reason, quarantined_at,
                  envelope_snapshot, resolved)
             VALUES (?, ?, ?, ?, ?, 0)
-            ON CONFLICT(source_doc_id) DO UPDATE SET
-                scope_id           = excluded.scope_id,
+            ON CONFLICT(source_doc_id, scope_id) DO UPDATE SET
                 reason             = excluded.reason,
                 quarantined_at     = excluded.quarantined_at,
                 envelope_snapshot  = excluded.envelope_snapshot,
                 resolved           = 0,
                 resolved_at        = NULL,
-                resolution         = NULL
+                resolved_by        = NULL,
+                resolution         = NULL,
+                resolution_reason  = ''
         ''', (
             record.source_doc_id, record.scope_id, record.reason,
             record.quarantined_at,
@@ -476,16 +707,18 @@ class ExportWorker:
             return []
         return [r["id"] for r in rows]
 
-    def _tombstone_entity(self, entity_id: str, now: str) -> None:
+    def _tombstone_entity(self, entity_id: str, now: str) -> bool:
         row = self.conn.execute(
             "SELECT type, name, properties, version "
             "FROM entities WHERE id = ?",
             (entity_id,),
         ).fetchone()
         if row is None:
-            return
+            return False
 
         properties = _parse_json(row["properties"])
+        if properties.get("tombstoned_at") or properties.get("valid_to"):
+            return False
         properties["tombstoned_at"] = now
         properties["valid_to"] = now
         version = int(row["version"]) if row["version"] is not None else 1
@@ -496,7 +729,6 @@ class ExportWorker:
             "WHERE id = ?",
             (serialized, now, entity_id),
         )
-        # Record the deletion in history (§3 rule 5: retain past evidence).
         self.conn.execute('''
             INSERT INTO entity_history
                 (entity_id, type, name, properties, changed_at,
@@ -506,6 +738,7 @@ class ExportWorker:
             entity_id, row["type"], row["name"], serialized, now, version,
         ))
         self.conn.commit()
+        return True
 
 
 def _parse_json(raw: Any) -> dict[str, Any]:

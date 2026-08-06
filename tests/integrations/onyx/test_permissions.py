@@ -162,3 +162,16 @@ class TestMemoryWriteGating:
         """Explicit opt-in flag overrides review requirement."""
         assert requires_review("requirement", auto_write=True) is False
         assert requires_review("decision", auto_write=True) is False
+
+
+def test_unknown_caller_clearance_denies_access():
+    assert can_access("private", "") is False
+    assert can_access("private", "PUBLIC") is False
+    assert can_access("confidential", "guest") is False
+    assert can_access("public", None) is False
+
+
+def test_t58_missing_or_unknown_clearance_is_always_denied():
+    assert can_access("x", None) is False
+    assert can_access("x", "") is False
+    assert can_access("x", "guest") is False

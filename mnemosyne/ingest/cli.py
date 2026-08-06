@@ -110,6 +110,7 @@ def add_main(argv: Optional[Sequence[str]] = None) -> int:
         help="Opt in to bounded, redacted source excerpts in LLM Wiki source pages.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--quiet", action="store_true", help="Suppress successful result output")
     parser.add_argument("--examples", action="store_true", help="Show usage examples.")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument(
@@ -155,6 +156,8 @@ def add_main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     ingester.close()
+    if args.quiet:
+        return 0 if not result.errors else 1
     if getattr(args, "format", "summary") == "json":
         sys.stdout.write(json.dumps(result_to_dict(result), indent=2) + "\n")
     else:
@@ -281,6 +284,7 @@ def update_main(argv: Optional[Sequence[str]] = None) -> int:
         help="Opt in to bounded, redacted source excerpts in LLM Wiki source pages.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--quiet", action="store_true", help="Suppress successful result output")
     parser.add_argument("--examples", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
 
@@ -319,7 +323,8 @@ def update_main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write(f"error: {exc}\n")
         return 1
 
-    sys.stdout.write(json.dumps(stats_to_dict(stats), indent=2) + "\n")
+    if not args.quiet:
+        sys.stdout.write(json.dumps(stats_to_dict(stats), indent=2) + "\n")
     return 0 if stats.errors == 0 else 1
 
 

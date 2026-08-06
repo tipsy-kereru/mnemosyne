@@ -1,0 +1,13 @@
+{
+  "loopStatus": "blocked_on_gate",
+  "iteration": 1,
+  "maxIterations": 40,
+  "queue": [],
+  "openTabs": [],
+  "completed": ["task_5f490b8eb833", "task_4d3319bee264", "task_2b65ede13d2b"],
+  "halted": [
+    "outbound-onyx-enforcement: mapper/exporter does not deny private/restricted or tombstoned entities",
+    "provider-privacy: actual personal-note ingest remains unapproved",
+    "orca-runtime: stale bootstrap prevented worker_done normalization"
+  ]
+}

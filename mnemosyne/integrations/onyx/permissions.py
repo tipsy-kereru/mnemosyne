@@ -44,13 +44,21 @@ def classification_rank(level: str) -> int:
         return 0
 
 
-def can_access(entity_classification: str, caller_max_level: str) -> bool:
-    """True when the caller's clearance permits seeing the entity.
+def require_known(level: str | None) -> str:
+    """Return a clearance or raise for unknown values."""
+    if level not in CLASSIFICATION_ORDER:
+        raise ValueError(f"unknown clearance: {level!r}")
+    return level
 
-    ``caller_max_level`` is the most sensitive classification the caller
-    is cleared for. An entity is visible only if its classification rank
-    is >= the caller's rank (less sensitive or equal).
-    """
+
+def can_access(
+    entity_classification: str, caller_max_level: str | None
+) -> bool:
+    """True only when both classifications are known and ordered."""
+    if entity_classification not in CLASSIFICATION_ORDER:
+        return False
+    if caller_max_level not in CLASSIFICATION_ORDER:
+        return False
     return classification_rank(entity_classification) >= classification_rank(
         caller_max_level
     )

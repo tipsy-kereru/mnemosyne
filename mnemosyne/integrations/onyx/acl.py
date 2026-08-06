@@ -38,8 +38,9 @@ class QuarantineRecord:
     envelope_snapshot: dict[str, Any] = field(default_factory=dict)
     resolved: bool = False
     resolved_at: Optional[str] = None
-    resolution: Optional[str] = None  # "accepted" | "rejected"
-
+    resolved_by: Optional[str] = None
+    resolution: Optional[str] = None  # "replayed" | "rejected"
+    resolution_reason: str = ""
     def __post_init__(self) -> None:
         if not self.quarantined_at:
             self.quarantined_at = datetime.now(timezone.utc).isoformat()
@@ -73,50 +74,36 @@ def should_quarantine(
     ttl_hours: int = DEFAULT_ACL_TTL_HOURS,
     now: Optional[datetime] = None,
 ) -> tuple[bool, str]:
-    """Decide whether an envelope must be quarantined.
-
-    Returns ``(quarantined, reason)``.
-
-    Quarantine triggers:
-    - No mapping exists for the connector (ambiguous scope).
-    - ``acl_mode=require_snapshot`` and the ACL snapshot is empty or stale.
-    - ``acl_mode=owner_only`` and no owner is identifiable.
-    """
+    """Return whether an envelope must be quarantined."""
     if mapping is None:
-        return True, "no connector→scope mapping; manual scope resolution required"
+        return True, "quarantine:no_mapping"
+
+    if env.scope_id != mapping.scope_id:
+        return True, "quarantine:scope_mismatch"
+
+    if mapping.acl_mode == "owner_only":
+        owner = getattr(env, "owner_id", "") or getattr(
+            env, "owner", ""
+        )
+        if not owner:
+            return True, "quarantine:owner_unidentified"
+        return False, ""
 
     if mapping.acl_mode == "open":
         return False, ""
 
-    if mapping.acl_mode == "owner_only":
-        # For personal scopes the "owner" is implicit in the scope_id.
-        # No group ACL needed.
-        return False, ""
-
-    # acl_mode == "require_snapshot"
     if env.access_snapshot.is_empty():
-        return True, "ACL snapshot is empty; cannot verify access"
-
+        return True, "quarantine:acl_snapshot_empty"
     if not is_acl_fresh(env.access_snapshot, ttl_hours=ttl_hours, now=now):
-        return True, (
-            f"ACL snapshot stale (captured_at="
-            f"{env.access_snapshot.captured_at!r}, ttl={ttl_hours}h)"
-        )
-
+        return True, "quarantine:acl_snapshot_stale"
     return False, ""
 
 
 def create_quarantine(env: Envelope, reason: str) -> QuarantineRecord:
-    """Build a quarantine record from an envelope."""
+    """Build a quarantine record from a complete, secret-free envelope."""
     return QuarantineRecord(
         source_doc_id=env.source_doc_id,
         scope_id=env.scope_id,
         reason=reason,
-        envelope_snapshot={
-            "title": env.title,
-            "external_uri": env.external_uri,
-            "source_type": env.source_type,
-            "content_hash": env.content_hash,
-            "captured_at": env.captured_at,
-        },
+        envelope_snapshot=env.to_dict(),
     )

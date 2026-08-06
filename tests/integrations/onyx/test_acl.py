@@ -112,10 +112,11 @@ class TestQuarantineDecision:
         quarantined, _ = should_quarantine(env, _mapping("open"))
         assert quarantined is False
 
-    def test_owner_only_mode_no_acl_needed(self):
+    def test_owner_only_mode_without_owner_quarantines(self):
         env = _envelope(AccessSnapshot())
-        quarantined, _ = should_quarantine(env, _mapping("owner_only"))
-        assert quarantined is False
+        quarantined, reason = should_quarantine(env, _mapping("owner_only"))
+        assert quarantined is True
+        assert reason == "quarantine:owner_unidentified"
 
 
 class TestQuarantineRecord:
@@ -133,3 +134,20 @@ class TestQuarantineRecord:
         rec = create_quarantine(env, "test")
         assert rec.envelope_snapshot["title"] == env.title
         assert rec.envelope_snapshot["external_uri"] == env.external_uri
+
+
+
+def test_t56_owner_only_without_owner_is_quarantined():
+    env = _envelope(_fresh_snapshot())
+    env.owner_id = ""
+    quarantined, reason = should_quarantine(env, _mapping("owner_only"))
+    assert quarantined is True
+    assert reason == "quarantine:owner_unidentified"
+
+
+def test_t57_scope_mismatch_precedes_open_mode():
+    env = _envelope(_fresh_snapshot())
+    env.scope_id = "scope-other"
+    quarantined, reason = should_quarantine(env, _mapping("open"))
+    assert quarantined is True
+    assert reason == "quarantine:scope_mismatch"

@@ -44,6 +44,7 @@ def main(argv=None):
     )
     parser.add_argument("--query", help="Query expression (see syntax below)")
     parser.add_argument("--stats", action="store_true", help="Show graph statistics as JSON")
+    parser.add_argument("--db-path", help="Knowledge graph database path")
     parser.add_argument(
         "--examples", action="store_true",
         help="Show query syntax and examples",
@@ -57,7 +58,7 @@ def main(argv=None):
 
     from mnemosyne.graph.knowledge_graph import KnowledgeGraph
 
-    kg = KnowledgeGraph()
+    kg = KnowledgeGraph(args.db_path)
 
     try:
         if args.stats:

@@ -24,6 +24,7 @@ from mnemosyne.integrations.onyx.contract import (
     onyx_publish_id,
     source_document_id,
     validate_envelope,
+    validate_outbound_document,
 )
 from mnemosyne.integrations.onyx.client import (
     IngestResult,
@@ -31,8 +32,16 @@ from mnemosyne.integrations.onyx.client import (
     OnyxClientError,
     PushStatus,
 )
-from mnemosyne.integrations.onyx.mapper import MapResult, map_entity
-from mnemosyne.integrations.onyx.sync_state import PushState, SyncStateStore
+from mnemosyne.integrations.onyx.mapper import (
+    DestinationPolicy,
+    MapResult,
+    map_entity,
+)
+from mnemosyne.integrations.onyx.destinations import (
+    Destination,
+    DestinationNotBound,
+    DestinationRegistry,
+)
 from mnemosyne.integrations.onyx.exporter import OnyxPushExporter, PushOutcome
 from mnemosyne.integrations.onyx.checkpoint import Checkpoint, CheckpointStore
 from mnemosyne.integrations.onyx.worker import (
@@ -43,10 +52,8 @@ from mnemosyne.integrations.onyx.worker import (
 from mnemosyne.integrations.onyx.permissions import (
     Provenance,
     can_access,
-    classification_rank,
-    enrich_results_with_provenance,
-    extract_provenance,
     filter_by_classification,
+    require_known,
     requires_review,
 )
 
@@ -62,6 +69,12 @@ __all__ = [
     "entity_stable_id",
     "onyx_publish_id",
     "source_document_id",
+    "validate_outbound_document",
+    # Destinations
+    "Destination",
+    "DestinationNotBound",
+    "DestinationRegistry",
+    "DestinationPolicy",
     "validate_envelope",
     # Client
     "IngestResult",
@@ -86,8 +99,8 @@ __all__ = [
     "ProcessResult",
     # Permissions (Phase 4)
     "Provenance",
-    "can_access",
     "classification_rank",
+    "require_known",
     "enrich_results_with_provenance",
     "extract_provenance",
     "filter_by_classification",

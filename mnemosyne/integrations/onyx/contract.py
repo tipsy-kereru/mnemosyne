@@ -239,7 +239,7 @@ class Envelope:
 
     # ── Access control ──
     access_snapshot: AccessSnapshot = field(default_factory=AccessSnapshot)
-
+    owner_id: str = ""
     # ── Sync metadata ──
     sync_origin: SyncOrigin = SyncOrigin.ONYX
     do_not_reimport: bool = False
@@ -307,8 +307,8 @@ class Envelope:
             "scope_id": self.scope_id,
             "source_channel": self.source_channel,
             "visibility": self.visibility.value,
-            "classification": self.classification,
             "access_snapshot": self.access_snapshot.to_dict(),
+            "owner_id": self.owner_id,
             "sync_origin": self.sync_origin.value,
             "do_not_reimport": self.do_not_reimport,
         }
@@ -407,4 +407,52 @@ def validate_envelope(env: Envelope) -> list[str]:
             "(prevents push→export loop)"
         )
 
+    return errors
+def validate_outbound_document(result: Any) -> list[str]:
+    """Validate a mapped outbound document without raising."""
+    errors: list[str] = []
+    for field_name in ("document_id", "semantic_identifier", "content_hash"):
+        if not str(getattr(result, field_name, "")).strip():
+            errors.append(f"{field_name} is required")
+    sections = getattr(result, "sections", None)
+    if not isinstance(sections, list) or not sections:
+        errors.append("sections must be non-empty")
+    else:
+        for index, section in enumerate(sections):
+            if not isinstance(section, dict) or not str(
+                section.get("text", "")
+            ).strip():
+                errors.append(f"sections[{index}] missing non-empty 'text'")
+    metadata = getattr(result, "metadata", None)
+    if not isinstance(metadata, dict):
+        errors.append("metadata is required")
+        metadata = {}
+    required_metadata = (
+        "source_system",
+        "entity_type",
+        "scope_id",
+        "classification",
+        "visibility",
+        "sync_origin",
+        "do_not_reimport",
+    )
+    for field_name in required_metadata:
+        if field_name not in metadata:
+            errors.append(f"metadata missing {field_name}")
+    if metadata.get("source_system") != "mnemosyne":
+        errors.append("metadata source_system must be mnemosyne")
+    if metadata.get("sync_origin") != "mnemosyne":
+        errors.append("metadata sync_origin must be mnemosyne")
+    if metadata.get("do_not_reimport") is not True:
+        errors.append("metadata do_not_reimport must be true")
+    if metadata.get("classification") not in _CLASSIFICATION_ORDER:
+        errors.append("metadata classification is invalid")
+    if metadata.get("visibility") not in {
+        "private", "project", "org", "public"
+    }:
+        errors.append("metadata visibility is invalid")
+    if sections and getattr(result, "content_hash", "") != compute_content_hash(
+        sections
+    ):
+        errors.append("content_hash does not match sections")
     return errors

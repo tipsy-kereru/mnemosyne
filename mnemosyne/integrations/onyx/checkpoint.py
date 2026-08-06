@@ -143,17 +143,17 @@ class CheckpointStore:
         self.conn.commit()
 
     def record_error(self, connector_id: str, error: str) -> None:
-        """Record an error *without* advancing the watermark.
-
-        Touches ``last_sync_at`` so the connector is not falsely flagged
-        stale while it is actively failing.
-        """
+        """Record an error without moving the successful watermark."""
         now = _utc_now()
         self.conn.execute(
-            "UPDATE onyx_export_checkpoint "
-            "SET last_error = ?, last_sync_at = ? "
-            "WHERE connector_id = ?",
-            (error, now, connector_id),
+            """
+            INSERT INTO onyx_export_checkpoint
+                (connector_id, last_sync_at, last_error)
+            VALUES (?, ?, ?)
+            ON CONFLICT(connector_id) DO UPDATE SET
+                last_error = ?, last_sync_at = ?
+            """,
+            (connector_id, now, error, error, now),
         )
         self.conn.commit()
 

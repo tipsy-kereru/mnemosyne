@@ -21,6 +21,7 @@ import urllib.request
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +78,22 @@ class OnyxClient:
         max_retries: int = 5,
         initial_backoff: float = 5.0,
         backoff_multiplier: float = 2.0,
+        allowed_hosts: Optional[set[str]] = None,
     ) -> None:
         if not base_url:
             raise ValueError("OnyxClient requires base_url")
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+            raise ValueError("deny:insecure_transport")
+        if parsed.scheme != "https" and parsed.hostname not in {
+            "localhost", "127.0.0.1", "::1"
+        }:
+            raise ValueError("deny:insecure_transport: requires https")
+        if allowed_hosts is not None:
+            if not allowed_hosts:
+                raise ValueError("deny:approved_hosts_empty")
+            if parsed.hostname not in allowed_hosts:
+                raise ValueError("deny:host_not_approved")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.cc_pair_id = cc_pair_id
@@ -181,6 +195,45 @@ class OnyxClient:
             "Onyx ingest exhausted %d attempts for %s",
             self.max_retries, document_id,
         )
+
+    def withdraw(self, document_id: str) -> IngestResult:
+        """Withdraw one document using the destination DELETE boundary."""
+        if not self.api_key:
+            raise OnyxClientError(
+                PushStatus.AUTH_ERROR, "API key not provided"
+            )
+        request = urllib.request.Request(
+            f"{self.base_url}{INGESTION_PATH}/{document_id}",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            method="DELETE",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as resp:
+                return IngestResult(
+                    document_id=document_id,
+                    status=(
+                        PushStatus.ACCEPTED
+                        if 200 <= resp.status < 300
+                        else PushStatus.CLIENT_ERROR
+                    ),
+                    status_code=resp.status,
+                    attempts=1,
+                )
+        except urllib.error.HTTPError as exc:
+            return IngestResult(
+                document_id=document_id,
+                status=PushStatus.CLIENT_ERROR,
+                status_code=exc.code,
+                message=f"Withdrawal failed: {exc.reason}",
+                attempts=1,
+            )
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return IngestResult(
+                document_id=document_id,
+                status=PushStatus.TIMEOUT,
+                message=f"Withdrawal connection error: {exc}",
+                attempts=1,
+            )
         return last_result
 
     def _post(self, body: bytes, attempt: int) -> IngestResult:

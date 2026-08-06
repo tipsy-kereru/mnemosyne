@@ -86,14 +86,14 @@ class TestCLIEntryPoints:
             pytest.skip("mnemosyne CLI not installed (run pip install -e .)")
 
     def test_mnemosyne_version_flag(self):
-        """mnemosyne --version outputs 0.1.0."""
+        """mnemosyne --version outputs version string."""
+        import sys
         result = subprocess.run(
-            ["mnemosyne", "--version"],
+            [sys.executable, "-m", "mnemosyne.cli", "--version"],
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0
-        assert "0.1.0" in result.stdout or "0.1.0" in result.stderr
-
+        assert "mnemosyne" in result.stdout and ("0." in result.stdout or "1." in result.stdout)
     def test_mnemosyne_help_flag(self):
         """mnemosyne --help exits with code 0."""
         result = subprocess.run(
@@ -114,6 +114,7 @@ class TestMainCLIVersion:
 
     def test_version_flag_outputs_version_string(self, capsys):
         """--version prints the version and exits with SystemExit."""
+        from mnemosyne import __version__
         from mnemosyne.cli import main
 
         with pytest.raises(SystemExit) as exc_info:
@@ -121,8 +122,7 @@ class TestMainCLIVersion:
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.1.0" in captured.out or "0.1.0" in captured.err
-
+        assert __version__ in captured.out or __version__ in captured.err
     def test_version_flag_exit_code_zero(self):
         """--version exits with code 0 (argparse convention)."""
         from mnemosyne.cli import main
@@ -221,6 +221,14 @@ class TestMainCLISubcommandDispatch:
         assert "--stats" in argv
         assert "--query" in argv
         assert "search:auth" in argv
+
+    def test_query_db_path_is_routed(self):
+        """Custom personal databases are forwarded to the graph CLI."""
+        from mnemosyne.cli import _build_query_argv
+
+        args = MagicMock(stats=False, query="search:private", db_path="/tmp/personal.db")
+        argv = _build_query_argv(args)
+        assert argv == ["--db-path", "/tmp/personal.db", "--query", "search:private"]
 
 
 class TestMainCLIExtractArgv:

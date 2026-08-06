@@ -3,9 +3,87 @@
 ## 문서 상태
 
 - 작성일: 2026-08-02
-- 상태: 구현 전 설계안
+- 갱신일: 2026-08-05
+- 상태: 개인 Obsidian 기반 1단계 구현 진행 중
 - 범위: 개인 메모리, 외주 프로젝트 지식, 사내 프로젝트의 미팅·메시지·요구사항
 - 기준: 현재 mnemosyne 저장소와 참조 대화의 설계 방향
+
+## 다음 에이전트 인수인계
+
+- 전체 현재 상태와 검증 결과: [AGENT_HANDOFF.ko.md](./AGENT_HANDOFF.ko.md)
+- 우선순위별 구현 작업과 완료 조건: [NEXT_WORK_ITEMS.ko.md](./NEXT_WORK_ITEMS.ko.md)
+
+## 0. 현재 실행 계획과 검증 상태
+
+이 문서는 초기 Onyx–Mnemosyne 설계안을 실제 개인 세컨드 브레인 작업으로 전환하기 위한 실행 기준이다.
+초기 목표는 양방향 동기화가 아니라 다음의 안전한 단방향 파이프라인이다.
+
+~~~text
+Obsidian 개인 원본 Markdown
+        │
+        ▼
+Mnemosyne 개인 DB + 생성 Wiki
+        │
+        ▼
+Onyx 읽기 전용 색인/검색
+~~~
+
+### 0.1 현재 확인된 사실
+
+- 현재 저장소 버전은 `v0.10.0`이다.
+- `--wiki-root`를 지정하면 Wiki를 Obsidian 같은 편집기 폴더에 생성할 수 있다.
+- Obsidian 전용 플러그인은 없고, 저장소의 편집기 플러그인은 Joplin 전용이다.
+- 파일 변경 watcher는 없으므로 초기 자동화는 `mnemosyne update` 또는 외부 스케줄러가 담당한다.
+- 기본 DB에는 여러 프로젝트 지식이 이미 섞여 있으므로 개인 DB를 명시적으로 분리해야 한다.
+- `scope_id`는 라우팅 메타데이터이지 인증·권한 경계가 아니다.
+
+### 0.2 개인 Obsidian 권장 경계
+
+~~~text
+kereru-private/
+├── Joplin-Personal-Import-2026-08-05/   # ingest 대상 원본
+├── PersonalNotes/                       # 이후 사람이 작성하는 원본
+└── _MnemosyneWiki/                      # 자동 생성 Markdown, ingest 제외
+
+~/mnemosyne-personal/
+├── graph/knowledge.db                   # Obsidian/iCloud 밖에 보관
+└── raw/
+~~~
+
+Mnemosyne Wiki만 Vault 안에 둔다. SQLite DB와 내부 raw 저장소는 iCloud 동기화 대상에 넣지 않는다.
+원본 ingest 경로와 `_MnemosyneWiki` 경로는 반드시 분리해 생성 Wiki가 다시 원본으로 수집되지 않게 한다.
+
+### 0.3 단계별 실행 게이트
+
+| 단계 | 작업 | 완료 기준 | 상태 |
+|---|---|---|---|
+| Phase 0 | 개인/회사 데이터 경계와 provider 확인 | 개인 입력 경로·DB·Wiki 경로가 명시됨 | 로컬 경계 완료 / provider 승인 대기 |
+| Phase 1 | 개인 DB·Wiki 운영 기반 | 별도 DB로 dry-run, add, update, status, lint 성공 | CLI·Obsidian 수동 sync 경로 구현·합성 검증 완료 / 실제 개인 dry-run 대기 |
+| Phase 2 | 개인 Markdown 전체 ingest | 이관된 개인 문서 처리 수와 오류 목록 확인 | 대기 |
+| Phase 3 | Onyx 읽기 전용 export | stable ID·content hash·source metadata로 중복 없는 색인 | 코드 게이트 완료 / destination capability·ACL·withdrawal·승인 대기 |
+| Phase 4 | 변경 자동화 | update와 Onyx 재색인이 재시도·검증 가능 | Obsidian modify/debounce 경로 구현·합성 검증 완료 / iCloud 안정성 운영 검증 대기 |
+| Phase 5 | ACL·tombstone·운영 | 권한 철회와 삭제가 과거 근거를 훼손하지 않음 | 코드 게이트 완료, destination/withdrawal/승인 대기 |
+
+개인 데이터에 실제 ingest하기 전 테스트와 dry-run을 통과시키는 것을 첫 번째 운영 기준으로 삼는다.
+수동 실행 경로는 `mnemosyne sync obsidian VAULT --db-path ... --raw-root ...`이며,
+DB와 raw root는 vault 밖에 있어야 하고 `VAULT/_MnemosyneWiki`, `.obsidian`, `.trash`는 자동 제외된다.
+
+### 0.4 이번 작업에서 반영한 기반 수정
+
+- `mnemosyne ingest add/update`에 개인 DB와 raw root를 지정하는 `--db-path`, `--raw-root`를 추가했다.
+- `mnemosyne ingest update`에 `--source-channel`을 추가해 Obsidian 수집 경로를 보존한다.
+- `mnemosyne graph query`와 `mnemosyne-query`가 지정 DB를 질의할 수 있도록 `--db-path`를 연결했다.
+- Git/에이전트 훅이 사용하던 `--quiet` 옵션을 add/update CLI에서 지원하도록 했다.
+- 관련 CLI·ingest 테스트 120건이 통과했다.
+- CLI 버전 테스트를 동적 `__version__` 및 `sys.executable` 모듈 실행으로 보정하여 100건의 백엔드 테스트가 전수 통과(100 passed)하도록 정리했다.
+- `mnemosyne sync obsidian`이 vault 경계를 검증하고 생성 Wiki·Obsidian 메타데이터를 제외한 뒤 hash 기반 증분 ingest를 수행한다.
+- `--stats`는 추출 없이 변경 수만 보고하고, `--dry-run`은 graph·Wiki를 쓰지 않는다.
+- Onyx 계약 문서와 독립 리뷰를 추가했고, 현재 outbound classification/visibility/ACL freshness/tombstone deny, explicit section allowlist, live-row suppression, destination URL validation과 lifecycle regression tests를 반영했다.
+- 실제 Onyx export는 destination capability/ACL 승인, withdrawal 또는 suppression API 검증, provider/privacy/retention 승인, reviewed dry-run과 live-export preflight가 끝날 때까지 활성화하지 않는다.
+- Obsidian 플러그인 `mnemosyne-sync`가 vault 경계를 다시 확인한 뒤 CLI를 호출하는 수동 명령(`Sync current note`, `Sync vault`, `Open generated Wiki`)과 설정 저장을 제공한다.
+- 플러그인의 `modify` 이벤트 자동 sync는 저장 debounce, 동일 파일 coalescing, sync 중 변경의 단일 후속 실행을 사용하며, 합성 이벤트 테스트 2건이 통과했다.
+
+개인 문서의 실제 LLM ingest는 provider와 개인정보 전송 경계를 확정한 뒤 Phase 1 게이트를 통과하고 실행한다. 기본 provider가 `claude` CLI로 선택되는 현재 동작에서 개인 문서를 자동 전송하지 않는다.
 
 ## 1. 결론과 권장 구조
 
@@ -486,4 +564,3 @@ Onyx는 **수집·검색·권한·업무 UI**, Mnemosyne은 **관계·시간·�
 - [Onyx Core Concepts](https://docs.onyx.app/developers/core_concepts)
 - [Onyx Connector Overview](https://docs.onyx.app/admins/connectors/overview)
 - [Onyx Connector implementation guide](https://github.com/onyx-dot-app/onyx/blob/main/backend/onyx/connectors/README.md)
-

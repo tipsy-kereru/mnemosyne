@@ -40,12 +40,16 @@ class Updater:
         wiki_root: Optional[Path] = None,
         include_wiki_excerpts: bool = False,
         dry_run: bool = False,
+        exclude_paths: Optional[list[Path]] = None,
     ) -> None:
         self.db_path = db_path
         self.raw_root = raw_root or (Path.home() / "mnemosyne" / "raw")
         self.wiki_root = wiki_root
         self.include_wiki_excerpts = include_wiki_excerpts
         self.dry_run = dry_run
+        self.exclude_paths = tuple(
+            path.expanduser().resolve() for path in (exclude_paths or [])
+        )
 
     def update(
         self,
@@ -71,7 +75,7 @@ class Updater:
             kg = ingester._get_kg()  # noqa: SLF001 -- intentional internal access
             cache = self._load_cache(kg.conn)
 
-            for file_path in self._iter_files(scan_root):
+            for file_path in self._iter_files(scan_root, self.exclude_paths):
                 stats.total += 1
                 resolved = str(file_path)
                 content_hash = self._hash_file(file_path)
@@ -128,7 +132,7 @@ class Updater:
         try:
             kg = ingester._get_kg()  # noqa: SLF001
             cache = self._load_cache(kg.conn)
-            for file_path in self._iter_files(scan_root):
+            for file_path in self._iter_files(scan_root, self.exclude_paths):
                 stats.total += 1
                 content_hash = self._hash_file(file_path)
                 cached = cache.get(str(file_path))
@@ -143,10 +147,19 @@ class Updater:
         return stats
 
     @staticmethod
-    def _iter_files(root: Path) -> list[Path]:
+    def _iter_files(
+        root: Path,
+        exclude_paths: tuple[Path, ...] = (),
+    ) -> list[Path]:
         out: list[Path] = []
         for p in sorted(root.rglob("*")):
             if not p.is_file():
+                continue
+            candidate = p.expanduser().resolve()
+            if any(
+                candidate == excluded or excluded in candidate.parents
+                for excluded in exclude_paths
+            ):
                 continue
             if any(part.startswith(".") for part in p.relative_to(root).parts):
                 continue

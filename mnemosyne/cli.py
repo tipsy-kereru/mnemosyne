@@ -13,7 +13,7 @@ Command tree (SPEC-PACKAGE-001, REQ-PKG-005):
     mnemosyne mcp <serve|install>                    # REMAINDER pass-through
     mnemosyne config <get|set|list|skill|hook>
     mnemosyne retention <purge|status>
-    mnemosyne sync onyx <push|status>                # Onyx integration
+    mnemosyne sync <obsidian|onyx> [options]              # local vault or Onyx
 
 Legacy top-level shapes (``add``, ``query``, ``purge-retention``, ...) are kept
 as deprecation aliases for two minor releases (REQ-PKG-006). Each alias prints
@@ -245,10 +245,13 @@ def _add_ingest_add_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--source-channel", default="cli", help="Tag the ingestion source channel (default: cli)"
     )
+    p.add_argument("--db-path", help="Override the KnowledgeGraph DB path")
+    p.add_argument("--raw-root", help="Override the Mnemosyne raw root")
     p.add_argument(
         "--dry-run", action="store_true",
         help="Show what would happen without writing to the knowledge graph",
     )
+    p.add_argument("--quiet", action="store_true", help="Suppress successful result output")
     p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
     p.add_argument("--no-wiki", action="store_true", help="Do not update Markdown LLM Wiki pages")
     p.add_argument(
@@ -270,6 +273,9 @@ def _add_ingest_update_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--scope-id", help="Attach a scope ID to updated entities")
     p.add_argument(
+        "--source-channel", default="cli", help="Tag the update source channel (default: cli)"
+    )
+    p.add_argument(
         "--prune", action="store_true",
         help="Remove cache entries for files that no longer exist",
     )
@@ -278,6 +284,9 @@ def _add_ingest_update_args(p: argparse.ArgumentParser) -> None:
         "--dry-run", action="store_true",
         help="Show what would be updated without writing to the knowledge graph",
     )
+    p.add_argument("--db-path", help="Override the KnowledgeGraph DB path")
+    p.add_argument("--raw-root", help="Override the Mnemosyne raw root")
+    p.add_argument("--quiet", action="store_true", help="Suppress successful result output")
     p.add_argument("--wiki-root", default=None, help="LLM Wiki root (default: ~/mnemosyne/wiki)")
     p.add_argument("--no-wiki", action="store_true", help="Do not update Markdown LLM Wiki pages")
     p.add_argument(
@@ -315,6 +324,7 @@ def _add_graph_query_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("query", nargs="?", help="Query expression (see syntax below)")
     p.add_argument("--query", dest="query_flag", help="Query expression (alias of positional)")
     p.add_argument("--stats", action="store_true", help="Show graph statistics as JSON")
+    p.add_argument("--db-path", help="KnowledgeGraph DB path")
     p.add_argument("--project", help="Query a specific project by name")
     p.add_argument(
         "--global",
@@ -861,14 +871,35 @@ def build_parser() -> argparse.ArgumentParser:
     _add_extension_verbs(extension)
     extension.set_defaults(func=_run_extension_group, group="extension")
 
-    # -- sync group (Onyx integration) --
+    # -- sync group (local vault and Onyx integration) --
     sync = _new_parser(
         subparsers, "sync",
-        help="Sync with external systems (Onyx)",
-        description="Push curated knowledge to Onyx and view sync status.",
+        help="Sync local vaults or external systems",
+        description="Synchronize an Obsidian vault locally or push curated knowledge to Onyx.",
         see_also="mnemosyne graph, mnemosyne ingest",
     )
     sync_sub = sync.add_subparsers(dest="sync_command")
+    sync_obsidian = _new_parser(
+        sync_sub, "obsidian",
+        help="Synchronize an Obsidian vault into a local graph",
+        description="Incrementally ingest an Obsidian vault without placing the database or raw cache in the vault.",
+    )
+    sync_obsidian.add_argument("vault", help="Obsidian vault directory to scan")
+    sync_obsidian.add_argument("--file", default=None, help="Sync one file inside the vault instead of scanning the vault")
+    sync_obsidian.add_argument("--db-path", required=True, help="KnowledgeGraph DB path outside the vault")
+    sync_obsidian.add_argument("--raw-root", required=True, help="Raw cache directory outside the vault")
+    sync_obsidian.add_argument("--wiki-root", default=None, help="Generated Wiki directory (default: VAULT/_MnemosyneWiki)")
+    sync_obsidian.add_argument("--scope-id", default="personal", help="Scope attached to ingested entities")
+    sync_obsidian.add_argument("--source-channel", default="obsidian", help="Source channel metadata")
+    sync_obsidian.add_argument("--domain", choices=["auto", "coding", "daily", "legal"], default="auto")
+    sync_obsidian.add_argument("--exclude-dir", action="append", default=[], help="Additional vault-relative directory to skip")
+    sync_obsidian.add_argument("--prune", action="store_true", help="Remove cache entries for files no longer present")
+    sync_obsidian.add_argument("--stats", action="store_true", help="Show hash change counts without extracting")
+    sync_obsidian.add_argument("--dry-run", action="store_true", help="Extract a preview without graph or Wiki writes")
+    sync_obsidian.add_argument("--wiki-excerpts", action="store_true", help="Opt in to bounded source excerpts in Wiki pages")
+    sync_obsidian.add_argument("--quiet", action="store_true", help="Suppress successful result output")
+    sync_obsidian.set_defaults(func=_run_sync_obsidian, group="sync", verb="obsidian")
+
     sync_onyx = _new_parser(
         sync_sub, "onyx",
         help="Onyx integration commands",
@@ -885,6 +916,16 @@ def build_parser() -> argparse.ArgumentParser:
     onyx_push.add_argument("--config", default=None, help="Sync config YAML path")
     onyx_push.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
     onyx_push.set_defaults(func=_run_sync_onyx_push, group="sync", verb="push")
+    onyx_preflight = _new_parser(
+        sync_onyx_sub, "preflight",
+        help="Review a scope push without network access",
+        description="Record a reviewed destination and outbound deny summary.",
+    )
+    onyx_preflight.add_argument("--scope-id", required=True)
+    onyx_preflight.add_argument("--actor", default="cli")
+    onyx_preflight.add_argument("--config", default=None)
+    onyx_preflight.add_argument("--db-path", default=None)
+    onyx_preflight.set_defaults(func=_run_sync_onyx_preflight, group="sync", verb="preflight")
     onyx_status = _new_parser(
         sync_onyx_sub, "status",
         help="Show push sync status for a scope",
@@ -902,6 +943,30 @@ def build_parser() -> argparse.ArgumentParser:
     onyx_quarantine.add_argument("--db-path", default=None, help="KnowledgeGraph DB path")
     onyx_quarantine.add_argument("--all", action="store_true", help="Include resolved quarantine records")
     onyx_quarantine.set_defaults(func=_run_sync_onyx_quarantine, group="sync", verb="quarantine")
+    onyx_resolve = _new_parser(
+        sync_onyx_sub, "quarantine-resolve",
+        help="Resolve one quarantined document",
+        description="Explicitly reject or replay a quarantined source.",
+    )
+    onyx_resolve.add_argument("--scope-id", required=True)
+    onyx_resolve.add_argument("--source-doc-id", required=True)
+    onyx_resolve.add_argument("--decision", choices=("replay", "reject"), required=True)
+    onyx_resolve.add_argument("--actor", required=True)
+    onyx_resolve.add_argument("--reason", default="")
+    onyx_resolve.add_argument("--config", default=None)
+    onyx_resolve.add_argument("--db-path", default=None)
+    onyx_resolve.set_defaults(func=_run_sync_onyx_quarantine_resolve, group="sync", verb="quarantine-resolve")
+    onyx_reinstate = _new_parser(
+        sync_onyx_sub, "reinstate",
+        help="Explicitly reinstate a tombstoned source",
+        description="Clear a tombstone with an auditable actor and reason.",
+    )
+    onyx_reinstate.add_argument("--scope-id", required=True)
+    onyx_reinstate.add_argument("--source-doc-id", required=True)
+    onyx_reinstate.add_argument("--actor", required=True)
+    onyx_reinstate.add_argument("--reason", required=True)
+    onyx_reinstate.add_argument("--db-path", default=None)
+    onyx_reinstate.set_defaults(func=_run_sync_onyx_reinstate, group="sync", verb="reinstate")
     sync_onyx.set_defaults(func=_run_sync_group, group="sync")
     sync.set_defaults(func=_run_sync_group, group="sync")
 
@@ -1058,12 +1123,66 @@ def _run_extension_remove(args):
 def _run_extension_upgrade(args):
     from mnemosyne.extensions.cli import cmd_upgrade
 
-    # argparse sets `all` via the dest on set_defaults; normalize both shapes.
-    if not hasattr(args, "all"):
-        args.all = getattr(args, "upgrade_all", False)
+    args.all = getattr(args, "upgrade_all", False)
     code = cmd_upgrade(args)
     if code:
         sys.exit(code)
+
+
+def _run_sync_group(args):
+    """Print sync help when ``mnemosyne sync`` is invoked with no verb."""
+    print("Usage: mnemosyne sync <obsidian|onyx> [options]", file=sys.stderr)
+    sys.exit(2)
+
+
+def _run_sync_obsidian(args):
+    """Execute a safe, local-only Obsidian vault sync."""
+    import json
+    from pathlib import Path
+
+    from mnemosyne.obsidian import (
+        ObsidianSyncConfig,
+        ObsidianSyncError,
+        inspect_vault,
+        sync_file,
+        sync_vault,
+    )
+    from mnemosyne.ingest.update import UpdateStats, stats_to_dict
+
+    config = ObsidianSyncConfig(
+        vault_root=Path(args.vault),
+        db_path=Path(args.db_path),
+        raw_root=Path(args.raw_root),
+        wiki_root=Path(args.wiki_root) if args.wiki_root else None,
+        scope_id=args.scope_id,
+        source_channel=args.source_channel,
+        domain=args.domain,
+        prune=args.prune,
+        dry_run=args.dry_run,
+        include_wiki_excerpts=args.wiki_excerpts,
+        exclude_dirs=tuple(args.exclude_dir),
+    )
+    try:
+        if args.file and args.stats:
+            raise ObsidianSyncError("--stats cannot be combined with --file")
+        if args.file:
+            result = sync_file(config, Path(args.file))
+            stats = UpdateStats(
+                total=1,
+                changed=0 if result.skipped else 1,
+                unchanged=1 if result.skipped else 0,
+                errors=1 if result.errors else 0,
+                results=[result],
+            )
+        else:
+            stats = inspect_vault(config) if args.stats else sync_vault(config)
+    except ObsidianSyncError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    if args.quiet:
+        return
+    print(json.dumps(stats_to_dict(stats), ensure_ascii=False))
 
 
 def _run_extension_search(args):
@@ -1082,10 +1201,6 @@ def _run_extension_info(args):
         sys.exit(code)
 
 
-def _run_sync_group(args):
-    """Print sync help when ``mnemosyne sync`` is invoked with no verb."""
-    print("Usage: mnemosyne sync onyx <push|status> [options]", file=sys.stderr)
-    sys.exit(2)
 
 
 def _load_sync_config(config_path):
@@ -1098,9 +1213,81 @@ def _load_sync_config(config_path):
     return SyncConfig.load(path)
 
 
-def _run_sync_onyx_push(args):
-    """Execute ``mnemosyne sync onyx push``."""
+def _onyx_destination(cfg, scope_id):
+    from mnemosyne.integrations.onyx.destinations import (
+        DestinationNotBound,
+        DestinationRegistry,
+    )
+    try:
+        return DestinationRegistry.from_config(cfg).for_scope(scope_id)
+    except DestinationNotBound as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _run_onyx_preflight(cfg, scope_id, kg, sync_store, actor):
+    from datetime import datetime, timezone
+    from mnemosyne.integrations.onyx.exporter import OnyxPushExporter
+    from mnemosyne.integrations.onyx.sync_state import PreflightRecord
+
+    destination = _onyx_destination(cfg, scope_id)
+    exporter = OnyxPushExporter(
+        kg.conn, None, sync_store, dry_run=True,
+        destination_policy=destination.policy(),
+    )
+    outcome = exporter.push_scope(scope_id)
+    deny_count = sum(
+        1 for detail in outcome.details if detail["action"] == "skipped"
+    )
+    sync_store.record_preflight(
+        PreflightRecord(
+            scope_id=scope_id,
+            destination_id=destination.destination_id,
+            destination_fingerprint=destination.fingerprint(),
+            reviewed_at=datetime.now(timezone.utc).isoformat(),
+            actor=actor,
+            candidate_count=outcome.total,
+            deny_count=deny_count,
+        )
+    )
+    return destination, outcome, deny_count
+
+
+def _run_sync_onyx_preflight(args):
     import json
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.integrations.onyx.sync_state import SyncStateStore
+
+    kg = KnowledgeGraph(args.db_path)
+    sync_store = SyncStateStore(kg.db_path)
+    try:
+        cfg = _load_sync_config(args.config)
+        destination, outcome, deny_count = _run_onyx_preflight(
+            cfg, args.scope_id, kg, sync_store, args.actor
+        )
+        deny_codes: dict[str, int] = {}
+        for detail in outcome.details:
+            if detail["action"] != "skipped":
+                continue
+            code = detail["reason"].split(": ", 1)[0]
+            deny_codes[code] = deny_codes.get(code, 0) + 1
+        print(json.dumps({
+            "scope_id": args.scope_id,
+            "destination_id": destination.destination_id,
+            "host": destination.host,
+            "cc_pair_id_env": destination.cc_pair_id_env,
+            "candidate_count": outcome.total,
+            "deny_count": deny_count,
+            "deny_codes": deny_codes,
+        }, indent=2, ensure_ascii=False))
+    finally:
+        kg.close()
+        sync_store.close()
+
+
+def _run_sync_onyx_push(args):
+    """Execute a scope-bound, preflight-gated push."""
+    import json
+    from datetime import datetime, timezone
 
     from mnemosyne.graph.knowledge_graph import KnowledgeGraph
     from mnemosyne.integrations.onyx.client import OnyxClient
@@ -1109,37 +1296,70 @@ def _run_sync_onyx_push(args):
 
     kg = KnowledgeGraph(args.db_path)
     sync_store = SyncStateStore(kg.db_path)
-
-    client = None
-    if not args.dry_run:
+    try:
         cfg = _load_sync_config(args.config)
-        client = OnyxClient(
-            base_url=cfg.onyx.base_url,
-            api_key=cfg.onyx.resolve_api_key(),
-            cc_pair_id=cfg.onyx.resolve_cc_pair_id(),
-            max_retries=cfg.sync.max_attempts,
-            initial_backoff=cfg.sync.initial_backoff_seconds,
-        )
-
-    exporter = OnyxPushExporter(kg.conn, client, sync_store, dry_run=args.dry_run)
-    outcome = exporter.push_scope(args.scope_id)
-
-    print(json.dumps(
-        {
+        destination = _onyx_destination(cfg, args.scope_id)
+        preflight = sync_store.get_preflight(args.scope_id)
+        if not args.dry_run:
+            if preflight is None:
+                raise ValueError("deny:preflight_missing")
+            if preflight.destination_fingerprint != destination.fingerprint():
+                raise ValueError("deny:preflight_destination_changed")
+            reviewed_at = datetime.fromisoformat(preflight.reviewed_at)
+            age = (datetime.now(timezone.utc) - reviewed_at).total_seconds() / 3600
+            if age > cfg.sync.preflight_ttl_hours:
+                raise ValueError("deny:preflight_stale")
+            preview = OnyxPushExporter(
+                kg.conn, None, sync_store, dry_run=True,
+                destination_policy=destination.policy(),
+            ).push_scope(args.scope_id)
+            current_deny_count = sum(
+                1 for detail in preview.details if detail["action"] == "skipped"
+            )
+            if current_deny_count > preflight.deny_count:
+                raise ValueError("deny:preflight_stale")
+            if not destination.approved_hosts:
+                raise ValueError("deny:approved_hosts_empty")
+            missing_approval = cfg.approval_for_scope(args.scope_id).missing()
+            if missing_approval:
+                raise ValueError(
+                    "deny:operational_approval_missing:"
+                    + ",".join(missing_approval)
+                )
+            client = OnyxClient(
+                base_url=destination.base_url,
+                api_key=cfg.onyx.resolve_api_key()
+                if destination.api_key_env == cfg.onyx.api_key_env
+                else __import__("os").environ.get(destination.api_key_env, ""),
+                cc_pair_id=cfg.onyx.resolve_cc_pair_id()
+                if destination.cc_pair_id_env == cfg.onyx.cc_pair_id_env
+                else int(__import__("os").environ[destination.cc_pair_id_env]),
+                max_retries=cfg.sync.max_attempts,
+                initial_backoff=cfg.sync.initial_backoff_seconds,
+                allowed_hosts=set(destination.approved_hosts),
+            )
+        else:
+            client = None
+        outcome = OnyxPushExporter(
+            kg.conn, client, sync_store, dry_run=args.dry_run,
+            destination_policy=destination.policy(),
+        ).push_scope(args.scope_id)
+        print(json.dumps({
             "scope_id": outcome.scope_id,
             "total": outcome.total,
             "pushed": outcome.pushed,
             "noop": outcome.noop,
             "skipped": outcome.skipped,
             "failed": outcome.failed,
+            "withdrawn": outcome.withdrawn,
+            "withdraw_blocked": outcome.withdraw_blocked,
             "details": outcome.details,
-        },
-        indent=2,
-        ensure_ascii=False,
-    ))
-
-    kg.close()
-    sync_store.close()
+        }, indent=2, ensure_ascii=False))
+        if outcome.withdraw_blocked:
+            sys.exit(2)
+    finally:
+        kg.close()
+        sync_store.close()
 
 
 def _run_sync_onyx_status(args):
@@ -1157,33 +1377,72 @@ def _run_sync_onyx_status(args):
 
 
 def _run_sync_onyx_quarantine(args):
-    """Execute ``mnemosyne sync onyx quarantine``."""
+    """Execute ``mnemosyne sync onyx quarantine`` without content output."""
     import json
-
     from mnemosyne.graph.knowledge_graph import KnowledgeGraph
     from mnemosyne.integrations.onyx.observability import get_quarantine_list
 
     kg = KnowledgeGraph(args.db_path)
-    entries = get_quarantine_list(
-        kg.conn, args.scope_id, include_resolved=args.all
-    )
-    output = [
-        {
-            "source_doc_id": e.source_doc_id,
-            "reason": e.reason,
-            "quarantined_at": e.quarantined_at,
-            "resolved": e.resolved,
-            "title": e.envelope_snapshot.get("title", ""),
-            "external_uri": e.envelope_snapshot.get("external_uri", ""),
-        }
-        for e in entries
-    ]
-    print(json.dumps(
-        {"scope_id": args.scope_id, "count": len(output), "entries": output},
-        indent=2, ensure_ascii=False,
-    ))
+    try:
+        entries = get_quarantine_list(
+            kg.conn, args.scope_id, include_resolved=args.all
+        )
+        output = [
+            {
+                "source_doc_id": e.source_doc_id,
+                "reason": e.reason,
+                "quarantined_at": e.quarantined_at,
+                "resolved": e.resolved,
+            }
+            for e in entries
+        ]
+        print(json.dumps(
+            {"scope_id": args.scope_id, "count": len(output), "entries": output},
+            indent=2, ensure_ascii=False,
+        ))
+    finally:
+        kg.close()
 
-    kg.close()
+
+def _run_sync_onyx_quarantine_resolve(args):
+    import json
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.integrations.onyx.checkpoint import CheckpointStore
+    from mnemosyne.integrations.onyx.worker import ExportWorker
+
+    kg = KnowledgeGraph(args.db_path)
+    checkpoint = CheckpointStore(kg.db_path)
+    try:
+        cfg = _load_sync_config(args.config)
+        worker = ExportWorker(kg.conn, checkpoint, cfg)
+        result = worker.resolve_quarantine(
+            args.source_doc_id, args.scope_id, actor=args.actor,
+            decision=args.decision, reason=args.reason,
+        )
+        print(json.dumps({"result": result}, ensure_ascii=False))
+    finally:
+        checkpoint.close()
+        kg.close()
+
+
+def _run_sync_onyx_reinstate(args):
+    import json
+    from mnemosyne.graph.knowledge_graph import KnowledgeGraph
+    from mnemosyne.integrations.onyx.checkpoint import CheckpointStore
+    from mnemosyne.integrations.onyx.worker import ExportWorker
+
+    kg = KnowledgeGraph(args.db_path)
+    checkpoint = CheckpointStore(kg.db_path)
+    try:
+        cfg = _load_sync_config(None)
+        result = ExportWorker(kg.conn, checkpoint, cfg).reinstate(
+            args.source_doc_id, args.scope_id,
+            actor=args.actor, reason=args.reason,
+        )
+        print(json.dumps({"result": result}, ensure_ascii=False))
+    finally:
+        checkpoint.close()
+        kg.close()
 
 
 def _run_config_get(args):
@@ -1375,6 +1634,9 @@ def _build_query_argv(args):
     argv: list[str] = []
     if getattr(args, "stats", False):
         argv.append("--stats")
+    db_path = getattr(args, "db_path", None)
+    if isinstance(db_path, str) and db_path:
+        argv.extend(["--db-path", db_path])
     query = _resolve_graph_query_string(args)
     if query:
         argv.extend(["--query", query])
@@ -1404,6 +1666,8 @@ def _run_add(args):
         getattr(args, "wiki_root", None) or default_wiki
     )
     ingester = Ingester(
+        db_path=Path(getattr(args, "db_path", None)) if getattr(args, "db_path", None) else None,
+        raw_root=Path(getattr(args, "raw_root", None)) if getattr(args, "raw_root", None) else None,
         wiki_root=wiki_root,
         include_wiki_excerpts=getattr(args, "wiki_excerpts", False),
         dry_run=getattr(args, "dry_run", False),
@@ -1423,6 +1687,9 @@ def _run_add(args):
         text=text,
         auto_scope=True,
     )
+
+    if getattr(args, "quiet", False):
+        return
 
     # Directory ingestion returns a list of results — summarize them.
     if isinstance(result, list):
@@ -1463,6 +1730,8 @@ def _run_update(args):
         getattr(args, "wiki_root", None) or default_wiki
     )
     updater = Updater(
+        db_path=Path(getattr(args, "db_path", None)) if getattr(args, "db_path", None) else None,
+        raw_root=Path(getattr(args, "raw_root", None)) if getattr(args, "raw_root", None) else None,
         wiki_root=wiki_root,
         include_wiki_excerpts=getattr(args, "wiki_excerpts", False),
         dry_run=getattr(args, "dry_run", False),
@@ -1471,8 +1740,12 @@ def _run_update(args):
         path=path,
         domain=domain_filter,
         scope_id=getattr(args, "scope_id", None),
+        source_channel=getattr(args, "source_channel", "cli"),
         prune=getattr(args, "prune", False),
     )
+    if getattr(args, "quiet", False):
+        return
+
     print(json.dumps({
         "total": stats.total,
         "changed": stats.changed,

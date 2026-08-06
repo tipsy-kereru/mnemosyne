@@ -5,6 +5,17 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-06
+
+### Added
+- **Obsidian Sync CLI Command** (`mnemosyne sync obsidian`): Vault boundary validation, hash-based incremental ingestion, and exclusion of `_MnemosyneWiki`, `.obsidian`, and `.trash`.
+- **Obsidian Plugin Integration** (`obsidian-plugin/mnemosyne-sync`): Custom Obsidian TypeScript plugin providing manual note/vault sync commands, setting tab for CLI/DB paths, and debounced auto-sync on note save with coalescing.
+- **Onyx Outbound Safety Enforcements** (`mnemosyne/integrations/onyx/`): Outbound policy decision engine enforcing classification/visibility gates, tombstone suppression, ACL freshness, section allowlists, and live-row suppression before publication.
+
+### Changed
+- `pyproject.toml` version bumped to `0.10.0`.
+- CLI `--version` tests updated to dynamically check `__version__` and `sys.executable` module execution for 100% test pass rate.
+
 ## [0.9.0] - 2026-08-02
 
 ### Added

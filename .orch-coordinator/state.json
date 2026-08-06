@@ -1,22 +1,34 @@
 {
-  "coordinator_id": "tier2-hardening",
-  "current_phase": "phase-1-implementation",
-  "program_status": "dispatched",
-  "work_packages": {
-    "wp-0-pool": {"status": "complete", "attempts": 1, "supervisor": "coordinator", "artifacts": ["mnemosyne/graph/connection_pool.py", "tests/test_connection_pool.py"], "commit": "83532e4"},
-    "wp-1-server": {"status": "in_flight", "attempts": 1, "supervisor": "WP1-ThreadedServer", "artifacts": [], "worktree": "tier2-server", "worktree_path": "/Users/kereru/orca/workspaces/mnemosyne/tier2-server"},
-    "wp-2-cache": {"status": "in_flight", "attempts": 1, "supervisor": "WP2-RetrievalCache", "artifacts": [], "worktree": "tier2-cache", "worktree_path": "/Users/kereru/orca/workspaces/mnemosyne/tier2-cache"},
-    "wp-3-integration": {"status": "blocked", "attempts": 0, "supervisor": null, "artifacts": [], "blocked_by": "gate-impl"}
-  },
-  "worktrees": {
-    "main": {"repo_id": "c0ad69f5-b082-40b8-b739-13a66877adb1", "role": "coordinator", "head": "83532e4"},
-    "tier2-server": {"id": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/orca/workspaces/mnemosyne/tier2-server", "role": "wp-1-server", "status": "active", "head": "83532e4"},
-    "tier2-cache": {"id": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/orca/workspaces/mnemosyne/tier2-cache", "role": "wp-2-cache", "status": "active", "head": "83532e4"}
-  },
-  "events": [
-    {"ts": "2026-08-02T00:00:00Z", "type": "phase_0_complete", "wp": "wp-0-pool", "commit": "83532e4"},
-    {"ts": "2026-08-02T00:01:00Z", "type": "worktrees_created", "worktrees": ["tier2-server", "tier2-cache"]},
-    {"ts": "2026-08-02T00:02:00Z", "type": "dispatched", "packages": ["wp-1-server", "wp-2-cache"]}
+  "coordinator_id": "mnemosyne-personal-obsidian-2026-08-05",
+  "revision": 3,
+  "run_id": "run_af0ee969cbcf",
+  "loopStatus": "running",
+  "program_status": "design_wave",
+  "iteration": 2,
+  "maxIterations": 40,
+  "current_phase": "phase-1-design",
+  "queue": [
+    {"id":"task_718fa9a5906c","stable_id":"wp-arch-security","status":"completed","depends_on":[],"artifacts":["/private/tmp/claude-501/-Users-kereru-Development-mnemosyne/85af37ed-944d-4b46-ad2e-6970aff34bf0/scratchpad/SECURITY_ARCH_REVIEW_ONYX.md"]},
+    {"id":"task_c7c6e3853a89","stable_id":"wp-arch-lifecycle-retry","status":"dispatched","depends_on":[],"dispatch_id":"ctx_1a50f62850c5","terminal":"term_89dc39ca-3cb3-4feb-9d41-2ff434dae0cf"},
+    {"id":"task_31177f4c8ff3","stable_id":"wp-design-synthesis-v3","status":"pending","depends_on":["task_718fa9a5906c","task_c7c6e3853a89"]},
+    {"id":"task_992a5d8d1422","stable_id":"wp-implementation-v3","status":"pending","depends_on":["task_31177f4c8ff3"]},
+    {"id":"task_3551191472ae","stable_id":"wp-validation-v3","status":"pending","depends_on":["task_992a5d8d1422"]}
   ],
-  "updated_at": "2026-08-02T00:02:00Z"
+  "openTabs": [
+    {"handle":"term_e4f6c61b-87f4-40e7-aff3-f74cf1b99c10","role":"coordinator"},
+    {"handle":"term_89dc39ca-3cb3-4feb-9d41-2ff434dae0cf","taskId":"task_c7c6e3853a89","role":"architect","tool":"codex"}
+  ],
+  "completed": [
+    {"id":"task_718fa9a5906c","stable_id":"wp-arch-security","completed_at":"2026-08-05T16:10:12Z"}
+  ],
+  "halted": [
+    {"id":"task_9ef0cfd0b5e0","reason":"worker_done rejected by dispatch_capability_invalid; replaced by fresh task_c7c6e3853a89"},
+    {"id":"prior-run","reason":"Previous run blocked on outbound ACL/tombstone enforcement and provider/privacy approval; preserved as prior_run_id."}
+  ],
+  "artifacts": [
+    ".orch-coordinator/manifest.json",
+    ".orch-coordinator/state.json",
+    "/private/tmp/claude-501/-Users-kereru-Development-mnemosyne/85af37ed-944d-4b46-ad2e-6970aff34bf0/scratchpad/SECURITY_ARCH_REVIEW_ONYX.md"
+  ],
+  "updated_at": "2026-08-06T01:34:11Z"
 }
