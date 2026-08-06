@@ -268,7 +268,7 @@ def update_current(confirm: bool = True) -> UpdateResult:
     Returns:
         UpdateResult from the appropriate updater
     """
-    from mnemosyne.update.detector import detect_installation_type
+    from mnemosyne.update.detector import detect_installation_type, detect_platform
     from mnemosyne.update.checker import UpdateChecker
 
     # Detect installation type
@@ -295,14 +295,15 @@ def update_current(confirm: bool = True) -> UpdateResult:
                 message="Cannot determine binary installation path",
             )
 
+        platform_info = detect_platform()
         platform = checker.get_asset_for_platform(
-            update_info.assets, install_type.install_path.name
+            update_info.assets, platform_info.asset_tag
         )
 
         if not platform:
             return UpdateResult(
                 success=False,
-                message=f"No binary found for platform {install_type.install_path.name}",
+                message=f"No binary found for platform {platform_info.asset_tag}",
             )
 
         updater = BinaryUpdater(

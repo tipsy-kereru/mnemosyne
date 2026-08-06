@@ -5,6 +5,11 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-08-06
+
+### Fixed
+- **`mnemosyne upgrade` binary self-update** (`mnemosyne/update/updater.py`): `update_current()` matched release assets against the install *directory* name (e.g. `bin`) instead of the actual OS/arch platform tag (e.g. `darwin-arm64`), so every binary-install upgrade failed with `No binary found for platform bin` regardless of platform or available assets. Now resolves the real platform via `detect_platform()`.
+
 ## [0.10.0] - 2026-08-06
 
 ### Added
