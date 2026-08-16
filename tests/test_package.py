@@ -127,8 +127,16 @@ class TestPyprojectToml:
         assert pyproject["project"]["name"] == "mnemosyne-kg"
 
     def test_pyproject_version(self, pyproject):
-        """Package version is 0.2.0."""
-        assert pyproject["project"]["version"] == "0.2.0"
+        """Version is a valid semver string.
+
+        Previously pinned to a literal, so every release broke this test
+        until someone edited it. Agreement with the installed package is
+        already covered by ``TestVersionManagement``; only the shape is
+        asserted here.
+        """
+        import re
+
+        assert re.fullmatch(r"\d+\.\d+\.\d+", pyproject["project"]["version"])
 
     def test_pyproject_requires_python(self, pyproject):
         """Requires Python >=3.11."""

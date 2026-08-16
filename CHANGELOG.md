@@ -5,6 +5,31 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-16
+
+### Added
+- **Manual Slack ingestion** (`mnemosyne/integrations/slack/`, `mnemosyne-slack` CLI): fail-closed, human-operated collection of public Slack channels into an isolated local store. Stable message/thread identity, idempotent edit handling, tombstone-based deletion, per-channel checkpoints that never advance past an unresolved item, and metadata-only quarantine records.
+- **`mnemosyne-slack` console script** with `init`, `source register|list|revoke`, `sync`, `reconcile`, `status`, `quarantine list|resolve`, `query`, and `purge`. JSON output on stdout; distinct exit codes for policy denial (2), credential problems (3), missing targets (4), and blocked live access (5).
+- **Slack integration contract** (`docs/SLACK_INTEGRATION_CONTRACT.ko.md`): 37 numbered rules covering source lifecycle, thread identity, ACL/quarantine, checkpoint/reconcile, CLI, local query boundary, credentials, denial semantics, and explicit out-of-scope items.
+- **Graph-side isolation predicate** (`mnemosyne/graph/knowledge_graph.py`): `ISOLATED_SOURCE_CHANNELS` excludes `work-slack` from every query path, path traversal, statistics, and direct accessor as defence in depth.
+- **Slack guidance in the agent skill** (`mnemosyne/skills/SKILL.md`): documents that Slack content is deliberately absent from the knowledge graph, so an empty graph search does not mean an empty Slack store.
+
+### Security
+- Slack content is stored only in `slack_*` tables and never written to `entities`/`relations`, so existing query, MCP, HTTP, retrieval, and wiki surfaces cannot return it.
+- Public channels only. Private channels, DMs, MPIMs, and externally/org-shared channels are refused before any message is fetched. ACL snapshots expire after 24h and deny when stale, empty, or missing.
+- Bot tokens are read from the environment only; a config file carrying a literal token is refused rather than ignored. All logs, exceptions, stored errors, and CLI output pass through token redaction.
+- Over-permissioned tokens are rejected from the live `X-OAuth-Scopes` header before the response body is used, and a live response carrying no scope header is refused rather than assumed safe.
+- Live Slack access is blocked by default (exit 5) and cannot be enabled by configuration; the adapter only talks to loopback until a human opens that gate.
+- Independent security review recorded in `.orca-orchestrator/VALIDATION_SLACK_SECURITY_REVIEW.md`. Three findings were fixed (unquarantined ACL errors, deletion inferred from malformed timestamps, missing-scope-header fail-open); six lower-severity latent findings remain open and are unreachable while Slack content stays out of the graph.
+
+### Fixed
+- `tests/test_package.py` no longer asserts a hardcoded package version, which had been failing since `0.3.0`.
+
+### Notes
+- No new runtime dependencies. The Slack adapter uses the standard library only; `slack_sdk` is deliberately not required.
+- No scheduler, watcher, launchd job, Socket Mode, or Events API — every Slack operation is invoked by hand.
+- Slack content is not searchable through `mnemosyne query` or the MCP tools by design. Use `mnemosyne-slack query`.
+
 ## [0.10.1] - 2026-08-06
 
 ### Fixed

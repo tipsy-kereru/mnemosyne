@@ -1,34 +1,27 @@
 {
-  "coordinator_id": "mnemosyne-personal-obsidian-2026-08-05",
-  "revision": 3,
-  "run_id": "run_af0ee969cbcf",
-  "loopStatus": "running",
-  "program_status": "design_wave",
-  "iteration": 2,
-  "maxIterations": 40,
-  "current_phase": "phase-1-design",
-  "queue": [
-    {"id":"task_718fa9a5906c","stable_id":"wp-arch-security","status":"completed","depends_on":[],"artifacts":["/private/tmp/claude-501/-Users-kereru-Development-mnemosyne/85af37ed-944d-4b46-ad2e-6970aff34bf0/scratchpad/SECURITY_ARCH_REVIEW_ONYX.md"]},
-    {"id":"task_c7c6e3853a89","stable_id":"wp-arch-lifecycle-retry","status":"dispatched","depends_on":[],"dispatch_id":"ctx_1a50f62850c5","terminal":"term_89dc39ca-3cb3-4feb-9d41-2ff434dae0cf"},
-    {"id":"task_31177f4c8ff3","stable_id":"wp-design-synthesis-v3","status":"pending","depends_on":["task_718fa9a5906c","task_c7c6e3853a89"]},
-    {"id":"task_992a5d8d1422","stable_id":"wp-implementation-v3","status":"pending","depends_on":["task_31177f4c8ff3"]},
-    {"id":"task_3551191472ae","stable_id":"wp-validation-v3","status":"pending","depends_on":["task_992a5d8d1422"]}
+  "coordinator_id":"mnemosyne-slack-2026-08-16",
+  "revision":5,
+  "run_id":"run_c5ad3a31d1a1",
+  "loopStatus":"completed",
+  "program_status":"done_with_external_gate_blocked",
+  "iteration":8,
+  "maxIterations":40,
+  "current_phase":"phase-8-complete",
+  "queue":[
+    {"id":"task_8181c983f838","stable_id":"wp-slack-contract","status":"completed"},
+    {"id":"task_1e4126603556","stable_id":"wp-slack-core","status":"completed","evidence":["103 synthetic tests passed"]},
+    {"id":"task_27b33383c0cb","stable_id":"wp-slack-adapter-cli","status":"completed","evidence":["177 Slack tests passed","1393 full-suite passed","one pre-existing unrelated version failure"]},
+    {"id":"task_22f7b0f46027","stable_id":"wp-slack-validation","status":"completed","evidence":["conditional pass then remediation"]},
+    {"id":"task_399e8ec6d58e","stable_id":"wp-slack-remediation","status":"completed","evidence":["V-01/V-02/V-03 fixed","198 focused tests"]},
+    {"id":"task_59443bdf0f28","stable_id":"wp-slack-revalidation","status":"completed","evidence":["fresh probes pass","residual exit-code defect found and fixed"]},
+    {"id":"task_ed40df495210","stable_id":"wp-slack-abort-exit","status":"completed","evidence":["200 focused tests","malformed reconcile exits 1"]}
   ],
-  "openTabs": [
-    {"handle":"term_e4f6c61b-87f4-40e7-aff3-f74cf1b99c10","role":"coordinator"},
-    {"handle":"term_89dc39ca-3cb3-4feb-9d41-2ff434dae0cf","taskId":"task_c7c6e3853a89","role":"architect","tool":"codex"}
+  "openTabs":[
+    {"handle":"term_7306298b-06b1-4329-8f2c-5d78917f08ef","role":"coordinator"},
+    {"handle":"term_76733132-f832-4ef9-903a-50cc34d839c2","role":"completed-prior-worker","taskId":"task_18734d13dc42"},
+    {"handle":"term_f291247c-c0f7-4f82-80b9-d62133719bba","role":"supervisor","taskId":"task_ed40df495210","dispatch_id":"ctx_fa7efeb8c1a8"}
   ],
-  "completed": [
-    {"id":"task_718fa9a5906c","stable_id":"wp-arch-security","completed_at":"2026-08-05T16:10:12Z"}
-  ],
-  "halted": [
-    {"id":"task_9ef0cfd0b5e0","reason":"worker_done rejected by dispatch_capability_invalid; replaced by fresh task_c7c6e3853a89"},
-    {"id":"prior-run","reason":"Previous run blocked on outbound ACL/tombstone enforcement and provider/privacy approval; preserved as prior_run_id."}
-  ],
-  "artifacts": [
-    ".orch-coordinator/manifest.json",
-    ".orch-coordinator/state.json",
-    "/private/tmp/claude-501/-Users-kereru-Development-mnemosyne/85af37ed-944d-4b46-ad2e-6970aff34bf0/scratchpad/SECURITY_ARCH_REVIEW_ONYX.md"
-  ],
-  "updated_at": "2026-08-06T01:34:11Z"
+  "blocked":[{"id":"gate-real-slack","reason":"Human approval, workspace/app assets, credential injection, and provider/privacy approvals are required before any real Slack access."}],
+  "artifacts":[".orch-coordinator/manifest.json",".orch-coordinator/state.json","docs/SLACK_INTEGRATION_CONTRACT.ko.md",".orca-orchestrator/VALIDATION_SLACK_SECURITY_REVIEW.md","mnemosyne/integrations/slack/","tests/integrations/slack/"],
+  "updated_at":"2026-08-16T06:18:30Z"
 }

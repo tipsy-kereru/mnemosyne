@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemosyne-kg"
-version = "0.10.1"
+version = "0.11.0"
 description = "Local-first, zero-API-cost knowledge memory system for AI agents"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -51,6 +51,7 @@ mnemosyne-query = "mnemosyne.graph.cli:main"
 mnemosyne-extract = "mnemosyne.extraction.cli:main"
 mnemosyne-add = "mnemosyne.ingest.cli:add_main"
 mnemosyne-update = "mnemosyne.ingest.cli:update_main"
+mnemosyne-slack = "mnemosyne.integrations.slack.cli:main"
 
 [dependency-groups]
 dev = [

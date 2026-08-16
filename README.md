@@ -255,6 +255,33 @@ mnemosyne wiki doctor
 | `mnemosyne update <path>` | Incrementally refresh graph and LLM Wiki from changed files |
 | `mnemosyne wiki <subcommand>` | Inspect and maintain the Markdown LLM Wiki |
 | `mnemosyne mcp serve` | Start MCP server for AI agent integration |
+| `mnemosyne-slack <subcommand>` | Manually collect and search public Slack channels (isolated store) |
+
+### `mnemosyne-slack` (isolated Slack store)
+
+Slack conversations are collected by hand into their own tables and are
+**deliberately kept out of the knowledge graph** — `mnemosyne query` and the
+MCP tools will never return them. `mnemosyne-slack query` is the only read
+path.
+
+```bash
+mnemosyne-slack source register --team-id T123 --channel-id C456 --scope-id work
+mnemosyne-slack sync      --source-id slack:T123:C456 --connector live
+mnemosyne-slack reconcile --source-id slack:T123:C456 --since <ts> --connector live
+mnemosyne-slack query     --source-id slack:T123:C456 --grep "deploy failed"
+mnemosyne-slack status
+```
+
+Public channels only. Private channels, DMs, and externally shared channels
+are refused before anything is fetched. The bot token is read from
+`MNEMOSYNE_SLACK_BOT_TOKEN` and is never written to disk or logs; the minimum
+scopes are `channels:read`, `channels:history`, and `users:read`, and a token
+granting more is rejected.
+
+> **Live access is blocked in this release.** `--connector live` exits 5 until
+> the workspace gate is opened deliberately in code. Until then the integration
+> runs against fixtures and a loopback mock. See
+> [`docs/SLACK_INTEGRATION_CONTRACT.ko.md`](docs/SLACK_INTEGRATION_CONTRACT.ko.md).
 
 ### `mnemosyne add` options
 

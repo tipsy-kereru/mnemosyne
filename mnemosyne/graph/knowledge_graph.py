@@ -14,6 +14,37 @@ import networkx as nx
 
 logger = logging.getLogger(__name__)
 
+# Source channels that are isolated from every graph read path.
+#
+# See docs/SLACK_INTEGRATION_CONTRACT.ko.md §6. The direct Slack
+# integration stores its content in the slack_* tables and never writes
+# entities or relations (INV-1), so in practice nothing here matches.
+# The predicate exists so the default answer is "denied": if a promotion
+# path is ever built, it has to open this door deliberately rather than
+# inherit visibility. Note this is `work-slack`, not `slack` — the latter
+# is the channel for Onyx-sourced documents and stays visible.
+ISOLATED_SOURCE_CHANNELS = frozenset({'work-slack'})
+
+_ISOLATION_PARAMS: Tuple[str, ...] = tuple(sorted(ISOLATED_SOURCE_CHANNELS))
+
+
+def _isolation_clause(table_alias: str = '') -> str:
+    """SQL fragment excluding isolated channels; pair with _ISOLATION_PARAMS.
+
+    Rows with a NULL source_channel are kept: `NOT IN` would evaluate to
+    NULL and silently drop them.
+    """
+    prefix = f'{table_alias}.' if table_alias else ''
+    placeholders = ','.join('?' * len(_ISOLATION_PARAMS))
+    return (
+        f'({prefix}source_channel IS NULL OR '
+        f'{prefix}source_channel NOT IN ({placeholders}))'
+    )
+
+
+def _is_isolated_channel(source_channel: Optional[str]) -> bool:
+    return source_channel in ISOLATED_SOURCE_CHANNELS
+
 
 @dataclass
 class Scope:
@@ -252,6 +283,12 @@ class KnowledgeGraph:
         # chat_turns anywhere; archive = status flip on chat_sessions.
         from mnemosyne.query.chat_store import init_chat_schema
         init_chat_schema(self.conn)
+
+        # Slack integration tables (docs/SLACK_INTEGRATION_CONTRACT.ko.md
+        # §8.4). Additive, idempotent, sqlite_master-guarded, and isolated
+        # from entities/relations. Imports nothing beyond stdlib.
+        from mnemosyne.integrations.slack.schema import init_slack_schema
+        init_slack_schema(self.conn)
 
     def _get_table_columns(self, table_name: str) -> List[str]:
         """Get list of column names for a table"""
@@ -539,7 +576,10 @@ class KnowledgeGraph:
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         """Get entity by ID"""
         cursor = self.conn.cursor()
-        row = cursor.execute('SELECT * FROM entities WHERE id = ?', (entity_id,)).fetchone()
+        row = cursor.execute(
+            f'SELECT * FROM entities WHERE id = ? AND {_isolation_clause()}',
+            (entity_id, *_ISOLATION_PARAMS),
+        ).fetchone()
 
         if row:
             return Entity(
@@ -558,7 +598,10 @@ class KnowledgeGraph:
     def get_entities_by_type(self, entity_type: str) -> List[Entity]:
         """Get all entities of a specific type"""
         cursor = self.conn.cursor()
-        rows = cursor.execute('SELECT * FROM entities WHERE type = ?', (entity_type,)).fetchall()
+        rows = cursor.execute(
+            f'SELECT * FROM entities WHERE type = ? AND {_isolation_clause()}',
+            (entity_type, *_ISOLATION_PARAMS),
+        ).fetchall()
 
         return [Entity(
             id=row['id'],
@@ -598,6 +641,20 @@ class KnowledgeGraph:
 
         # Extract @ modifiers from the query
         base_query, modifiers = self._parse_modifiers(query_str)
+
+        # Asking for an isolated channel by name is refused explicitly, so
+        # the caller learns where the content actually lives. Queries that
+        # do not name it are filtered silently instead (contract R25).
+        if _is_isolated_channel(modifiers.get('channel')):
+            logger.info(
+                "Refused query for isolated channel %s", modifiers['channel']
+            )
+            return {
+                'error': 'slack_isolated',
+                'hint': 'use `mnemosyne-slack query` for work-slack content',
+                'results': [],
+                'count': 0,
+            }
 
         # Scope hierarchy query
         if base_query.startswith('scope:'):
@@ -708,6 +765,11 @@ class KnowledgeGraph:
         clauses: List[str] = []
         params: List[Any] = []
 
+        # Isolated channels are excluded from every query built here,
+        # unconditionally. There is no modifier that opens this.
+        clauses.append(_isolation_clause(table_alias))
+        params.extend(_ISOLATION_PARAMS)
+
         # Scope filtering
         scope_filter = self._resolve_scope_filter(modifiers)
         if scope_filter is not None:
@@ -764,7 +826,9 @@ class KnowledgeGraph:
         def build_tree(s: Scope) -> Dict[str, Any]:
             cursor = self.conn.cursor()
             entity_count = cursor.execute(
-                'SELECT COUNT(*) FROM entities WHERE scope_id = ?', (s.id,)
+                f'SELECT COUNT(*) FROM entities WHERE scope_id = ? '
+                f'AND {_isolation_clause()}',
+                (s.id, *_ISOLATION_PARAMS),
             ).fetchone()[0]
 
             children = self.scope_manager.get_children(s.id)
@@ -889,11 +953,21 @@ class KnowledgeGraph:
         if not source_id or not target_id:
             return {'error': 'Entity not found', 'source': source_name, 'target': target_name}
 
+        # Route around isolated nodes rather than filtering the result:
+        # a path that merely passes through isolated content would still
+        # leak that the content exists.
+        graph = nx.subgraph_view(
+            self.nx_graph,
+            filter_node=lambda n: not _is_isolated_channel(
+                self.nx_graph.nodes[n].get('source_channel')
+            ),
+        )
+
         try:
-            path = nx.shortest_path(self.nx_graph, source_id, target_id)
+            path = nx.shortest_path(graph, source_id, target_id)
             edges = []
             for i in range(len(path) - 1):
-                edge_data = self.nx_graph.get_edge_data(path[i], path[i+1])
+                edge_data = graph.get_edge_data(path[i], path[i+1])
                 edges.append({
                     'from': path[i],
                     'to': path[i+1],
@@ -906,7 +980,7 @@ class KnowledgeGraph:
                 'edges': edges,
                 'length': len(path) - 1
             }
-        except nx.NetworkXNoPath:
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
             return {'error': 'No path found', 'source': source_name, 'target': target_name}
 
     def _query_search(
@@ -978,9 +1052,12 @@ class KnowledgeGraph:
         return {'type': 'search', 'term': term, 'results': entities, 'count': len(entities)}
 
     def _find_entity_id_by_name(self, name: str) -> Optional[str]:
-        """Find entity ID by name"""
+        """Find entity ID by name (isolated channels are invisible here)"""
         cursor = self.conn.cursor()
-        row = cursor.execute('SELECT id FROM entities WHERE name = ?', (name,)).fetchone()
+        row = cursor.execute(
+            f'SELECT id FROM entities WHERE name = ? AND {_isolation_clause()}',
+            (name, *_ISOLATION_PARAMS),
+        ).fetchone()
         return row['id'] if row else None
 
     def get_entity_history(self, entity_id: str) -> List[Dict[str, Any]]:
@@ -1006,11 +1083,24 @@ class KnowledgeGraph:
         """Get graph statistics including scope distribution"""
         cursor = self.conn.cursor()
 
-        entity_count = cursor.execute('SELECT COUNT(*) FROM entities').fetchone()[0]
-        relation_count = cursor.execute('SELECT COUNT(*) FROM relations').fetchone()[0]
+        # Isolated channels are left out of every count. No separate
+        # "excluded" figure is reported: a count would itself disclose
+        # that the content exists.
+        entity_filter = _isolation_clause()
+        entity_count = cursor.execute(
+            f'SELECT COUNT(*) FROM entities WHERE {entity_filter}',
+            _ISOLATION_PARAMS,
+        ).fetchone()[0]
+        relation_count = cursor.execute(
+            f'SELECT COUNT(*) FROM relations WHERE {entity_filter}',
+            _ISOLATION_PARAMS,
+        ).fetchone()[0]
 
         type_counts = {}
-        for row in cursor.execute('SELECT type, COUNT(*) FROM entities GROUP BY type'):
+        for row in cursor.execute(
+            f'SELECT type, COUNT(*) FROM entities WHERE {entity_filter} GROUP BY type',
+            _ISOLATION_PARAMS,
+        ):
             type_counts[row['type']] = row[1]
 
         stats = {
@@ -1030,12 +1120,13 @@ class KnowledgeGraph:
                 scope_type_counts[row['scope_type']] = row[1]
 
             entity_scope_counts = {}
-            for row in cursor.execute('''
+            for row in cursor.execute(f'''
                 SELECT s.name, s.scope_type, COUNT(e.id) as cnt
                 FROM scopes s
-                LEFT JOIN entities e ON e.scope_id = s.id
+                LEFT JOIN entities e
+                    ON e.scope_id = s.id AND {_isolation_clause('e')}
                 GROUP BY s.id
-            '''):
+            ''', _ISOLATION_PARAMS):
                 entity_scope_counts[row['name']] = {
                     'scope_type': row['scope_type'],
                     'entity_count': row['cnt'],
@@ -1119,9 +1210,10 @@ class KnowledgeGraph:
         cursor = self.conn.cursor()
         sql = (
             "SELECT * FROM entities "
-            "WHERE (properties IS NULL OR properties NOT LIKE '%tombstoned_at%')"
+            "WHERE (properties IS NULL OR properties NOT LIKE '%tombstoned_at%') "
+            f"AND {_isolation_clause()}"
         )
-        params: List[Any] = []
+        params: List[Any] = list(_ISOLATION_PARAMS)
         if scope_id is not None:
             sql += " AND scope_id = ?"
             params.append(scope_id)

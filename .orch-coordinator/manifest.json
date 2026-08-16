@@ -1,130 +1,127 @@
 {
-  "coordinator_id": "mnemosyne-personal-obsidian-2026-08-05",
-  "revision": 3,
-  "run_id": "run_af0ee969cbcf",
-  "prior_run_id": "run_9cf35d22a4c5",
-  "goal": "Close Onyx outbound ACL/classification, tombstone/withdrawal, lifecycle, preflight, and credential-boundary gaps without private-note ingest or external publication.",
+  "coordinator_id": "mnemosyne-slack-2026-08-16",
+  "revision": 1,
+  "run_id": "run_c5ad3a31d1a1",
+  "prior_run_id": "run_af0ee969cbcf",
+  "goal": "Implement fail-closed, manually operated Slack conversation ingestion and scoped local query for Mnemosyne without Onyx or watcher changes.",
   "control_worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
   "max_worktrees": 1,
   "max_iterations": 40,
   "max_tabs": 3,
   "assumptions": [
-    "Work stays in the current dirty main worktree; existing user changes are preserved.",
-    "Only synthetic fixtures and /tmp paths may be used; no credential or private-note files may be read.",
-    "External Onyx publication, provider calls with personal content, git push, PR creation, and dependency installation remain blocked.",
-    "The prior lifecycle dispatch was rejected by missing capability; its report is preserved and a fresh retry task is authoritative."
+    "Existing dirty changes are preserved; all Slack work stays in the current worktree.",
+    "Synthetic fixtures and mocked Web API responses are sufficient until a later human-approved workspace smoke test.",
+    "work-slack is explicit and isolated; unscoped queries exclude it.",
+    "Manual CLI only; no launchd, watcher, scheduler, Socket Mode, or Events API.",
+    "No secrets/private notes are read, no Slack/Onyx calls are made, no dependencies are installed, and no external publication occurs during this program.",
+    "Cloud LLM extraction remains opt-in per invocation and is not required for the first source-only implementation."
   ],
   "phases": [
     {
-      "id": "phase-1-design",
-      "name": "Lifecycle review and contract synthesis",
-      "type": "contract_gate",
-      "execution": "worktree_supervisor",
-      "description": "Complete a fresh lifecycle review, then synthesize it with the completed security review into one implementation contract.",
-      "gate": "Design artifact defines per-scope policy, deny/quarantine semantics, ACL-before-noop, checkpoint/replay, tombstone/withdrawal state, preflight, credential boundaries, and tests.",
-      "owner": "coordinator"
+      "id": "phase-0-preflight",
+      "name": "Input preflight",
+      "status": "passed",
+      "evidence": ["slow-agent Slack plan", "repository ingest/graph/scope inventory", "approved privacy and outbound decisions"]
     },
     {
-      "id": "phase-2-implementation",
-      "name": "Policy lifecycle and preflight implementation",
-      "type": "implementation",
-      "execution": "worktree_supervisor",
-      "description": "Implement only the approved design in the existing dirty worktree and focused synthetic tests.",
-      "gate": "Scoped tests pass; blocked entities never call Onyx; lifecycle and preflight fail closed; no private data or credentials are used.",
-      "owner": "wp-implementation-v3"
+      "id": "phase-1-contract",
+      "name": "Slack source contract",
+      "status": "ready",
+      "task_ids": ["task_8181c983f838"]
     },
     {
-      "id": "phase-3-validation",
-      "name": "Independent security and regression validation",
-      "type": "validation",
-      "execution": "worktree_supervisor",
-      "description": "Review the implementation independently and run focused synthetic probes and scoped suites.",
-      "gate": "No unresolved P0 privacy/ACL/tombstone/preflight defect remains; exact evidence and deferred gates are reported.",
-      "owner": "wp-validation-v3"
+      "id": "phase-2-core",
+      "name": "Source lifecycle and synthetic sync",
+      "status": "pending",
+      "task_ids": ["task_1e4126603556"]
+    },
+    {
+      "id": "phase-3-adapter",
+      "name": "Manual CLI and mocked API",
+      "status": "pending",
+      "task_ids": ["task_27b33383c0cb"]
+    },
+    {
+      "id": "phase-4-validation",
+      "name": "Independent security validation",
+      "status": "pending",
+      "task_ids": ["task_22f7b0f46027"]
     }
   ],
   "work_packages": [
     {
-      "id": "wp-arch-security",
-      "task_id": "task_718fa9a5906c",
-      "phase": "phase-1-design",
-      "status": "completed",
+      "id": "wp-slack-contract",
+      "task_id": "task_8181c983f838",
+      "phase": "phase-1-contract",
       "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
       "supervisor_skill": "orca-orchestrator",
-      "objective": "Read-only security architect review of outbound classification, ACL, tombstone, destination capability, and privacy boundaries.",
-      "outputs": ["/private/tmp/claude-501/-Users-kereru-Development-mnemosyne/85af37ed-944d-4b46-ad2e-6970aff34bf0/scratchpad/SECURITY_ARCH_REVIEW_ONYX.md"],
-      "acceptance_gates": ["read-only", "no secrets/private notes", "exact code evidence"]
+      "objective": "Write the minimal Slack integration contract and exact implementation/test map.",
+      "allowed_paths": ["docs/SLACK_INTEGRATION_CONTRACT.ko.md"],
+      "inputs": ["slow-agent plan", "repository inventory", "approved privacy/outbound decisions"],
+      "outputs": ["docs/SLACK_INTEGRATION_CONTRACT.ko.md", "structured result"],
+      "acceptance_gates": ["contract completeness", "no secrets/private notes/network", "exact affected paths"],
+      "dependencies": [],
+      "max_attempts": 2,
+      "stop_conditions": ["contract requires production credentials", "scope expands to Onyx or automation"]
     },
     {
-      "id": "wp-arch-lifecycle-retry",
-      "task_id": "task_c7c6e3853a89",
-      "phase": "phase-1-design",
-      "status": "dispatched",
+      "id": "wp-slack-core",
+      "task_id": "task_1e4126603556",
+      "phase": "phase-2-core",
       "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
       "supervisor_skill": "orca-orchestrator",
-      "objective": "Fresh read-only lifecycle review against the current dirty source and prior escalation.",
-      "inputs": ["task_718fa9a5906c result", "docs/ONYX_READ_ONLY_EXPORT_CONTRACT.md", "current source and focused tests"],
-      "outputs": ["lifecycle review report", "state invariants", "regression matrix"],
-      "acceptance_gates": ["read-only", "no secrets/private notes", "worker_done with exact evidence"],
-      "dependencies": []
+      "objective": "Implement source lifecycle, synthetic Slack connector, ACL, checkpoint, reconcile, and manual sync.",
+      "allowed_paths": ["mnemosyne/graph/knowledge_graph.py", "mnemosyne/ingest/ingester.py", "mnemosyne/integrations/slack/", "tests/graph/", "tests/ingest/", "tests/integrations/slack/"],
+      "inputs": ["docs/SLACK_INTEGRATION_CONTRACT.ko.md"],
+      "outputs": ["core source/Slack implementation", "synthetic tests", "focused evidence"],
+      "acceptance_gates": ["temporary SQLite tests", "ACL-before-fetch", "idempotent edit/delete", "checkpoint safety", "py_compile"],
+      "dependencies": ["task_8181c983f838"],
+      "max_attempts": 3,
+      "stop_conditions": ["real Slack access required", "secret/private-note access required", "Onyx or watcher changes requested"]
     },
     {
-      "id": "wp-design-synthesis-v3",
-      "task_id": "task_31177f4c8ff3",
-      "phase": "phase-1-design",
-      "status": "pending",
+      "id": "wp-slack-adapter-cli",
+      "task_id": "task_27b33383c0cb",
+      "phase": "phase-3-adapter",
       "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
       "supervisor_skill": "orca-orchestrator",
-      "objective": "Synthesize security and lifecycle reports into one minimal approved design artifact.",
-      "outputs": ["docs/ONYX_OUTBOUND_ENFORCEMENT_DESIGN.ko.md"],
-      "acceptance_gates": ["both reports reconciled", "no unresolved contract ambiguity", "test matrix included"],
-      "dependencies": ["task_718fa9a5906c", "task_c7c6e3853a89"]
+      "objective": "Implement optional mocked Web API adapter, manual mnemosyne-slack CLI, and local/live query boundary.",
+      "allowed_paths": ["mnemosyne/integrations/slack/", "mnemosyne/graph/cli.py", "pyproject.toml", "tests/integrations/slack/"],
+      "inputs": ["docs/SLACK_INTEGRATION_CONTRACT.ko.md", "core source/Slack implementation"],
+      "outputs": ["CLI/API implementation", "mock API/CLI tests", "focused evidence"],
+      "acceptance_gates": ["explicit channel/scope", "env-only credential", "token redaction", "mock pagination/errors", "py_compile"],
+      "dependencies": ["task_1e4126603556"],
+      "max_attempts": 3,
+      "stop_conditions": ["dependency installation required", "real Slack credential/network required", "Onyx or watcher changes requested"]
     },
     {
-      "id": "wp-implementation-v3",
-      "task_id": "task_992a5d8d1422",
-      "phase": "phase-2-implementation",
-      "status": "pending",
+      "id": "wp-slack-validation",
+      "task_id": "task_22f7b0f46027",
+      "phase": "phase-4-validation",
       "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
       "supervisor_skill": "orca-orchestrator",
-      "objective": "Implement approved outbound policy, inbound lifecycle, withdrawal/suppression, preflight, and credential boundaries with focused tests.",
-      "allowed_paths": ["mnemosyne/integrations/onyx/", "mnemosyne/cli.py", "tests/integrations/onyx/", "docs/ONYX_READ_ONLY_EXPORT_CONTRACT.md", "docs/ONYX_OUTBOUND_ENFORCEMENT_DESIGN.ko.md"],
-      "outputs": ["implementation diff", "regression tests", "scoped test evidence"],
-      "acceptance_gates": ["blocked mapper results are non-publishable", "blocked exporter never calls client", "ACL revalidation before no-op", "checkpoint/quarantine semantics covered", "tombstone/withdrawal state covered", "blocking preflight before client creation", "scoped tests pass"],
-      "dependencies": ["task_31177f4c8ff3"]
-    },
-    {
-      "id": "wp-validation-v3",
-      "task_id": "task_3551191472ae",
-      "phase": "phase-3-validation",
-      "status": "pending",
-      "worktree": "c0ad69f5-b082-40b8-b739-13a66877adb1::/Users/kereru/Development/mnemosyne",
-      "supervisor_skill": "orca-orchestrator",
-      "objective": "Independent security and regression validation of the v3 implementation.",
-      "outputs": ["independent validation report", "synthetic probe evidence", "pass/fail verdict"],
-      "acceptance_gates": ["scoped suite passes", "negative ACL/tombstone/preflight cases pass", "no client call for blocked entity", "no secret/private-note mutation", "no unresolved P0 finding"],
-      "dependencies": ["task_992a5d8d1422"]
+      "objective": "Independently validate Slack isolation, ACL, lifecycle, credentials, and query behavior.",
+      "allowed_paths": ["mnemosyne/integrations/slack/", "mnemosyne/graph/", "mnemosyne/ingest/", "tests/integrations/slack/"],
+      "inputs": ["contract artifact", "implementation artifacts", "focused test evidence"],
+      "outputs": ["structured pass/fail report", "validation artifact if needed"],
+      "acceptance_gates": ["independent focused tests", "read-only security review", "no secrets/network/Onyx", "deferred asset list"],
+      "dependencies": ["task_27b33383c0cb"],
+      "max_attempts": 2,
+      "stop_conditions": ["security blocker", "real credential or external API required"]
     }
   ],
-  "superseded_tasks": [
-    {"task_id": "task_9ef0cfd0b5e0", "reason": "worker_done was rejected by missing dispatch capability; report preserved in orchestration inbox"},
-    {"task_id": "task_36f33db657ea", "reason": "blocked by superseded lifecycle task; replaced by task_31177f4c8ff3"},
-    {"task_id": "task_769732922fc1", "reason": "blocked by superseded synthesis task; replaced by task_992a5d8d1422"},
-    {"task_id": "task_b985fe24491c", "reason": "blocked by superseded implementation task; replaced by task_3551191472ae"}
-  ],
   "gates": [
-    {"id": "gate-no-private-data", "status": "passed", "blocks": [], "condition": "No private-note content, credentials, provider calls, or external Onyx destination may be used."},
-    {"id": "gate-design-consensus-v3", "status": "pending", "blocks": ["task_992a5d8d1422"], "condition": "Fresh lifecycle report and security report are reconciled into the approved design artifact."},
-    {"id": "gate-outbound-enforcement-v3", "status": "pending", "blocks": ["task_3551191472ae"], "condition": "Policy, lifecycle, tombstone/withdrawal, and preflight enforcement pass synthetic negative cases before client calls."},
-    {"id": "gate-external-publication", "status": "blocked", "blocks": [], "condition": "Provider/privacy approval, target Onyx withdrawal verification, destination ACL approval, reviewed dry-run, and credential injection approval remain required; no live publication in this program."},
-    {"id": "gate-delivery-v3", "status": "pending", "blocks": [], "condition": "Implementation and independent validation artifacts exist and all scoped gates pass."}
+    {"id": "gate-input-preflight", "status": "passed", "condition": "Repository extension points and approved policy decisions are recorded."},
+    {"id": "gate-contract", "status": "pending", "blocks": ["task_1e4126603556"], "condition": "Exact Slack source/ACL/state/query contract artifact exists."},
+    {"id": "gate-implementation", "status": "pending", "blocks": ["task_27b33383c0cb"], "condition": "Core synthetic sync lifecycle and tests pass."},
+    {"id": "gate-security-validation", "status": "pending", "blocks": [], "condition": "Independent validation passes or produces explicit blockers."},
+    {"id": "gate-real-slack", "status": "blocked", "condition": "Human must later approve workspace/channel IDs, token model, private-channel policy, and any cloud extraction."}
   ],
   "deferred_artifacts": [
-    "Provider/privacy/retention approval for real personal Markdown",
-    "Target Onyx API withdrawal/delete verification",
-    "Per-scope destination ACL/capability approval",
-    "Reviewed synthetic dry-run evidence",
-    "macOS Keychain or approved secret-manager injection record",
-    "Actual external publication and watcher/launchd automation"
+    "Real Slack team/channel IDs",
+    "Human-approved Slack app installation and token injection",
+    "Private-channel/DM principal policy",
+    "Cloud LLM provider approval, if ever needed",
+    "Reconciliation cadence for historical Slack edits/deletions"
   ]
 }

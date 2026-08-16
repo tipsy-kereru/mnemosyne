@@ -31,6 +31,11 @@ Examples:
 Output: JSON to stdout.
   --stats: {"entities": N, "relations": N, "by_type": {...}, "density": F}
   --query: {"type": "..., "term": "...", "results": [{id, type, name, properties, ...}]}
+
+Isolated channels:
+  work-slack content is never returned here or counted in --stats. Query it
+  with `mnemosyne-slack query`. Naming it explicitly (@channel:work-slack)
+  returns {"error": "slack_isolated"} and exits 2.
 """
 
 
@@ -66,10 +71,13 @@ def main(argv=None):
         elif args.query:
             result = kg.query(args.query)
             print(json.dumps(result, indent=2, default=str))
+            if result.get("error") == "slack_isolated":
+                return 2
         else:
             parser.print_help()
     finally:
         kg.close()
+    return 0
 
 
 if __name__ == "__main__":

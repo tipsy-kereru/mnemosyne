@@ -227,6 +227,31 @@ mnemosyne wiki doctor
 | `mnemosyne update <path>` | 변경된 파일에서 그래프 및 LLM Wiki 증분 새로 고침 |
 | `mnemosyne wiki <subcommand>` | Markdown LLM Wiki 검사 및 유지 관리 |
 | `mnemosyne mcp serve` | AI 에이전트 통합을 위한 MCP 서버 시작 |
+| `mnemosyne-slack <subcommand>` | 공개 Slack 채널 수동 수집 및 검색 (격리 저장소) |
+
+### `mnemosyne-slack` (격리된 Slack 저장소)
+
+Slack 대화는 수동으로 별도 테이블에 수집되며 **의도적으로 지식 그래프에
+넣지 않습니다** — `mnemosyne query`와 MCP 도구는 이 내용을 절대 반환하지
+않습니다. `mnemosyne-slack query`가 유일한 조회 경로입니다.
+
+```bash
+mnemosyne-slack source register --team-id T123 --channel-id C456 --scope-id work
+mnemosyne-slack sync      --source-id slack:T123:C456 --connector live
+mnemosyne-slack reconcile --source-id slack:T123:C456 --since <ts> --connector live
+mnemosyne-slack query     --source-id slack:T123:C456 --grep "배포 실패"
+mnemosyne-slack status
+```
+
+공개 채널만 지원합니다. 비공개 채널·DM·외부 공유 채널은 메시지를 가져오기
+전에 거부됩니다. 봇 토큰은 `MNEMOSYNE_SLACK_BOT_TOKEN` 환경변수에서만 읽고
+디스크나 로그에 기록하지 않으며, 최소 스코프는 `channels:read`,
+`channels:history`, `users:read`입니다. 그보다 넓은 권한의 토큰은 거부됩니다.
+
+> **이번 릴리스에서 실제 워크스페이스 접근은 차단되어 있습니다.**
+> `--connector live`는 종료 코드 5로 거부되며, 코드에서 의도적으로 게이트를
+> 열어야 활성화됩니다. 그전까지는 픽스처와 루프백 목 서버로만 동작합니다.
+> [`docs/SLACK_INTEGRATION_CONTRACT.ko.md`](docs/SLACK_INTEGRATION_CONTRACT.ko.md) 참조.
 
 ### `mnemosyne add` 옵션
 

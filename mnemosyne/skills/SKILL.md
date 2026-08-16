@@ -41,6 +41,14 @@ Persistent knowledge graph memory for AI agents. Ingest files, URLs, and text in
 /mnemosyne update <path>                                  # incremental update from changed files
 ```
 
+Slack lives in a separate binary and a separate store (see the `slack` section):
+
+```
+mnemosyne-slack query --source-id <id> --grep <term>      # search Slack messages (NOT in the graph)
+mnemosyne-slack query --source-id <id> --thread-ts <ts>   # read one Slack thread
+mnemosyne-slack status                                    # sources, checkpoints, quarantine
+```
+
 ## What mnemosyne is for
 
 mnemosyne provides persistent, compounding knowledge memory that survives across sessions. Instead of re-reading everything each time, the agent stores entities and relations in a local SQLite + NetworkX graph and a Markdown wiki.
@@ -305,6 +313,59 @@ mnemosyne hook status
 
 ---
 
+## Subcommand: `slack` (Isolated Slack Store)
+
+Slack conversations live in their own tables, **not** in the knowledge graph.
+`mnemosyne query` and the MCP tools will never return them — searching the
+graph for Slack content and finding nothing does **not** mean the content is
+absent. Use the commands below, which are the only read path.
+
+The binary is `mnemosyne-slack` (installed alongside `mnemosyne`).
+
+```bash
+# Search stored messages in one channel
+mnemosyne-slack query --source-id slack:<TEAM>:<CHANNEL> --grep "deploy failed"
+
+# Read one thread in order
+mnemosyne-slack query --source-id slack:<TEAM>:<CHANNEL> --thread-ts 1712345678.000100
+
+# Time-bounded read
+mnemosyne-slack query --source-id slack:<TEAM>:<CHANNEL> --since <ts> --until <ts>
+
+# What channels are bound, where the checkpoint sits, what is quarantined
+mnemosyne-slack status
+mnemosyne-slack source list
+mnemosyne-slack quarantine list
+
+# Collect new messages (manual only — there is no scheduler or watcher)
+mnemosyne-slack sync --source-id slack:<TEAM>:<CHANNEL> --connector live
+
+# Detect remote edits and deletions over a window (the only tombstone path)
+mnemosyne-slack reconcile --source-id slack:<TEAM>:<CHANNEL> --since <ts> --connector live
+```
+
+**Exit codes** — check them, the JSON body alone is not the signal:
+
+| Code | Meaning |
+|------|---------|
+| 0 | success |
+| 1 | run failed (connector error, or a reconcile that refused to run) |
+| 2 | policy denial (channel quarantined, source revoked) |
+| 3 | credential problem (token missing or over-permissioned) |
+| 4 | source or target not found |
+| 5 | live Slack blocked — expected until a human opens that gate |
+
+**Before reporting "no Slack data"**, run `mnemosyne-slack source list`. An
+empty list means no channel has been bound yet; a `quarantined` status means
+the channel was refused (usually private, DM, or externally shared — only
+public channels are readable).
+
+**Do not** try to post to Slack, join channels, or read private channels/DMs
+through this tool. It is read-only, public-channel-only, and holds no
+outbound capability by design.
+
+---
+
 ## Subcommand: default (no args) — Show Stats
 
 ```bash
@@ -326,3 +387,4 @@ Present the output as a summary: total entities by type, total relations, graph 
 7. **Wiki is optional**: Use `--no-wiki` for graph-only workflows. The wiki is a human-readable presentation layer.
 8. **Conflict handling**: When entity properties conflict between ingestions, both values are preserved. Use `mnemosyne wiki contradictions` to review.
 9. **Hooks**: Use `mnemosyne hook install` to auto-sync the graph on file changes or git commits. Supports git, Claude Code, Codex, Gemini, and Copilot.
+10. **Slack is a separate store**: Slack messages are deliberately kept out of `entities`/`relations`, so `mnemosyne query`, `mnemosyne_search`, and every MCP tool are blind to them. Reach them only through `mnemosyne-slack query`. Live workspace access is blocked (exit 5) until a human enables it.
