@@ -5,6 +5,23 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-09-12
+
+### Added
+- Source lifecycle API and `mnemosyne lifecycle apply|status|inspect|rebuild`: authoritative version fences, complete per-source evidence replacement, confirmed-source deactivation, durable user-note versions, version-bound approvals, separate corrections, and reversible archive/search exclusion.
+- Additive lifecycle migration with a verified pre-migration SQLite backup. Unattributed legacy knowledge is retained rather than assigned invented source provenance.
+- Synthetic lifecycle regressions cover source independence, A→B→A, out-of-order/late jobs, partial extraction, approval scopes, correction withdrawal, visibility restoration, migration/backup recovery, concurrent writers, and hard process exits before/after graph commit and during wiki rendering.
+
+### Changed
+- Lifecycle graph projection, evidence, jobs, checkpoints, user changes, and wiki dirtiness commit through one serialized SQLite path with full synchronization. Legacy unversioned ingestion cannot overwrite lifecycle-managed knowledge.
+- Lifecycle wiki rebuilds publish a database/generation-bound graph snapshot without source reads or LLM calls. Old generated pages are retained as history; stale Markdown is refused by the current-wiki reader.
+- Graph path traversal and hybrid search cache generations honor lifecycle changes from other connections.
+
+### Migration notes
+- This release adds an explicit source lifecycle API; live meeting/mail/note connectors and remote chat authorization are not enabled automatically.
+- Once a database enters lifecycle operation, versionless `ingest add/update` is refused. Supply stable source IDs and authoritative ordered revisions through `mnemosyne lifecycle apply`.
+- Pre-lifecycle databases are backed up before schema changes. Unattributed merged values are retained as legacy evidence, not silently assigned to a source or deleted.
+
 ## [0.11.0] - 2026-08-16
 
 ### Added
