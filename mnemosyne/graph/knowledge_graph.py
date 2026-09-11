@@ -11,6 +11,20 @@ from mnemosyne.timestamps import utc_now_iso
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 import networkx as nx
+from functools import wraps
+
+
+def _serialized_write(method):
+    """Share the lifecycle writer lock with legacy graph mutation entry points."""
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        from mnemosyne.graph.lifecycle import LifecycleStore, writer_lock
+        with writer_lock(self.db_path):
+            record = args[0] if args else kwargs.get("entity", kwargs.get("relation"))
+            kind = "entity" if "entity" in method.__name__ else "relation"
+            LifecycleStore(self).assert_unmanaged(kind, record.id)
+            return method(self, *args, **kwargs)
+    return wrapped
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +130,13 @@ class KnowledgeGraph:
         from mnemosyne.graph.connection_pool import ConnectionPool
         self._pool = ConnectionPool(self.db_path, synchronous=self._synchronous)
 
-        self._init_db()
+        from mnemosyne.graph.lifecycle import (
+            init_lifecycle_schema, prepare_lifecycle_backup, writer_lock,
+        )
+        with writer_lock(self.db_path):
+            self.lifecycle_backup_path = prepare_lifecycle_backup(self.conn, self.db_path)
+            self._init_db()
+            init_lifecycle_schema(self.conn, self.db_path)
         self.nx_graph = self._build_networkx()
 
         # Wire ScopeManager after DB is initialized
@@ -326,6 +346,7 @@ class KnowledgeGraph:
 
         return G
 
+    @_serialized_write
     def add_entity(self, entity: Entity, scope_id: Optional[str] = None,
                    source_channel: str = 'legacy') -> Entity:
         """Add a new entity to the graph"""
@@ -385,6 +406,7 @@ class KnowledgeGraph:
 
         return entity
 
+    @_serialized_write
     def add_relation(self, relation: Relation, scope_id: Optional[str] = None,
                      source_channel: str = 'legacy') -> Relation:
         """Add a new relation to the graph"""
@@ -430,6 +452,7 @@ class KnowledgeGraph:
 
         return relation
 
+    @_serialized_write
     def update_entity(
         self,
         entity: Entity,
@@ -539,6 +562,7 @@ class KnowledgeGraph:
             source_channel=row['source_channel'] if 'source_channel' in row.keys() else 'legacy',
         )
 
+    @_serialized_write
     def update_relation(
         self, relation: Relation, source_channel: Optional[str] = None
     ) -> Relation:
@@ -942,6 +966,9 @@ class KnowledgeGraph:
 
     def _query_path(self, query_str: str) -> Dict[str, Any]:
         """Find path between two entities"""
+        # Lifecycle commits can originate in another process/connection.
+        # Do not traverse an obsolete in-memory projection after visibility changes.
+        self.nx_graph = self._build_networkx()
         # Parse path(source_name, target_name)
         parts = query_str.replace('path:', '').strip().lstrip('(').rstrip(')').split(',')
         source_name, target_name = parts[0].strip(), parts[1].strip()

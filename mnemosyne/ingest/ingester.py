@@ -324,6 +324,7 @@ class Ingester:
         from mnemosyne.graph.knowledge_graph import Entity, Relation
 
         kg = self._get_kg()
+        self._require_unversioned_store()
         added_entities = 0
         added_relations = 0
         now = datetime.now(timezone.utc).isoformat()
@@ -569,6 +570,11 @@ class Ingester:
         """Update the Markdown LLM Wiki when a wiki root was configured."""
         if self.wiki_root is None or self.dry_run:
             return []
+        from mnemosyne.graph.lifecycle import LifecycleStore
+        if LifecycleStore(self._get_kg()).status()["generation"]:
+            from mnemosyne.graph.lifecycle_wiki import rebuild_wiki
+            update = rebuild_wiki(self._get_kg(), self.wiki_root)
+            return [Path(path) for path in update["paths"]]
         from mnemosyne.wiki.llm_wiki import LLMWikiMaintainer
 
         update = LLMWikiMaintainer(
@@ -595,12 +601,24 @@ class Ingester:
             self._ensure_cache_table(self._kg.conn)
         return self._kg
 
+    def _require_unversioned_store(self) -> None:
+        if self.dry_run:
+            return
+        from mnemosyne.graph.lifecycle import LifecycleError, LifecycleStore
+        if LifecycleStore(self._get_kg()).status()["generation"]:
+            raise LifecycleError(
+                "This database uses source lifecycle contracts; submit versioned evidence "
+                "through `mnemosyne lifecycle apply`, not unversioned ingestion."
+            )
+
     def _get_extractor(self) -> LLMExtractor:
+        self._require_unversioned_store()
         if self._extractor is None:
             self._extractor = LLMExtractor(bridge=self._llm_bridge)
         return self._extractor
 
     def _get_fetcher(self) -> URLFetcher:
+        self._require_unversioned_store()
         if self._fetcher is None:
             self._fetcher = URLFetcher()
         return self._fetcher

@@ -794,6 +794,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_wiki_verbs(wiki_sub)
     wiki.set_defaults(func=_run_wiki, group="wiki")
 
+    from mnemosyne.graph.lifecycle_cli import register_parser as register_lifecycle_parser
+    register_lifecycle_parser(subparsers)
+
     # -- serve group --
     serve = _new_parser(
         subparsers, "serve",
