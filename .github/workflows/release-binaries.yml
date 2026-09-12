@@ -27,6 +27,10 @@ on:
         description: 'Fake release tag (e.g. v0.0.0-test)'
         required: true
         default: 'v0.0.0-test'
+      windows_only:
+        description: 'Build and smoke-test Windows only; do not publish a release'
+        type: boolean
+        default: false
 
 # contents:write  -> upload assets to the Release.
 # id-token:write  -> cosign keyless OIDC (tag pushes only; gated in sign job).
@@ -44,6 +48,7 @@ env:
 jobs:
   build:
     name: build (${{ matrix.platform }})
+    if: ${{ !inputs.windows_only }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -170,8 +175,54 @@ jobs:
           path: artifacts/
           retention-days: 7
 
+  windows:
+    name: build (windows-x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: setup python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+        with:
+          python-version: '3.10'
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: install build dependencies
+        shell: bash
+        run: |
+          python -m pip install pyoxidizer==0.24.0 maturin uv
+          uv python install 3.10
+      - name: build Windows binary
+        shell: bash
+        env:
+          TARGET_TRIPLE: x86_64-pc-windows-msvc
+        run: scripts/build_binary.sh
+      - name: smoke test Windows binary
+        shell: bash
+        run: |
+          build/mnemosyne --version
+          build/mnemosyne --help
+      - name: package Windows artifact
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp build/mnemosyne artifacts/mnemosyne-windows-x86_64.exe
+          cd artifacts
+          sha256sum mnemosyne-windows-x86_64.exe > mnemosyne-windows-x86_64.exe.sha256
+      - name: upload Windows artifact
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: build-windows-x86_64
+          path: artifacts/
+          retention-days: 7
+
   man-pages:
     name: man pages
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -211,15 +262,10 @@ jobs:
   release:
     name: aggregate + release upload
     runs-on: ubuntu-latest
-    needs: [build, man-pages]
-    # Run even if optional matrix legs (windows-x86_64, darwin-x86_64,
-    # linux-aarch64) are canceled or fail. The default success() gate treats a
-    # canceled job as not-successful, which would skip the release even though
-    # the GA floor (linux-x86_64 + darwin-arm64) and man-pages succeeded. The
-    # flatten step below tolerates missing per-platform artifacts (find returns
-    # nothing for absent build-<platform> dirs), so only platforms that actually
-    # uploaded get included in the release.
-    if: always() && !cancelled() && needs.man-pages.result == 'success'
+    needs: [build, windows, man-pages]
+    # A manual diagnostic run never publishes. Every supported platform must
+    # pass before a tag release can advertise installation assets.
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
