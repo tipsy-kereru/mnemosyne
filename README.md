@@ -78,14 +78,13 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
   `curl ... | sh -s -- --force` or `MNEMOSYNE_FORCE=1 curl ... | sh`.
   (`curl ... --force | sh` does *not* forward `--force` to the installer.)
 - Verifies SHA256 against `SHA256SUMS.txt` before install; aborts on mismatch.
-- GA platforms: **linux-x86_64, darwin-arm64**.
-  (darwin-x86_64, linux-aarch64 are best-effort; windows-x86_64 is deferred —
-  see [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010).
-  Windows users: use the pip install below.)
+- Supported release platforms: **linux-x86_64, darwin-arm64, windows-x86_64**.
+  Windows ships a self-contained EXE; Linux arm64 and macOS x86_64 are not shipped.
+  See [binary installation details](docs/BINARY_INSTALL.md#windows-build-and-runtime).
 - macOS/Windows binaries are **unsigned**. macOS Gatekeeper block → run once:
   `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen
   → "More info → Run anyway".
-- Binary size ~146 MB (PyOxidizer 0.24 limit; reduction tracked as follow-up).
+- Binary size varies by platform; see the release assets. Windows uses PyInstaller; Linux/macOS use PyOxidizer with companion runtime files.
 - SLM (GLiNER2) and PDF parsing are **optional extras, not yet shipped as
   sidecar extensions** — the `mnemosyne extension install` registry repos are
   not published yet (tracked in ISSUE-0011, follow-up release). For now, install

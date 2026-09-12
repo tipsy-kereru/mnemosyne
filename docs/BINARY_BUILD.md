@@ -1,11 +1,38 @@
-# Single-Binary Build (PyOxidizer)
+# Native Binary Builds
 
 SPEC: SPEC-PACKAGE-001 (REQ-PKG-001, REQ-PKG-002, R-PKG-001, R-PKG-006)
 Issue: ISSUE-0008 (PACKAGE-C — T1 POC + T5 linux-x86_64 base binary)
 
-mnemosyne is packaged into a distributable binary via [PyOxidizer](https://pyoxidizer.readthedocs.io/). The binary embeds CPython, the trimmed stdlib, the `mnemosyne` package, the `mnemosyne-core` Rust extension, and the lightweight runtime dependencies. It runs `mnemosyne --help`, `mnemosyne mcp serve`, and the full CLI surface with **no Python pre-installed** on the host.
+Linux/macOS distributions use [PyOxidizer](https://pyoxidizer.readthedocs.io/); Windows uses [PyInstaller](https://pyinstaller.org/). Both include CPython, the `mnemosyne` package, the `mnemosyne-core` Rust extension and lightweight runtime dependencies. Release smoke checks exercise the packaged runtime without Python pre-installed on the consumer machine.
 
 Heavy optional dependencies (`gliner`, `torch`, `transformers`, `pymupdf`/`fitz`) are **deliberately excluded** from the base binary. Their absence is the documented degraded mode (REQ-PKG-002): the SLM layer is skipped and PDF parsing is skipped, matching the existing soft-dep behavior at `mnemosyne/extraction/longdoc/tree_indexer.py:154-163` and `mnemosyne/extraction/semantic/slm_extractor.py:55-60`.
+
+## Windows x86_64
+
+Use a native Windows x64 machine with CPython 3.11, the Rust MSVC toolchain and
+Visual C++ Build Tools. Build in a dedicated environment:
+
+```powershell
+py -3.11 -m venv .venv-windows-build
+.\.venv-windows-build\Scripts\python -m pip install pyinstaller==6.22.2 maturin
+.\.venv-windows-build\Scripts\python scripts/build_windows.py
+.\.venv-windows-build\Scripts\python scripts/smoke_binary.py artifacts/mnemosyne-windows-x86_64.exe --version 0.12.1
+```
+
+The build compiles the Rust core from its own project directory, installs the
+supported MCP 1.x runtime, and collects AnyIO source and schema data. The output
+is one EXE; no companion DLL directories are installed. The application does
+not require administrator privileges.
+
+For a diagnostic CI build without publishing a release:
+
+```bash
+gh workflow run release-binaries.yml --ref YOUR_BRANCH -f tag=v0.12.1 -f windows_only=true
+```
+
+The remaining measurements and build steps describe the Linux/macOS
+PyOxidizer distribution, which still uses companion runtime files.
+
 
 ## Measured results (linux-x86_64, ISSUE-0008 dev hardware)
 
@@ -58,7 +85,7 @@ The script:
 1. Verifies the toolchain (pyoxidizer, cargo/rustc, maturin, python3.10).
 2. Builds `mnemosyne-core` via `maturin build --release --interpreter python3.10 --strip` (CPython 3.10 ABI; matches the PyOxidizer-embedded interpreter).
 3. Creates a venv at `mnemosyne-core/build_venv/` with the runtime deps from `requirements-binary.txt`. PyOxidizer consumes this via `read_virtualenv`.
-4. Generates `mnemosyne-core/build_venv/fs_files.star` enumerating data files of `FILESYSTEM_PACKAGES` (jsonschema_specifications, referencing) — the frozen-import hazard workaround (see "Frozen-import hazard" below).
+4. Generates `mnemosyne-core/build_venv/fs_files.star` for `FILESYSTEM_PACKAGES` (jsonschema_specifications, referencing, anyio), preserving schema data and AnyIO's inspected source.
 5. Runs `pyoxidizer build --release --target-triple x86_64-unknown-linux-gnu`.
 6. Copies the binary + `lib/` + filesystem-package dirs to `build/`, then strips the top-level executable AND every `lib/**/*.so` with `strip --strip-all`.
 
@@ -74,7 +101,7 @@ build/
 └── referencing/                        # filesystem-shipped (frozen-import hazard)
 ```
 
-The binary is NOT a single file — it requires `lib/`, `jsonschema_specifications/`, and `referencing/` alongside it. This is a PyOxidizer 0.24 limitation (Linux can't load `.so` from memory; `importlib.resources.iterdir()` doesn't work on frozen packages). A future PyOxidizer 0.4x upgrade (ISSUE-0009) may collapse these into the binary.
+The Linux/macOS distribution requires `lib/`, `jsonschema_specifications/`, `referencing/` and `anyio/` alongside the binary. PyOxidizer cannot supply the filesystem iteration and source inspection these packages require from frozen modules. The release companion archive includes them.
 
 ## Smoke + benchmark
 

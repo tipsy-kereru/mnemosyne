@@ -1,7 +1,8 @@
 # Binary Installation
 
-The `mnemosyne` CLI ships as a single PyOxidizer-built binary per platform,
-attached to each [GitHub Release](https://github.com/tipsy-kereru/mnemosyne/releases).
+The `mnemosyne` CLI ships native release assets built with PyOxidizer on
+Linux/macOS and a self-contained PyInstaller EXE on Windows, attached to each
+[GitHub Release](https://github.com/tipsy-kereru/mnemosyne/releases).
 This document covers install paths, platform support, the unsigned-macOS
 workaround, the binary-size advisory, and deferred items.
 
@@ -36,28 +37,32 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 |---------------------|--------------------------------|-------------|-------|
 | linux-x86_64        | `mnemosyne-linux-x86_64`       | GA          | Built natively on `ubuntu-latest`. |
 | darwin-arm64        | `mnemosyne-darwin-arm64`       | GA          | Native on `macos-14`. Unsigned (see below). |
-| windows-x86_64      | —                              | not shipped | PyOxidizer 0.24 `_socket` DLL load failure (ISSUE-0010). Use pip install. |
+| windows-x86_64      | `mnemosyne-windows-x86_64.exe` | Supported   | Native Windows CI; CPython 3.11 + PyInstaller 6.22.2. No Python installation required. |
 | darwin-x86_64       | —                              | not shipped | Removed from matrix (slow macos-13 build blocked release). Re-add when stable. |
 | linux-aarch64       | —                              | not shipped | PyOxidizer cross-compile exec-format limitation. Needs native arm64 runner. |
 
-The release matrix ships **linux-x86_64 + darwin-arm64** only. The other
-platforms were removed because their failing/hung runs delayed the release
-job (which waits on every matrix leg). They will be re-added when each is
-genuinely shippable.
+The release supports **linux-x86_64, darwin-arm64 and windows-x86_64**.
+All three builds must pass their runtime smoke checks before publication.
+Linux arm64 and macOS x86_64 remain outside the supported release set.
 
-## Windows status (deferred — ISSUE-0010)
+## Windows build and runtime
 
-The Windows binary builds successfully but fails its `--help` smoke test with
-`ImportError: DLL load failed while importing _socket`. This is a PyOxidizer
-0.24 + python-build-standalone packaging gap: the embedded CPython
-C-extension modules and their dependency DLLs are not resolved at runtime on
-Windows. The fix requires either shipping the CPython `DLLs/` tree as
-companion files or upgrading to PyOxidizer 0.4x + CPython 3.12.
+Starting with **v0.12.1**, download `mnemosyne-windows-x86_64.exe` directly or
+use the PowerShell installer above. The EXE contains CPython, the Rust core,
+runtime DLLs, MCP SDK 1.x and package data; companion folders are not required.
+Do not run the application as administrator. Its one-file loader extracts
+runtime files to a temporary directory for the lifetime of the process.
 
-Until then, **Windows users should install via pip** (Option B in the README
-— `pip install "mnemosyne-kg[all] @ git+..."`), which requires Python 3.11+
-but runs natively on Windows. The Windows binary slot remains in the build
-matrix so it lights up green the moment ISSUE-0010 lands.
+The Windows CI smoke moves the EXE out of the build directory and removes
+Python/toolchain directories from `PATH`. It exercises socket/TLS, SQLite FTS5,
+Rust/MCP imports, A→B→A lifecycle updates, stale-job rejection and two wiki
+publications. This catches DLL dependencies hidden by the build machine.
+
+The former PyOxidizer Windows path is replaced, not shipped as an alternative.
+Keyless cosign bundles verify release provenance but are **not Authenticode
+signatures**: Windows SmartScreen may still report an unknown publisher.
+
+See [Windows build instructions](BINARY_BUILD.md#windows-x86_64).
 
 ## macOS unsigned-binary workaround (R-PKG-005)
 

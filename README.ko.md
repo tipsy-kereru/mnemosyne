@@ -65,10 +65,10 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 - 설치 경로: `~/.local/bin/mnemosyne` (Linux/macOS) 또는 `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). `MNEMOSYNE_INSTALL_DIR`로 재정의 가능 (예: `MNEMOSYNE_INSTALL_DIR=$HOME/bin`).
 - 기존 설치가 있으면 덮어쓰지 않습니다. 강제하려면 **플래그는 curl이 아니라 설치 스크립트용** — `sh -s --`나 환경변수로 전달: `curl ... | sh -s -- --force` 또는 `MNEMOSYNE_FORCE=1 curl ... | sh`. (`curl ... --force | sh`는 `--force`를 설치 스크립트에 전달하지 않습니다.)
 - 설치 전 `SHA256SUMS.txt`로 SHA256 검증, 불일치 시 중단.
-- GA 플랫폼: **linux-x86_64, darwin-arm64**.
-  (darwin-x86_64, linux-aarch64는 베스트에포트; windows-x86_64는 지연 — [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010) 참고. Windows 사용자는 아래 pip 설치를 사용하세요.)
+- 릴리스 지원 플랫폼: **linux-x86_64, darwin-arm64, windows-x86_64**.
+  Windows는 Python 설치가 필요 없는 단일 EXE입니다. Linux arm64와 macOS x86_64는 배포하지 않습니다. [설치 세부 사항](docs/BINARY_INSTALL.md#windows-build-and-runtime)을 참고하세요.
 - macOS/Windows 바이너리는 **미서명**. macOS Gatekeeper 차단 시 한 번 실행: `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen → "추가 정보 → 실행".
-- 바이너리 크기 약 146MB (PyOxidizer 0.24 한계, 크기 축소는 후속 작업으로 추적 중).
+- 바이너리 크기는 플랫폼별 릴리스 산출물을 확인하세요. Windows는 PyInstaller, Linux/macOS는 보조 런타임 파일을 포함하는 PyOxidizer를 사용합니다.
 - SLM(GLiNER2)과 PDF 파싱은 **선택 기능이나 사이드카 확장으로는 아직 게시되지 않음** — `mnemosyne extension install` 레지스트리 저장소가 아직 게시되지 않았습니다 (ISSUE-0011, 후속 릴리즈 예정). 현재는 pip 경로로 설치: `pip install "mnemosyne-kg[semantic]"` (GLiNER2) 또는 `[deterministic]` / `[all]`.
 
 전체 세부 사항, cosign 서명 검증, man 페이지, 문제 해결은 [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md)를 참고하세요.
