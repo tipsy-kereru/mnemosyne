@@ -5,6 +5,19 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-09-12
+
+### Fixed
+- Windows x86_64 now ships a self-contained `mnemosyne-windows-x86_64.exe`, built with CPython 3.11 and PyInstaller 6.22.2. Required DLLs, the Rust core and package data no longer depend on the build machine's PATH.
+- Generate bundled Python source explicitly as UTF-8; keep Maturin's Rust wheel metadata separate from the parent Python project.
+- Constrain the MCP dependency to the supported 1.x API (`>=1.27.2,<2`). Package AnyIO's inspected source files instead of freezing away the source it needs at runtime.
+- Publish lifecycle wiki snapshots with Windows write-through replacement; retain the existing POSIX directory synchronization and SQLite failure-recovery boundary.
+
+### Changed
+- All supported platform builds now exercise native socket/TLS, SQLite FTS5, Rust/MCP imports and lifecycle replacement/recovery before release publication. Windows additionally runs its EXE from a separate directory without Python/toolchain paths.
+- Require Linux x86_64, macOS arm64 and Windows x86_64 success before publishing a tag release. Manual Windows-only dispatches publish CI artifacts, never a partial GitHub Release.
+- Include the Windows executable in keyless cosign signing. This is not Authenticode signing; Windows SmartScreen may still warn.
+
 ## [0.12.0] - 2026-09-12
 
 ### Added
