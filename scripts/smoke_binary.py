@@ -72,20 +72,37 @@ def smoke(binary: Path, version: str) -> None:
             }
 
         def apply(request, expected=0):
-            return run("lifecycle", "apply", "-", "--db-path", db,
-                       request=request, expected=expected)
+            return run(
+                "lifecycle", "apply", "-", "--db-path", db, request=request, expected=expected
+            )
 
         def observe(revision, content):
-            apply({**token(revision, content), "action": "observe",
-                   "location": "app://meeting/binary-smoke", "kind": "meeting",
-                   "scope_id": None, "source_channel": "meeting"})
+            apply(
+                {
+                    **token(revision, content),
+                    "action": "observe",
+                    "location": "app://meeting/binary-smoke",
+                    "kind": "meeting",
+                    "scope_id": None,
+                    "source_channel": "meeting",
+                }
+            )
 
         def replacement(revision, content, value, job):
             return {
-                **token(revision, content), "action": "replace", "job_id": job,
-                "complete": True, "checkpoint": {"cursor": revision},
-                "entities": [{"id": "project:binary-smoke", "type": "project",
-                              "name": "Binary Smoke", "properties": {"status": value}}],
+                **token(revision, content),
+                "action": "replace",
+                "job_id": job,
+                "complete": True,
+                "checkpoint": {"cursor": revision},
+                "entities": [
+                    {
+                        "id": "project:binary-smoke",
+                        "type": "project",
+                        "name": "Binary Smoke",
+                        "properties": {"status": value},
+                    }
+                ],
                 "relations": [],
             }
 
@@ -103,9 +120,16 @@ def smoke(binary: Path, version: str) -> None:
         assert state["wiki_dirty"] is False, state
         text = (wiki / "index.md").read_text(encoding="utf-8")
         assert '"status": "planned"' in text and '"status": "stale"' not in text, text
-        print(json.dumps({"version": actual_version, "native_runtime": "passed",
-                          "lifecycle": "A->B->A, stale rejection, wiki replacement passed",
-                          "state": state}))
+        print(
+            json.dumps(
+                {
+                    "version": actual_version,
+                    "native_runtime": "passed",
+                    "lifecycle": "A->B->A, stale rejection, wiki replacement passed",
+                    "state": state,
+                }
+            )
+        )
 
 
 if __name__ == "__main__":

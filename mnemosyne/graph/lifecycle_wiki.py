@@ -21,6 +21,27 @@ def _database_key(kg):
     return hashlib.sha256(str(kg.db_path.resolve()).encode()).hexdigest()
 
 
+def _publish_snapshot(source: Path, destination: Path) -> None:
+    if os.name == "nt":
+        # Windows cannot open/fsync a directory through os.open. Ask the native
+        # same-volume rename API to finish its write before clearing wiki_dirty.
+        import ctypes
+
+        move = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+        move.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        move.restype = ctypes.c_int
+        # MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH; never copy/delete.
+        if not move(str(source), str(destination), 0x1 | 0x8):
+            raise ctypes.WinError(ctypes.get_last_error())
+    else:
+        os.replace(source, destination)
+        directory_fd = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+
 def rebuild_wiki(kg, wiki_root) -> dict:
     root = Path(wiki_root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -113,7 +134,7 @@ def rebuild_wiki(kg, wiki_root) -> dict:
         stage = Path(tempfile.mkdtemp(prefix=".lifecycle-build-", dir=root))
         try:
             LLMWikiMaintainer._atomic_write(stage / "index.md", "\n".join(lines))
-            with (stage / "index.md").open("rb") as snapshot:
+            with (stage / "index.md").open("rb+") as snapshot:
                 os.fsync(snapshot.fileno())
             with store._transaction():
                 if store.status()["generation"] != generation:
@@ -137,12 +158,7 @@ def rebuild_wiki(kg, wiki_root) -> dict:
                     destination = root / ".lifecycle-history" / stage.name / path.relative_to(root)
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(path, destination)
-                os.replace(stage / "index.md", root / "index.md")
-                directory_fd = os.open(root, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+                _publish_snapshot(stage / "index.md", root / "index.md")
                 kg.conn.execute("UPDATE lifecycle_state SET wiki_dirty=0 WHERE id=1")
             return {
                 "status": "rebuilt",
