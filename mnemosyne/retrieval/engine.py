@@ -250,8 +250,17 @@ class RetrievalEngine:
         if not query_str or not query_str.strip():
             return []
 
+        # Include the durable lifecycle generation even on in-memory cache hits.
+        # Process-local invalidation alone misses other writers and restarts.
+        lifecycle = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='lifecycle_state'"
+        ).fetchone()
+        generation = self.conn.execute(
+            "SELECT generation FROM lifecycle_state WHERE id=1"
+        ).fetchone()[0] if lifecycle else 0
+
         # In-memory TTL cache — fast path; on a hit we skip all DB access.
-        mem_key = self._cache_key(query_str, scope_id, self.mode.name)
+        mem_key = self._cache_key(query_str, scope_id, self.mode.name) + f"|g:{generation}"
         if use_cache:
             mem_cached = self._cache_get(mem_key)
             if mem_cached is not None:
@@ -261,7 +270,7 @@ class RetrievalEngine:
         # Persistent SQLite cache (secondary, survives process restarts).
         cache_key = None
         if use_cache:
-            cache_key = self._make_cache_key(query_str, filters)
+            cache_key = self._make_cache_key(query_str, filters) + f"|g:{generation}"
             cached = self._get_cache(cache_key)
             if cached:
                 logger.debug(f"Cache hit for query: {query_str[:50]}...")
@@ -541,7 +550,7 @@ class RetrievalEngine:
                 if result.entity_type:
                     result.create_safety = "exists"
 
-        return results
+        return [result for result in results if result.entity_id in entity_data]
 
     def clear_cache(self, older_than_seconds: Optional[int] = None) -> int:
         """Clear search cache.

@@ -102,7 +102,7 @@ pip install target/wheels/mnemosyne_core-*.whl
 | Linux aarch64 | ⚠️ Best-effort | Build from source |
 | macOS ARM64 | ✅ Full | Pre-built wheels available |
 | macOS x86_64 | ⚠️ Best-effort | Build from source |
-| Windows x86_64 | ❌ Deferred | ISSUE-0010 |
+| Windows x86_64 | Supported | CPython 3.11 core bundled in the release EXE |
 
 ## Verification
 

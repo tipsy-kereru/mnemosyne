@@ -5,6 +5,36 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-09-12
+
+### Fixed
+- Windows x86_64 now ships a self-contained `mnemosyne-windows-x86_64.exe`, built with CPython 3.11 and PyInstaller 6.22.2. Required DLLs, the Rust core and package data no longer depend on the build machine's PATH.
+- Generate bundled Python source explicitly as UTF-8; keep Maturin's Rust wheel metadata separate from the parent Python project.
+- Constrain the MCP dependency to the supported 1.x API (`>=1.27.2,<2`). Package AnyIO's inspected source files instead of freezing away the source it needs at runtime.
+- Publish lifecycle wiki snapshots with Windows write-through replacement; retain the existing POSIX directory synchronization and SQLite failure-recovery boundary.
+
+### Changed
+- All supported platform builds now exercise native socket/TLS, SQLite FTS5, Rust/MCP imports and lifecycle replacement/recovery before release publication. Windows additionally runs its EXE from a separate directory without Python/toolchain paths.
+- Require Linux x86_64, macOS arm64 and Windows x86_64 success before publishing a tag release. Manual Windows-only dispatches publish CI artifacts, never a partial GitHub Release.
+- Include the Windows executable in keyless cosign signing. This is not Authenticode signing; Windows SmartScreen may still warn.
+
+## [0.12.0] - 2026-09-12
+
+### Added
+- Source lifecycle API and `mnemosyne lifecycle apply|status|inspect|rebuild`: authoritative version fences, complete per-source evidence replacement, confirmed-source deactivation, durable user-note versions, version-bound approvals, separate corrections, and reversible archive/search exclusion.
+- Additive lifecycle migration with a verified pre-migration SQLite backup. Unattributed legacy knowledge is retained rather than assigned invented source provenance.
+- Synthetic lifecycle regressions cover source independence, A→B→A, out-of-order/late jobs, partial extraction, approval scopes, correction withdrawal, visibility restoration, migration/backup recovery, concurrent writers, and hard process exits before/after graph commit and during wiki rendering.
+
+### Changed
+- Lifecycle graph projection, evidence, jobs, checkpoints, user changes, and wiki dirtiness commit through one serialized SQLite path with full synchronization. Legacy unversioned ingestion cannot overwrite lifecycle-managed knowledge.
+- Lifecycle wiki rebuilds publish a database/generation-bound graph snapshot without source reads or LLM calls. Old generated pages are retained as history; stale Markdown is refused by the current-wiki reader.
+- Graph path traversal and hybrid search cache generations honor lifecycle changes from other connections.
+
+### Migration notes
+- This release adds an explicit source lifecycle API; live meeting/mail/note connectors and remote chat authorization are not enabled automatically.
+- Once a database enters lifecycle operation, versionless `ingest add/update` is refused. Supply stable source IDs and authoritative ordered revisions through `mnemosyne lifecycle apply`.
+- Pre-lifecycle databases are backed up before schema changes. Unattributed merged values are retained as legacy evidence, not silently assigned to a source or deleted.
+
 ## [0.11.0] - 2026-08-16
 
 ### Added

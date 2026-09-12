@@ -78,14 +78,13 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
   `curl ... | sh -s -- --force` or `MNEMOSYNE_FORCE=1 curl ... | sh`.
   (`curl ... --force | sh` does *not* forward `--force` to the installer.)
 - Verifies SHA256 against `SHA256SUMS.txt` before install; aborts on mismatch.
-- GA platforms: **linux-x86_64, darwin-arm64**.
-  (darwin-x86_64, linux-aarch64 are best-effort; windows-x86_64 is deferred —
-  see [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010).
-  Windows users: use the pip install below.)
+- Supported release platforms: **linux-x86_64, darwin-arm64, windows-x86_64**.
+  Windows ships a self-contained EXE; Linux arm64 and macOS x86_64 are not shipped.
+  See [binary installation details](docs/BINARY_INSTALL.md#windows-build-and-runtime).
 - macOS/Windows binaries are **unsigned**. macOS Gatekeeper block → run once:
   `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen
   → "More info → Run anyway".
-- Binary size ~146 MB (PyOxidizer 0.24 limit; reduction tracked as follow-up).
+- Binary size varies by platform; see the release assets. Windows uses PyInstaller; Linux/macOS use PyOxidizer with companion runtime files.
 - SLM (GLiNER2) and PDF parsing are **optional extras, not yet shipped as
   sidecar extensions** — the `mnemosyne extension install` registry repos are
   not published yet (tracked in ISSUE-0011, follow-up release). For now, install
@@ -256,6 +255,155 @@ mnemosyne wiki doctor
 | `mnemosyne wiki <subcommand>` | Inspect and maintain the Markdown LLM Wiki |
 | `mnemosyne mcp serve` | Start MCP server for AI agent integration |
 | `mnemosyne-slack <subcommand>` | Manually collect and search public Slack channels (isolated store) |
+| `mnemosyne lifecycle <command>` | Versioned evidence, approved corrections, reversible visibility, and recovery |
+
+### Source lifecycle API
+
+The local `lifecycle` commands implement source replacement and user-change
+contracts. They require an explicit `--db-path`; they do not fetch sources, call
+models, authenticate chat users, or activate connectors/schedulers.
+
+```bash
+mnemosyne lifecycle apply observe.json --db-path ./knowledge.db
+mnemosyne lifecycle apply extracted.json --db-path ./knowledge.db --wiki-root ./wiki
+mnemosyne lifecycle status --db-path ./knowledge.db
+mnemosyne lifecycle inspect source meeting:123 --db-path ./knowledge.db
+mnemosyne lifecycle inspect entity project:alpha --db-path ./knowledge.db
+mnemosyne lifecycle rebuild --db-path ./knowledge.db --wiki-root ./wiki
+```
+
+`apply -` reads one JSON request from stdin. Success is JSON on stdout; rejected
+requests exit 1. A wiki failure after application reports `graph_committed: true`
+and leaves `wiki_dirty` set: rebuild the wiki, **do not undo or blindly reapply
+the graph**. Replaying the identical `job_id` and request is safe; reusing a job
+ID with different content is rejected.
+
+An observation request establishes the current source and processing token:
+
+```json
+{
+  "action": "observe", "source_id": "meeting:123", "revision": 1,
+  "source_version": "provider-version-1", "content_hash": "sha256-of-input",
+  "extractor_version": "extractor-1", "ontology_version": "rules-1",
+  "location": "app://meetings/123", "kind": "meeting",
+  "scope_id": null, "source_channel": "meeting"
+}
+```
+
+`source_id` is stable identity, **not a pathname or content hash**. A confirmed
+move retains it; an unrelated source or a new source at a reused path needs a
+different ID. `revision` is a positive, monotonically increasing, authoritative
+source-observation order supplied by the connector. Do not number unordered
+notifications by arrival time. Reconcile those against the current original
+first. Before submitting extraction, the connector must recheck the original
+and processing rules; SQLite then compares all five token fields atomically.
+Reprocessing with new rules requires a new ordered observation even if the
+source version/content is unchanged. A newer `A → B → A` is not a cache hit.
+
+Submit the complete extracted set with the same five token fields:
+
+```json
+{
+  "action": "replace", "source_id": "meeting:123", "revision": 1,
+  "source_version": "provider-version-1", "content_hash": "sha256-of-input",
+  "extractor_version": "extractor-1", "ontology_version": "rules-1",
+  "job_id": "meeting-123-job-1", "complete": true, "checkpoint": {"cursor": 1},
+  "entities": [
+    {"id": "project:alpha", "type": "project", "name": "Alpha",
+     "properties": {"status": "planned"}, "locator": "00:12", "excerpt": "Alpha is planned."}
+  ],
+  "relations": []
+}
+```
+
+Relations have `id`, `source_id`, `target_id`, `relation_type`, and `properties`;
+their endpoints must be included in the source's complete entity set. Excerpts
+are optional and limited to 1,200 characters; locators to 512. An empty complete
+set retracts this source's support. Partial/invalid extraction never replaces
+old support. Other sources remain independent; disagreements produce review
+metadata rather than treating later collection as newer truth. Properties
+named `source_file`, `source_files`, `evidence`, `corrections`, `conflicts`, or
+`review_required` are reserved for the projection.
+
+Confirmed original deletion uses `action: "delete"`, the current token, a new
+`job_id`, `checkpoint`, and `deletion: {"kind":"explicit"}`. A completed inventory
+can instead use `{"kind":"reconciliation","complete":true,"scope":"vault-id",
+"boundary":"completed-observation-boundary"}`; scope must match the source.
+Interrupted/inaccessible scans are not deletion evidence. This deactivates only
+that source's evidence, retaining history; it does not declare the old fact false.
+
+#### User notes, corrections, and reversible visibility
+
+New notes use an independent source with `kind: "user-note"` and `note_text` in
+the first replacement. Note text and its revisions are canonical SQLite state.
+Subsequent note edits require an approved `revise-note` change whose
+`replacement` contains the exact token, complete evidence, checkpoint and text.
+Source deletion is refused for user notes; use approved archive/exclude instead.
+
+User changes follow two calls:
+
+1. `{"action":"approve","approval_id":"unique-id","actor":"local-owner",
+   "expected_generation":CURRENT_GENERATION,"change":CHANGE}`.
+2. `{"action":"execute","approval_id":"unique-id","actor":"local-owner",
+   "job_id":"unique-execution-id"}`.
+
+`CHANGE` always names `action`, `target_kind` (`entity`, `relation`, `source`),
+`target_id`, and the exact `scope_id` (including explicit `null` for global).
+Read `CURRENT_GENERATION` from `status`. Any intervening graph/source change
+invalidates the approval; execution rechecks actor, generation, and scope.
+This is a trusted **local execution API**, not proof of remote identity or user
+consent. A chat adapter must authenticate the owner and collect explicit
+approval before invoking it.
+
+- `correct`: entity/relation property, `property`, `value`, and
+  `effective_scope: {"kind":"claim"}` (the selected claim in the named scope).
+  Conditional/time-window predicates are refused, not applied unconditionally.
+  Corrections are separate records; original evidence is unchanged. To replace
+  an active correction, name its `supersedes` record ID explicitly.
+- `retract`: name the correction's `record_id`; current source evidence is
+  reevaluated, not the value from the time of correction.
+- `archive` / `exclude`: hide the selected entity, relation, or source support.
+  The record survives movement, recollection, restart, and wiki rebuilding.
+- `restore`: name one archive/exclude `record_id`; other active visibility
+  records still apply. Restoration recomputes from today's active evidence.
+- `revise-note`: target a user-note source and bind the exact `replacement`.
+
+`execute` returns `record_id`. `inspect` recovers these IDs and retained evidence
+after restart. It is an **operator/history view**, not a current-answer query.
+Ordinary graph queries, FTS, paths, and hybrid cache results use the current
+visible projection. No permanent deletion operation is exposed here.
+
+#### Migration and recovery
+
+Before migrating an existing database, opening it creates a SQLite/WAL-consistent
+`knowledge.db.pre-lifecycle-<unique-id>.bak` with integrity verification. Old
+unattributed merged rows are preserved explicitly as `legacy:unattributed`
+support when first managed; source ownership is never guessed from filenames.
+Consequently a source replacement cannot retract that unattributed legacy
+support automatically. Inspect/adjudicate such knowledge explicitly.
+
+Evidence, projected graph, applied token, jobs, checkpoints, user records, and
+wiki dirtiness commit under one `BEGIN IMMEDIATE` writer path with `synchronous=FULL`.
+Structured inactive evidence and note revisions remain recoverable. Once a
+database participates in lifecycle operations, unversioned `ingest add/update`
+is refused before external processing; connectors must submit versioned evidence.
+Legacy low-level writes cannot overwrite/resurrect lifecycle-managed rows.
+
+The lifecycle wiki is a graph-only `index.md` snapshot, atomically published
+with a database identity and generation. Old generated entity/source pages
+are moved into `.lifecycle-history/`, preserving their manual notes but excluding
+them from the current index. Do not crawl that historical directory as current
+knowledge. `mnemosyne wiki rebuild` also uses this path for lifecycle databases.
+Programmatic wiki consumers must use
+`mnemosyne.graph.lifecycle_wiki.read_current_wiki(kg, wiki_root)`, which rejects
+dirty, wrong-database, and stale-generation snapshots; answering through graph
+queries never falls back to old Markdown. A hard process exit releases the
+SQLite publication lock automatically, and rebuilding requires no original
+source or LLM call. Restoring a DB backup preserves source identity, user notes,
+corrections, and visibility records; rebuild the wiki at the restored location.
+
+Synthetic regression suite: `python -m pytest tests/test_lifecycle.py -q`.
+Live source connectors and chat authorization remain separate integration work.
 
 ### `mnemosyne-slack` (isolated Slack store)
 

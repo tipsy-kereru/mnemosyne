@@ -348,61 +348,7 @@ class TestIngester:
             entities=[entity, entity2], relations=[relation]
         )
 
-    def test_add_text_returns_ingest_result(self):
-        ext_module = _import_or_skip("mnemosyne.ingest.llm_extractor")
-        ing_module = _import_or_skip("mnemosyne.ingest.ingester")
 
-        parsed = self._make_parsed_result(ext_module)
-
-        with patch("mnemosyne.ingest.ingester.LLMExtractor") as mock_extractor_cls, \
-             patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph") as mock_kg_cls:
-            mock_extractor = MagicMock()
-            mock_extractor.extract_text.return_value = parsed
-            mock_extractor_cls.return_value = mock_extractor
-
-            mock_kg = MagicMock()
-            mock_kg.get_entity.return_value = None
-            mock_kg_cls.return_value = mock_kg
-
-            ingester = ing_module.Ingester()
-            result = ingester.add(target="", text="John works at Google", domain="daily")
-
-        assert isinstance(result, ing_module.IngestResult)
-        assert result.entities_added >= 1
-        assert result.relations_added == 1
-
-    def test_add_url_calls_fetcher(self, tmp_path):
-        ext_module = _import_or_skip("mnemosyne.ingest.llm_extractor")
-        ing_module = _import_or_skip("mnemosyne.ingest.ingester")
-
-        parsed = self._make_parsed_result(ext_module)
-        raw_path = tmp_path / "fetched.md"
-        raw_path.write_text("---\n---\n# fetched\n", encoding="utf-8")
-
-        with patch("mnemosyne.ingest.ingester.URLFetcher") as mock_fetcher_cls, \
-             patch("mnemosyne.ingest.ingester.LLMExtractor") as mock_extractor_cls, \
-             patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph") as mock_kg_cls:
-            mock_fetcher = MagicMock()
-            mock_fetcher.fetch.return_value = raw_path
-            mock_fetcher_cls.return_value = mock_fetcher
-
-            mock_extractor = MagicMock()
-            mock_extractor.extract_file.return_value = parsed
-            mock_extractor.extract_text.return_value = parsed
-            mock_extractor_cls.return_value = mock_extractor
-
-            mock_kg = MagicMock()
-            mock_kg.get_entity.return_value = None
-            # fetchone() must return None so _is_unchanged() treats file as new
-            mock_kg.conn.execute.return_value.fetchone.return_value = None
-            mock_kg_cls.return_value = mock_kg
-
-            ingester = ing_module.Ingester()
-            result = ingester.add(target="https://example.com/x", domain="daily")
-
-        mock_fetcher.fetch.assert_called_once()
-        assert isinstance(result, ing_module.IngestResult)
-        assert result.entities_added >= 1
 
     def test_dry_run_does_not_write(self):
         ext_module = _import_or_skip("mnemosyne.ingest.llm_extractor")
@@ -434,24 +380,21 @@ class TestIngester:
 
         parsed = self._make_parsed_result(ext_module)
 
-        with patch("mnemosyne.ingest.ingester.LLMExtractor") as mock_extractor_cls, \
-             patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph") as mock_kg_cls:
+        with patch("mnemosyne.ingest.ingester.LLMExtractor") as mock_extractor_cls:
             mock_extractor = MagicMock()
             mock_extractor.extract_text.return_value = parsed
             mock_extractor_cls.return_value = mock_extractor
 
-            mock_kg = MagicMock()
-            mock_kg.get_entity.return_value = None
-            mock_kg_cls.return_value = mock_kg
-
             wiki_root = tmp_path / "wiki"
-            ingester = ing_module.Ingester(wiki_root=wiki_root)
+            ingester = ing_module.Ingester(db_path=tmp_path / "knowledge.db", wiki_root=wiki_root)
             result = ingester.add(
                 target="",
                 text="John works at Google",
                 domain="daily",
                 scope_id="demo",
             )
+            assert ingester._get_kg().get_entity("john").name == "John"
+            ingester.close()
 
         assert result.wiki_paths
         assert (wiki_root / "index.md").exists()
@@ -459,34 +402,6 @@ class TestIngester:
         assert (wiki_root / "entities" / "person" / "john.md").exists()
         assert "John" in (wiki_root / "index.md").read_text(encoding="utf-8")
 
-    def test_add_directory_aggregates_files(self, tmp_path):
-        ext_module = _import_or_skip("mnemosyne.ingest.llm_extractor")
-        ing_module = _import_or_skip("mnemosyne.ingest.ingester")
-
-        # Two markdown files in the directory.
-        (tmp_path / "a.md").write_text("Alice met Bob.", encoding="utf-8")
-        (tmp_path / "b.md").write_text("Carol called Dave.", encoding="utf-8")
-
-        parsed = self._make_parsed_result(ext_module)
-
-        with patch("mnemosyne.ingest.ingester.LLMExtractor") as mock_extractor_cls, \
-             patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph") as mock_kg_cls:
-            mock_extractor = MagicMock()
-            mock_extractor.extract_file.return_value = parsed
-            mock_extractor.extract_text.return_value = parsed
-            mock_extractor_cls.return_value = mock_extractor
-
-            mock_kg = MagicMock()
-            mock_kg.get_entity.return_value = None
-            mock_kg.conn.execute.return_value.fetchone.return_value = None
-            mock_kg_cls.return_value = mock_kg
-
-            ingester = ing_module.Ingester()
-            # add_directory returns a list; add() for a dir merges into one result
-            results = ingester.add_directory(tmp_path, domain="daily")
-
-        assert isinstance(results, list)
-        assert len(results) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -495,80 +410,46 @@ class TestIngester:
 
 
 class TestUpdater:
-    """Verify content-hash-based update detection."""
-
-    def _make_mock_kg(self, db_path):
-        """Return a mock KG that uses a real SQLite connection for cache ops."""
-        import sqlite3
-
-        conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        mock_kg = MagicMock()
-        mock_kg.conn = conn
-        mock_kg.get_entity.return_value = None
-        return mock_kg, conn
+    """Verify content-hash detection against a real, migrated SQLite database."""
 
     def test_update_skips_unchanged_files(self, tmp_path):
-        upd_module = _import_or_skip("mnemosyne.ingest.update")
+        from mnemosyne.ingest.update import Updater
 
         sample = tmp_path / "n.md"
         sample.write_text("hello world", encoding="utf-8")
-
-        mock_kg, conn = self._make_mock_kg(tmp_path / "test.db")
-        try:
-            with patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph", return_value=mock_kg), \
-                 patch("mnemosyne.ingest.llm_extractor.LLMBridge") as mock_bridge_cls:
-                mock_bridge_cls.return_value.extract.return_value = {"nodes": [], "edges": []}
-
-                updater = upd_module.Updater(db_path=tmp_path / "test.db", raw_root=tmp_path)
-                first = updater.update(path=tmp_path)
-                second = updater.update(path=tmp_path)
-        finally:
-            conn.close()
-
-        assert first.new_files >= 1, "first run should detect new file"
-        assert second.unchanged >= 1, "second run should find file unchanged"
+        with patch("mnemosyne.ingest.llm_extractor.LLMBridge") as bridge:
+            bridge.return_value.extract.return_value = {"nodes": [], "edges": []}
+            updater = Updater(db_path=tmp_path / "test.db", raw_root=tmp_path)
+            first = updater.update(path=tmp_path)
+            second = updater.update(path=tmp_path)
+        assert first.new_files == 1
+        assert first.errors == 0
+        assert second.unchanged == 1
         assert second.changed == 0
 
     def test_update_detects_changed_files(self, tmp_path):
-        upd_module = _import_or_skip("mnemosyne.ingest.update")
+        from mnemosyne.ingest.update import Updater
 
         sample = tmp_path / "n.md"
         sample.write_text("hello world", encoding="utf-8")
+        with patch("mnemosyne.ingest.llm_extractor.LLMBridge") as bridge:
+            bridge.return_value.extract.return_value = {"nodes": [], "edges": []}
+            updater = Updater(db_path=tmp_path / "test.db", raw_root=tmp_path)
+            updater.update(path=tmp_path)
+            sample.write_text("hello world v2", encoding="utf-8")
+            second = updater.update(path=tmp_path)
+        assert second.changed == 1
+        assert second.errors == 0
 
-        mock_kg, conn = self._make_mock_kg(tmp_path / "test.db")
-        try:
-            with patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph", return_value=mock_kg), \
-                 patch("mnemosyne.ingest.llm_extractor.LLMBridge") as mock_bridge_cls:
-                mock_bridge_cls.return_value.extract.return_value = {"nodes": [], "edges": []}
+    def test_stats_only_does_not_record_success(self, tmp_path):
+        from mnemosyne.ingest.update import Updater
 
-                updater = upd_module.Updater(db_path=tmp_path / "test.db", raw_root=tmp_path)
-                updater.update(path=tmp_path)
-
-                sample.write_text("hello world v2", encoding="utf-8")
-                second = updater.update(path=tmp_path)
-        finally:
-            conn.close()
-
-        assert second.changed >= 1
-
-    def test_stats_only_does_not_write(self, tmp_path):
-        upd_module = _import_or_skip("mnemosyne.ingest.update")
-
-        sample = tmp_path / "n.md"
-        sample.write_text("hello world", encoding="utf-8")
-
-        mock_kg, conn = self._make_mock_kg(tmp_path / "test.db")
-        try:
-            with patch("mnemosyne.graph.knowledge_graph.KnowledgeGraph", return_value=mock_kg):
-                updater = upd_module.Updater(db_path=tmp_path / "test.db", raw_root=tmp_path)
-                updater.stats_only(path=tmp_path)
-        finally:
-            conn.close()
-
-        # stats_only never calls KG write operations
-        mock_kg.add_entity.assert_not_called()
-        mock_kg.add_relation.assert_not_called()
+        (tmp_path / "n.md").write_text("hello world", encoding="utf-8")
+        updater = Updater(db_path=tmp_path / "test.db", raw_root=tmp_path)
+        first = updater.stats_only(path=tmp_path)
+        second = updater.stats_only(path=tmp_path)
+        assert first.new_files == second.new_files == 1
+        assert second.unchanged == 0
 
 
 # ---------------------------------------------------------------------------

@@ -83,7 +83,7 @@
 # Packages that must be filesystem-relative (NOT frozen) because they use
 # importlib.resources.files().iterdir() at runtime. See hazard note above.
 # Populated/verified by scripts/build_binary.sh.
-FILESYSTEM_PACKAGES = ["jsonschema_specifications", "referencing"]
+FILESYSTEM_PACKAGES = ["jsonschema_specifications", "referencing", "anyio"]
 
 # File list for FILESYSTEM_PACKAGES, populated by scripts/build_binary.sh
 # at `mnemosyne-core/build_venv/fs_files.star`. `load()` must be at module

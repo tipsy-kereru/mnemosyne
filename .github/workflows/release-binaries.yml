@@ -3,14 +3,10 @@
 # SPEC: SPEC-PACKAGE-001 (PACKAGE-D, REQ-PKG-008 / REQ-PKG-009)
 # Issue: ISSUE-0009
 #
-# Triggers on tag push (v*) — builds the PyOxidizer single-binary for the
-# 5-platform matrix, generates SHA256SUMS.txt, optionally cosign-signs the
-# linux + darwin artifacts (keyless, OIDC), regenerates man pages, and
-# uploads everything to the GitHub Release.
-#
-# Pragmatic floor (AC2): the matrix ships linux-x86_64 + darwin-arm64 only.
-# windows-x86_64 / linux-aarch64 / darwin-x86_64 are intentionally OMITTED
-# (not optional) — see the matrix note below for re-add criteria.
+# Tag pushes build Linux/macOS with PyOxidizer and Windows with PyInstaller.
+# Every supported platform must pass native runtime/lifecycle smoke checks
+# before checksums, man pages and binaries are published to the release.
+# Manual dispatches produce diagnostic artifacts only.
 #
 # Actions are pinned by SHA per supply-chain hygiene (PM Technical Note 7).
 # Bump by resolving the new tag's commit SHA via the GitHub API:
@@ -24,9 +20,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Fake release tag (e.g. v0.0.0-test)'
+        description: 'Expected source version tag for smoke verification (e.g. v0.12.1)'
         required: true
-        default: 'v0.0.0-test'
+      windows_only:
+        description: 'Build and smoke-test Windows only; do not publish a release'
+        type: boolean
+        default: false
 
 # contents:write  -> upload assets to the Release.
 # id-token:write  -> cosign keyless OIDC (tag pushes only; gated in sign job).
@@ -44,6 +43,7 @@ env:
 jobs:
   build:
     name: build (${{ matrix.platform }})
+    if: ${{ !inputs.windows_only }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -58,16 +58,8 @@ jobs:
             runner: macos-14
             target_triple: aarch64-apple-darwin
             asset_name: mnemosyne-darwin-arm64
-    # Note: linux-aarch64, darwin-x86_64, and windows-x86_64 were removed from
-    # the matrix. They were previously `optional: true` but their slow / hung /
-    # failing runs still delayed the release job (needs:[build, man-pages]
-    # waits on every matrix leg) and occasionally blocked it when a leg was
-    # canceled. Re-add when the platform is genuinely shippable:
-    #   - windows-x86_64  : ISSUE-0010 (PyOxidizer 0.24 _socket DLL load; ship
-    #                        CPython DLLs/ as companions, or migrate packager).
-    #   - linux-aarch64   : native arm64 runner (ubuntu-24.04-arm) or PyOxidizer
-    #                        cross-compile support (exec-format today).
-    #   - darwin-x86_64   : re-add on macos-13 once the 11-min build is stable.
+    # Windows is a separate native PyInstaller job below. Linux arm64 and
+    # macOS x86_64 remain outside the supported release set.
 
     steps:
       - name: checkout (full history for man pages)
@@ -83,17 +75,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: install rust toolchain (linux + darwin)
-        if: runner.os != 'Windows'
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
         with:
           toolchain: stable
-
-      - name: install rust toolchain (windows)
-        if: runner.os == 'Windows'
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
-        with:
-          toolchain: stable
-          targets: x86_64-pc-windows-msvc
 
       - name: install aarch64 cross toolchain (linux-aarch64 only)
         if: matrix.platform == 'linux-aarch64'
@@ -108,13 +92,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyoxidizer==${{ env.PYOXIDIZER_VERSION }} maturin uv
           # build_binary.sh resolves the interpreter as `python3.10` first,
-          # then via `uv python find`. setup-python exposes `python`/`python3`
-          # but not the version-suffixed alias on every runner image (notably
-          # windows-latest), and uv installs its managed CPython to ~/.local/bin
-          # which is NOT on PATH within the same step. So always provision 3.10
-          # via uv (idempotent) and let build_binary.sh's uv fallback resolve
-          # it — do NOT verify via the bare `python3.10` alias here, that breaks
-          # on runners where only uv knows the interpreter.
+          # setup-python does not always expose the version-suffixed alias.
+          # Provision 3.10 via uv; build_binary.sh can resolve that interpreter.
           uv python install "${{ env.PYTHON_VERSION }}"
           uv python find "${{ env.PYTHON_VERSION }}"
 
@@ -135,27 +114,20 @@ jobs:
           # for now; the tarball is for offline / package-manager consumers.)
           if [ -d build/lib ] || [ -d build/jsonschema_specifications ]; then
             tar -czf "artifacts/${{ matrix.asset_name }}.dist.tar.gz" -C build \
-              $(ls -d build/lib build/jsonschema_specifications build/referencing 2>/dev/null | sed 's|^build/||')
+              $(ls -d build/lib build/jsonschema_specifications build/referencing build/anyio 2>/dev/null | sed 's|^build/||')
           fi
 
-      - name: smoke test (mnemosyne --help)
+      - name: smoke test native runtime and lifecycle
         shell: bash
-        run: |
-          "artifacts/${{ matrix.asset_name }}" --help
-          # darwin-arm64: extra mcp serve boot smoke (frozen-import hazard,
-          # PM Technical Note 5). Background + kill — verify no crash on boot.
-          if [ "${{ matrix.platform }}" = "darwin-arm64" ]; then
-            "artifacts/${{ matrix.asset_name }}" mcp serve &
-            MCP_PID=$!
-            sleep 2
-            kill $MCP_PID || true
-          fi
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+        run: python scripts/smoke_binary.py build/mnemosyne --version "${RELEASE_TAG#v}"
 
       - name: compute sha256
         shell: bash
         run: |
           cd artifacts
-          # sha256sum on linux/windows-MSYS; shasum fallback on darwin.
+          # sha256sum on Linux; shasum fallback on macOS.
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
           else
@@ -170,8 +142,51 @@ jobs:
           path: artifacts/
           retention-days: 7
 
+  windows:
+    name: build (windows-x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: setup python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+        with:
+          python-version: '3.11'
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: install build dependencies
+        run: python -m pip install pyinstaller==6.22.2 maturin
+      - name: build Windows binary
+        run: python scripts/build_windows.py
+      - name: package Windows artifact
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum mnemosyne-windows-x86_64.exe > mnemosyne-windows-x86_64.exe.sha256
+      - name: smoke test relocated Windows distribution
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'Standalone binary'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          $binary = Join-Path $destination 'mnemosyne.exe'
+          Copy-Item artifacts/mnemosyne-windows-x86_64.exe $binary
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"').Matches.Groups[1].Value
+          python scripts/smoke_binary.py $binary --version $version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: upload Windows artifact
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: build-windows-x86_64
+          path: artifacts/
+          retention-days: 7
+
   man-pages:
     name: man pages
+    if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -211,15 +226,10 @@ jobs:
   release:
     name: aggregate + release upload
     runs-on: ubuntu-latest
-    needs: [build, man-pages]
-    # Run even if optional matrix legs (windows-x86_64, darwin-x86_64,
-    # linux-aarch64) are canceled or fail. The default success() gate treats a
-    # canceled job as not-successful, which would skip the release even though
-    # the GA floor (linux-x86_64 + darwin-arm64) and man-pages succeeded. The
-    # flatten step below tolerates missing per-platform artifacts (find returns
-    # nothing for absent build-<platform> dirs), so only platforms that actually
-    # uploaded get included in the release.
-    if: always() && !cancelled() && needs.man-pages.result == 'success'
+    needs: [build, windows, man-pages]
+    # A manual diagnostic run never publishes. Every supported platform must
+    # pass before a tag release can advertise installation assets.
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -269,8 +279,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [release]
     # cosign keyless requires id-token:write + a real tag push (not PR) for OIDC.
-    # Mirror the release job's always()-style gate so signing runs even if a
-    # deferred/optional matrix leg was canceled.
+    # Signing follows a successfully published release.
     if: always() && !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
     # Signing MUST NOT break the release (PM AC4 / Key Risk 3). continue-on-error
     # means a transient sigstore outage or quota issue surfaces as a warning
@@ -289,7 +298,7 @@ jobs:
       - name: flatten
         run: |
           mkdir -p sign-assets
-          find all-artifacts -type f \( -name 'mnemosyne-linux-*' -o -name 'mnemosyne-darwin-*' \) \
+          find all-artifacts -type f \( -name 'mnemosyne-linux-*' -o -name 'mnemosyne-darwin-*' -o -name 'mnemosyne-windows-*.exe' \) \
             ! -name '*.sha256' ! -name '*.tar.gz' -exec cp {} sign-assets/ \;
 
       - name: install cosign

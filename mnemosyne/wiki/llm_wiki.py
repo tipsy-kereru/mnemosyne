@@ -689,6 +689,13 @@ class LLMWikiMaintainer:
 
         kg = KnowledgeGraph(str(Path(db_path).expanduser()))
         try:
+            from mnemosyne.graph.lifecycle import LifecycleStore
+            if LifecycleStore(kg).status()["generation"]:
+                if dry_run:
+                    return WikiUpdate(paths=[self.wiki_root / "index.md"])
+                from mnemosyne.graph.lifecycle_wiki import rebuild_wiki
+                result = rebuild_wiki(kg, self.wiki_root)
+                return WikiUpdate(paths=[Path(path) for path in result["paths"]])
             entities = self._graph_entities(kg)
             relations = self._graph_relations(kg)
         finally:

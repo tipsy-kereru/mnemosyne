@@ -64,7 +64,15 @@ def _make_engine(cache_ttl: int = 3600, mode: SearchMode | None = None):
     return engine
 
 
-def _make_queryable_engine(monkeypatch):
+@pytest.fixture
+def query_connection():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    yield conn
+    conn.close()
+
+
+def _make_queryable_engine(monkeypatch, query_connection):
     """A lightweight engine whose search pipeline is stubbed for query() tests.
 
     Returns ``(engine, counter, canned_ids)`` where ``counter['runs']`` counts
@@ -87,6 +95,7 @@ def _make_queryable_engine(monkeypatch):
     _fusion_shim.fused_scores_with_evidence = lambda strategy_results, k=60, limit=100: []
     monkeypatch.setitem(sys.modules, "mnemosyne.retrieval.strategies.fusion", _fusion_shim)
     engine = _make_engine()
+    engine.conn = query_connection
     engine.intent_classifier = _StubIntent()
     counter = {"runs": 0}
     canned = [
@@ -106,7 +115,7 @@ def _make_queryable_engine(monkeypatch):
     # Bypass the latent 3-tuple/2-tuple unpack in the real _build_search_results.
     monkeypatch.setattr(engine, "_build_search_results", lambda fused, sr: list(canned))
     monkeypatch.setattr(engine, "_fetch_entity_details", lambda results: results)
-    # No DB connection in the lightweight engine; neuter the secondary SQLite cache.
+    # Keep the persistent result cache out of these in-memory cache tests.
     monkeypatch.setattr(engine, "_get_cache", lambda key: None)
     monkeypatch.setattr(engine, "_set_cache", lambda key, results: None)
     return engine, counter, ["alpha"]
@@ -285,8 +294,8 @@ class TestInvalidation:
 
 
 class TestQueryCacheIntegration:
-    def test_first_query_miss_second_query_hit(self, monkeypatch):
-        e, counter, ids = _make_queryable_engine(monkeypatch)
+    def test_first_query_miss_second_query_hit(self, monkeypatch, query_connection):
+        e, counter, ids = _make_queryable_engine(monkeypatch, query_connection)
 
         r1 = e.query("hello")
         assert counter["runs"] == 1                  # miss → search executed
@@ -296,8 +305,8 @@ class TestQueryCacheIntegration:
         assert counter["runs"] == 1                  # hit → no second search
         assert [r.entity_id for r in r2] == ids
 
-    def test_hit_does_not_reenter_search(self, monkeypatch):
-        e, counter, _ = _make_queryable_engine(monkeypatch)
+    def test_hit_does_not_reenter_search(self, monkeypatch, query_connection):
+        e, counter, _ = _make_queryable_engine(monkeypatch, query_connection)
         e.query("hello")
         runs_after_first = counter["runs"]
 
@@ -305,30 +314,30 @@ class TestQueryCacheIntegration:
         e.query("hello")
         assert counter["runs"] == runs_after_first   # 2nd & 3rd served from cache
 
-    def test_different_scope_is_a_miss(self, monkeypatch):
-        e, counter, _ = _make_queryable_engine(monkeypatch)
+    def test_different_scope_is_a_miss(self, monkeypatch, query_connection):
+        e, counter, _ = _make_queryable_engine(monkeypatch, query_connection)
         e.query("hello", scope_id="A")
         assert counter["runs"] == 1
         e.query("hello", scope_id="B")               # different scope → miss
         assert counter["runs"] == 2
 
-    def test_use_cache_false_bypasses_cache(self, monkeypatch):
-        e, counter, _ = _make_queryable_engine(monkeypatch)
+    def test_use_cache_false_bypasses_cache(self, monkeypatch, query_connection):
+        e, counter, _ = _make_queryable_engine(monkeypatch, query_connection)
         e.query("hello", use_cache=False)
         e.query("hello", use_cache=False)
         assert counter["runs"] == 2                  # never cached → re-searched
         assert e._cache == {}
 
-    def test_invalidate_cache_forces_research(self, monkeypatch):
-        e, counter, _ = _make_queryable_engine(monkeypatch)
+    def test_invalidate_cache_forces_research(self, monkeypatch, query_connection):
+        e, counter, _ = _make_queryable_engine(monkeypatch, query_connection)
         e.query("hello")
         assert counter["runs"] == 1
         e.invalidate_cache()
         e.query("hello")
         assert counter["runs"] == 2                  # cache cleared → re-search
 
-    def test_empty_query_short_circuits(self, monkeypatch):
-        e, counter, _ = _make_queryable_engine(monkeypatch)
+    def test_empty_query_short_circuits(self, monkeypatch, query_connection):
+        e, counter, _ = _make_queryable_engine(monkeypatch, query_connection)
         assert e.query("") == []
         assert e.query("   ") == []
         assert counter["runs"] == 0

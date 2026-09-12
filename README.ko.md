@@ -65,10 +65,10 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 - 설치 경로: `~/.local/bin/mnemosyne` (Linux/macOS) 또는 `%LOCALAPPDATA%\Programs\mnemosyne\` (Windows). `MNEMOSYNE_INSTALL_DIR`로 재정의 가능 (예: `MNEMOSYNE_INSTALL_DIR=$HOME/bin`).
 - 기존 설치가 있으면 덮어쓰지 않습니다. 강제하려면 **플래그는 curl이 아니라 설치 스크립트용** — `sh -s --`나 환경변수로 전달: `curl ... | sh -s -- --force` 또는 `MNEMOSYNE_FORCE=1 curl ... | sh`. (`curl ... --force | sh`는 `--force`를 설치 스크립트에 전달하지 않습니다.)
 - 설치 전 `SHA256SUMS.txt`로 SHA256 검증, 불일치 시 중단.
-- GA 플랫폼: **linux-x86_64, darwin-arm64**.
-  (darwin-x86_64, linux-aarch64는 베스트에포트; windows-x86_64는 지연 — [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-status-deferred--issue-0010) 참고. Windows 사용자는 아래 pip 설치를 사용하세요.)
+- 릴리스 지원 플랫폼: **linux-x86_64, darwin-arm64, windows-x86_64**.
+  Windows는 Python 설치가 필요 없는 단일 EXE입니다. Linux arm64와 macOS x86_64는 배포하지 않습니다. [설치 세부 사항](docs/BINARY_INSTALL.md#windows-build-and-runtime)을 참고하세요.
 - macOS/Windows 바이너리는 **미서명**. macOS Gatekeeper 차단 시 한 번 실행: `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen → "추가 정보 → 실행".
-- 바이너리 크기 약 146MB (PyOxidizer 0.24 한계, 크기 축소는 후속 작업으로 추적 중).
+- 바이너리 크기는 플랫폼별 릴리스 산출물을 확인하세요. Windows는 PyInstaller, Linux/macOS는 보조 런타임 파일을 포함하는 PyOxidizer를 사용합니다.
 - SLM(GLiNER2)과 PDF 파싱은 **선택 기능이나 사이드카 확장으로는 아직 게시되지 않음** — `mnemosyne extension install` 레지스트리 저장소가 아직 게시되지 않았습니다 (ISSUE-0011, 후속 릴리즈 예정). 현재는 pip 경로로 설치: `pip install "mnemosyne-kg[semantic]"` (GLiNER2) 또는 `[deterministic]` / `[all]`.
 
 전체 세부 사항, cosign 서명 검증, man 페이지, 문제 해결은 [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md)를 참고하세요.
@@ -228,6 +228,71 @@ mnemosyne wiki doctor
 | `mnemosyne wiki <subcommand>` | Markdown LLM Wiki 검사 및 유지 관리 |
 | `mnemosyne mcp serve` | AI 에이전트 통합을 위한 MCP 서버 시작 |
 | `mnemosyne-slack <subcommand>` | 공개 Slack 채널 수동 수집 및 검색 (격리 저장소) |
+| `mnemosyne lifecycle <command>` | 출처 근거 교체, 승인된 정정·가시성 변경, 장애 복구 |
+
+### 출처 생명주기 계약
+
+`lifecycle`은 추출을 마친 자료를 반영하는 로컬 공통 API입니다. 모든 명령은
+`--db-path`를 명시해야 합니다. 원본 읽기·LLM 호출·Slack 인증·커넥터 예약
+실행은 이 명령이 수행하지 않습니다. [요청 JSON 전체 규격](README.md#source-lifecycle-api)을
+참조하세요.
+
+```bash
+mnemosyne lifecycle apply observe.json --db-path ./knowledge.db
+mnemosyne lifecycle apply extracted.json --db-path ./knowledge.db --wiki-root ./wiki
+mnemosyne lifecycle status --db-path ./knowledge.db
+mnemosyne lifecycle inspect source meeting:123 --db-path ./knowledge.db
+mnemosyne lifecycle inspect entity project:alpha --db-path ./knowledge.db
+mnemosyne lifecycle rebuild --db-path ./knowledge.db --wiki-root ./wiki
+```
+
+- **교체:** `observe`로 안정적인 `source_id`와 현재 버전을 등록한 뒤 `replace`로
+  완전한 근거 집합을 반영합니다. 같은 출처에서 사라진 정보만 현재 근거에서
+  제외하고 다른 출처의 지지는 유지합니다. 부분 추출·유효하지 않은 관계는
+  반영하지 않습니다. 명시적 삭제 신호 또는 범위·관측 경계가 있는 완료된
+  목록 대조만 `delete`의 근거가 됩니다.
+- **순서:** 양의 정수 `revision`은 커넥터가 검증한 원본 관측 순서입니다.
+  해시·이벤트 도착 순서·사건 시각으로 임의 생성하지 않습니다. 반영 직전
+  원본과 처리 규칙을 재검사하고, DB에서도 `revision`, `source_version`,
+  `content_hash`, `extractor_version`, `ontology_version`을 원자적으로 대조합니다.
+  `A → B → A`, 같은 해시의 새 규칙 재처리, 늦은 구버전 결과를 구분합니다.
+- **사용자 변경:** 신규 메모는 `kind: user-note` 출처와 `note_text`로 보존합니다.
+  수정은 정확한 새 근거·본문을 묶은 `revise-note` 승인이 필요합니다.
+  `correct`는 원문을 바꾸지 않는 개체/관계 속성의 별도 정정 기록이며,
+  `effective_scope: {"kind":"claim"}`으로 대상 주장과 scope를 명시합니다.
+  새 정정은 이전 정정의 `supersedes`를, 철회는 `retract`의 `record_id`를 지정합니다.
+  재수집과 충돌하면 정정은 유지되고 검토 상태가 남습니다.
+- **보관·복원:** `archive`와 `exclude`는 개체·관계·출처의 복구 가능한
+  가시성 기록입니다. `restore`는 특정 기록 하나를 해제하고 현재 근거로
+  재평가합니다. 이동·재수집·재시작·위키 재생성으로 해제되지 않습니다.
+  영구 삭제 명령은 제공하지 않습니다.
+- **승인:** `approve`에 대상·scope·변경 내용·`expected_generation`·actor를
+  결속하고 `execute`에서 재검사합니다. 사이에 상태가 바뀌면 재승인이
+  필요합니다. 이 API는 신뢰된 로컬 호출자용이며, actor 문자열 자체가
+  원격 사용자 인증이나 실제 승인 증거는 아닙니다. 봇 어댑터가 인증과
+  명시적 동의를 먼저 집행해야 합니다.
+- **복구:** 그래프·근거·적용 버전·작업·체크포인트·사용자 기록·위키 갱신
+  필요 상태가 `BEGIN IMMEDIATE`와 `synchronous=FULL`로 함께 확정됩니다.
+  같은 요청과 `job_id`는 재시도할 수 있으며 다른 요청에 ID를 재사용하면
+  거부됩니다. 위키 실패 시 `graph_committed: true`와 dirty 상태를 보고하고,
+  원본 재추출 없이 확정 그래프에서 다시 생성합니다.
+
+기존 DB는 마이그레이션 전에 WAL을 포함한 SQLite 백업
+`*.pre-lifecycle-<unique-id>.bak`을 만들고 무결성을 검사합니다.
+출처를 분해할 수 없는 기존 병합 정보는 `legacy:unattributed` 근거로
+보존하므로, 새 출처 교체만으로 해당 과거 정보를 자동 제거하지 않습니다.
+생명주기 사용을 시작한 DB에는 버전 없는 기존 `ingest add/update`를 거부합니다.
+자동 커넥터 연결 전에 안정적 원본 ID와 순서가 있는 요청으로 전환해야 합니다.
+
+현재 위키는 DB 식별자·세대가 붙은 그래프 파생 `index.md`입니다.
+기존 생성 페이지와 그 안의 수동 메모는 `.lifecycle-history/`로 이동해
+보존하며 현재 답변 근거로 읽지 않습니다. 위키를 답변에 쓰는 코드는
+`read_current_wiki(kg, wiki_root)`를 사용해야 합니다. dirty·다른 DB·구세대
+파일은 거부됩니다. 일반 그래프 질의는 오래된 위키로 우회하지 않습니다.
+`inspect`는 숨긴 근거·변경 기록도 보여 주는 운영자용 이력 조회입니다.
+
+합성 검증: `python -m pytest tests/test_lifecycle.py -q`.
+실제 회의·메일·노트 커넥터와 채팅 권한 검증은 별도 연결 단계입니다.
 
 ### `mnemosyne-slack` (격리된 Slack 저장소)
 
