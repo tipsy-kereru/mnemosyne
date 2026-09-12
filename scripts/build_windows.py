@@ -22,20 +22,19 @@ def main() -> None:
     wheels = build / "wheels"
     wheels.mkdir(parents=True, exist_ok=True)
 
-    def run(*arguments):
-        subprocess.run([sys.executable, *map(str, arguments)], cwd=root, check=True)
+    def run(*arguments, cwd=root):
+        subprocess.run([sys.executable, *map(str, arguments)], cwd=cwd, check=True)
 
     run(
         "-m",
         "maturin",
         "build",
         "--release",
-        "--manifest-path",
-        root / "mnemosyne-core" / "Cargo.toml",
         "--interpreter",
         sys.executable,
         "--out",
         wheels,
+        cwd=root / "mnemosyne-core",
     )
     candidates = list(wheels.glob("mnemosyne_core-*-cp311-*-win_amd64.whl"))
     if len(candidates) != 1:
