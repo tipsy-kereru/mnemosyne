@@ -213,6 +213,16 @@ jobs:
           cp build/mnemosyne artifacts/mnemosyne-windows-x86_64.exe
           cd artifacts
           sha256sum mnemosyne-windows-x86_64.exe > mnemosyne-windows-x86_64.exe.sha256
+      - name: smoke test relocated Windows distribution
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'Standalone binary'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          $binary = Join-Path $destination 'mnemosyne.exe'
+          Copy-Item artifacts/mnemosyne-windows-x86_64.exe $binary
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"').Matches.Groups[1].Value
+          python scripts/smoke_binary.py $binary --version $version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: upload Windows artifact
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
