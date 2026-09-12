@@ -62,13 +62,16 @@ def main() -> None:
         "mnemosyne-kg",
         "--hidden-import",
         "ctypes",
+        "--hidden-import",
+        "mcp.server.fastmcp",
+        "--collect-data",
+        "mcp",
     ]
     # AnyIO inspects its own source for lazy imports. collect-all includes that
     # source as well as dynamically imported modules and schema/package data.
     for package in (
         "mnemosyne",
         "mnemosyne_core",
-        "mcp",
         "anyio",
         "jsonschema_specifications",
         "referencing",

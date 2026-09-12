@@ -13,7 +13,7 @@
 #   3. Create a venv at mnemosyne-core/build_venv with the runtime deps from
 #      requirements-binary.txt. PyOxidizer consumes this via read_virtualenv.
 #   4. Generate fs_files.star enumerating data files of FILESYSTEM_PACKAGES
-#      (jsonschema_specifications, referencing) — frozen-import workaround.
+#      (jsonschema_specifications, referencing, anyio) — frozen-import workaround.
 #   5. pyoxidizer build --target-triple ${TARGET_TRIPLE} (release).
 #   6. Copy the stripped binary to build/mnemosyne. Print size (AC6).
 #
@@ -171,7 +171,7 @@ build_dependency_venv() {
         printf '# Lists data files of FILESYSTEM_PACKAGES for make_install.\n'
         printf '# Paths are absolute; strip_prefix in pyoxidizer.bzl must match.\n'
         printf 'FS_FILES = [\n'
-        for pkg in jsonschema_specifications referencing; do
+        for pkg in jsonschema_specifications referencing anyio; do
             pkgdir="${sp}/${pkg}"
             [[ -d "${pkgdir}" ]] || continue
             while IFS= read -r -d '' f; do
@@ -302,8 +302,8 @@ install_binary() {
         rm -rf "${BUILD_DIR}/lib"
         cp -r "${src_install}/lib" "${BUILD_DIR}/lib"
     fi
-    # FILESYSTEM_PACKAGES directories (jsonschema_specifications, referencing).
-    for pkg in jsonschema_specifications referencing; do
+    # FILESYSTEM_PACKAGES include schema data and AnyIO's inspected source.
+    for pkg in jsonschema_specifications referencing anyio; do
         if [[ -d "${src_install}/${pkg}" ]]; then
             rm -rf "${BUILD_DIR}/${pkg}"
             cp -r "${src_install}/${pkg}" "${BUILD_DIR}/${pkg}"
@@ -329,7 +329,7 @@ install_binary() {
             binary_bytes="$(stat -c %s "${BUILD_DIR}/mnemosyne")"
             lib_bytes="$(du -sb "${BUILD_DIR}/lib" 2>/dev/null | cut -f1)"
             companion_bytes=0
-            for pkg in jsonschema_specifications referencing; do
+            for pkg in jsonschema_specifications referencing anyio; do
                 [[ -d "${BUILD_DIR}/${pkg}" ]] && companion_bytes=$((companion_bytes + $(du -sb "${BUILD_DIR}/${pkg}" | cut -f1)))
             done
             ;;
@@ -339,7 +339,7 @@ install_binary() {
             binary_bytes="$(stat -f %z "${BUILD_DIR}/mnemosyne")"
             lib_bytes="$(du -sk "${BUILD_DIR}/lib" 2>/dev/null | awk '{print $1*1024}')"
             companion_bytes=0
-            for pkg in jsonschema_specifications referencing; do
+            for pkg in jsonschema_specifications referencing anyio; do
                 if [[ -d "${BUILD_DIR}/${pkg}" ]]; then
                     companion_bytes=$((companion_bytes + $(du -sk "${BUILD_DIR}/${pkg}" | awk '{print $1*1024}')))
                 fi
@@ -350,7 +350,7 @@ install_binary() {
             binary_bytes="$(wc -c < "${BUILD_DIR}/mnemosyne" | tr -d ' ')"
             lib_bytes="$(du -sk "${BUILD_DIR}/lib" 2>/dev/null | awk '{print $1*1024}')"
             companion_bytes=0
-            for pkg in jsonschema_specifications referencing; do
+            for pkg in jsonschema_specifications referencing anyio; do
                 if [[ -d "${BUILD_DIR}/${pkg}" ]]; then
                     companion_bytes=$((companion_bytes + $(du -sk "${BUILD_DIR}/${pkg}" | awk '{print $1*1024}')))
                 fi
@@ -363,7 +363,7 @@ install_binary() {
     esac
     binary_mb="$(awk -v b="${binary_bytes}" 'BEGIN{printf "%.1f", b/1024/1024}')"
     # Full distribution footprint: binary + lib/ + filesystem-shipped companion
-    # dirs (jsonschema_specifications, referencing). PyOxidizer 0.24 cannot
+    # dirs (jsonschema_specifications, referencing, anyio). PyOxidizer 0.24 cannot
     # collapse these into the binary proper — the path forward is ISSUE-0009.
     local dist_bytes dist_mb
     dist_bytes=$((binary_bytes + lib_bytes + companion_bytes))

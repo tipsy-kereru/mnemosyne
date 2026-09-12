@@ -140,21 +140,14 @@ jobs:
           # for now; the tarball is for offline / package-manager consumers.)
           if [ -d build/lib ] || [ -d build/jsonschema_specifications ]; then
             tar -czf "artifacts/${{ matrix.asset_name }}.dist.tar.gz" -C build \
-              $(ls -d build/lib build/jsonschema_specifications build/referencing 2>/dev/null | sed 's|^build/||')
+              $(ls -d build/lib build/jsonschema_specifications build/referencing build/anyio 2>/dev/null | sed 's|^build/||')
           fi
 
-      - name: smoke test (mnemosyne --help)
+      - name: smoke test native runtime and lifecycle
         shell: bash
-        run: |
-          "artifacts/${{ matrix.asset_name }}" --help
-          # darwin-arm64: extra mcp serve boot smoke (frozen-import hazard,
-          # PM Technical Note 5). Background + kill — verify no crash on boot.
-          if [ "${{ matrix.platform }}" = "darwin-arm64" ]; then
-            "artifacts/${{ matrix.asset_name }}" mcp serve &
-            MCP_PID=$!
-            sleep 2
-            kill $MCP_PID || true
-          fi
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+        run: python scripts/smoke_binary.py build/mnemosyne --version "${RELEASE_TAG#v}"
 
       - name: compute sha256
         shell: bash
