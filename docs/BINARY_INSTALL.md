@@ -16,10 +16,14 @@ curl -fsSL https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/in
 
 - Installs to `~/.local/bin/mnemosyne` by default (override with
   `MNEMOSYNE_INSTALL_DIR`).
-- Verifies the SHA256 against `SHA256SUMS.txt` before install; aborts on
-  mismatch.
-- Refuses to overwrite an existing install unless `--force` /
-  `MNEMOSYNE_FORCE=1`.
+- Verifies the SHA256 of the binary and of its companion tarball against
+  `SHA256SUMS.txt` before install; aborts on mismatch.
+- Also unpacks the companion directories (`lib/`, `anyio/`, `referencing/`,
+  `jsonschema_specifications/`) from `mnemosyne-<platform>.dist.tar.gz` next to
+  the binary. The binary starts without them, but `mcp serve` fails with
+  `No module named 'anyio'`.
+- Refuses to overwrite an existing binary or companion directory unless
+  `--force` / `MNEMOSYNE_FORCE=1`.
 
 ### Windows (PowerShell 5.1+)
 
@@ -30,6 +34,8 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 - Installs to `%LOCALAPPDATA%\Programs\mnemosyne\mnemosyne.exe`.
 - Prepends the install dir to the user `PATH` (open a new shell to pick it up).
 - Same SHA256-verify + refuse-overwrite semantics.
+- Windows 11 with Smart App Control blocks this unsigned EXE; see
+  [Windows Smart App Control](#windows-smart-app-control).
 
 ## Platform matrix
 
@@ -60,9 +66,71 @@ publications. This catches DLL dependencies hidden by the build machine.
 
 The former PyOxidizer Windows path is replaced, not shipped as an alternative.
 Keyless cosign bundles verify release provenance but are **not Authenticode
-signatures**: Windows SmartScreen may still report an unknown publisher.
+signatures**: Windows SmartScreen may still report an unknown publisher, and
+Smart App Control blocks the EXE outright (next section).
 
 See [Windows build instructions](BINARY_BUILD.md#windows-x86_64).
+
+## Windows Smart App Control
+
+With **Smart App Control (SAC)** in enforcement mode, Windows 11 refuses to run
+unsigned executables that have no cloud reputation. The release EXE is
+unsigned (see Deferred items) and new, so it does not start: Windows reports
+that an application control policy blocked the file and Code Integrity logs
+event 3077 for it. SAC has no per-file exception, so SmartScreen's *More info →
+Run anyway* does not apply.
+
+Confirm the cause (read-only PowerShell, no administrator rights needed):
+
+```powershell
+(Get-MpComputerStatus).SmartAppControlState    # On = enforcement
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-CodeIntegrity/Operational'; Id=3077} -MaxEvents 5 |
+  ForEach-Object { ([xml]$_.ToXml()).Event.EventData.Data | Where-Object Name -eq 'File Name' | ForEach-Object { $_.'#text' } }
+```
+
+### Workaround: run from a Python environment
+
+The package itself is pure Python, so a normal install works with SAC on. The
+MCP server and CLI behave the same as the EXE and use the same data directory
+(`%USERPROFILE%\mnemosyne`).
+
+```powershell
+uv venv "$env:USERPROFILE\.venvs\mnemosyne" --python 3.12
+uv pip install --python "$env:USERPROFILE\.venvs\mnemosyne\Scripts\python.exe" `
+  "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne@v0.12.1"
+& "$env:USERPROFILE\.venvs\mnemosyne\Scripts\mnemosyne.exe" --version
+```
+
+Point MCP clients at `%USERPROFILE%\.venvs\mnemosyne\Scripts\mnemosyne.exe` with
+arguments `mcp serve`.
+
+Verified on Windows 11 build 26300 with SAC `On`: `--version`, an MCP
+`initialize` / `tools/list` / `mnemosyne_stats` round trip, `ingest extract` and
+two consecutive `lifecycle rebuild` runs all succeeded with no new Code
+Integrity block events.
+
+Limits of this workaround:
+
+- The dependencies' native extensions (`pydantic_core`, `rpds`, `pywin32`,
+  SQLAlchemy and others) are unsigned too. SAC let them load because those
+  wheels are widely used, so their reputation is known. A newer wheel can be
+  blocked until it builds reputation. Record the working set with
+  `uv pip freeze > mnemosyne-requirements.txt`, upgrade deliberately, and
+  re-run `--version` and the MCP check afterwards.
+- The interpreter must itself be allowed; the `uv`-managed CPython 3.12 was.
+- The optional Rust core (`mnemosyne_core`) is not part of this install, so
+  code extraction uses the regex fallback.
+
+### Other options
+
+- **WSL2:** run `mnemosyne` inside a Linux distribution and start MCP with
+  `wsl.exe -d <distro> -e <path-to>/mnemosyne mcp serve`. Linux processes are
+  not subject to Windows SAC. Keep the SQLite database on the Linux
+  filesystem, not under `/mnt/c`.
+- **Turn SAC off:** Windows Security → App & browser control → Smart App
+  Control. This lowers protection for the whole machine, and re-enabling is not
+  possible on every Windows build; read Microsoft's current SAC FAQ first.
+- **Signed releases:** tracked under Deferred items.
 
 ## macOS unsigned-binary workaround (R-PKG-005)
 
@@ -137,21 +205,23 @@ skill, and (optionally) the data directory.
 ### Binary
 
 ```bash
-# Linux + macOS (default install path)
-rm -f ~/.local/bin/mnemosyne
+# Linux + macOS: INSTALL_DIR is ~/.local/bin unless MNEMOSYNE_INSTALL_DIR was set
+d="${MNEMOSYNE_INSTALL_DIR:-$HOME/.local/bin}"
+rm -f "$d/mnemosyne"
+rm -rf "$d/lib" "$d/anyio" "$d/referencing" "$d/jsonschema_specifications"
 
-# Linux + macOS (custom MNEMOSYNE_INSTALL_DIR)
-rm -f "${MNEMOSYNE_INSTALL_DIR:-~/.local/bin}/mnemosyne"
-
-# Windows (PowerShell)
+# Windows (PowerShell), release EXE
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Programs\mnemosyne"
+
+# Windows (PowerShell), Python-environment workaround
+Remove-Item -Recurse -Force "$env:USERPROFILE\.venvs\mnemosyne"
 ```
 
-The binary ships next to a `lib/` directory and filesystem-shipped companion
-packages (`jsonschema_specifications`, `referencing`). On Windows the whole
-`mnemosyne\` folder is removed by the `Remove-Item -Recurse` above; on Linux
-and macOS the companions are embedded resources inside the single binary, so
-deleting the binary is sufficient.
+On Linux and macOS the installer unpacks `lib/`, `anyio/`, `referencing/` and
+`jsonschema_specifications/` next to the binary; remove those four directories
+too, and check first that they are not shared with another tool in the same
+install directory. On Windows the release EXE is self-contained, so deleting
+its folder is sufficient.
 
 ### pip package
 
@@ -231,6 +301,8 @@ ls ~/.mnemosyne 2>/dev/null    # should print nothing if data dir removed
 | `mnemosyne: command not found` after Windows install | PATH not refreshed | open a new PowerShell window |
 | macOS Gatekeeper blocks binary | unsigned (R-PKG-005) | `xattr -d com.apple.quarantine <path>` |
 | `No module named 'referencing._cores'` at boot | FILESYSTEM_PACKAGES missing from install dir | re-run install; do not move the binary without the companion dirs |
+| Windows: "blocked by an application control policy", Code Integrity event 3077 | Smart App Control blocks the unsigned EXE | see [Windows Smart App Control](#windows-smart-app-control) |
+| `ModuleNotFoundError: No module named 'anyio'` from `mcp serve` on Linux/macOS | installed with an older `install.sh` that copied only the binary | re-run the current `install.sh --force`, or unpack the release's `mnemosyne-<platform>.dist.tar.gz` next to the binary: `tar -xzf mnemosyne-<platform>.dist.tar.gz -C ~/.local/bin` |
 
 ## Deferred items (out of ISSUE-0009 scope)
 

@@ -80,7 +80,7 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 |----------------|-------------|-------|
 | linux-x86_64   | GA          | `ubuntu-latest`에서 빌드. |
 | darwin-arm64   | GA          | `macos-14`에서 빌드. 미서명 — 아래 참고. |
-| windows-x86_64 | 미제공      | PyOxidizer 0.24 `_socket` DLL 로드 실패 (ISSUE-0010). pip 설치(§2.2) 사용. |
+| windows-x86_64 | 제공        | v0.12.1부터 자체 완결형 PyInstaller EXE. Smart App Control이 차단함 — 아래 참고. pip 설치(§2.2)는 동작. |
 | darwin-x86_64  | 미제공      | 매트릭스에서 제거 (빌드 지연). 안정화 시 재추가. |
 | linux-aarch64  | 미제공      | 크로스 컴파일 한계. native arm64 러너 필요. |
 
@@ -90,7 +90,7 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 xattr -d com.apple.quarantine /usr/local/bin/mnemosyne
 ```
 
-**Windows 미서명 바이너리:** SmartScreen이 "인식되지 않은 앱" 경고를 표시할 수 있습니다. *추가 정보 → 실행*을 클릭하세요. 코드 서명(Authenticode)은 macOS 공증과 동일한 인증서 확보에 연계되어 후속으로 진행됩니다.
+**Windows 미서명 바이너리:** EXE는 Authenticode 서명이 없습니다. SmartScreen이 "인식되지 않은 앱" 경고를 표시할 수 있고, Windows 11 **Smart App Control**은 파일별 예외 없이 실행 자체를 차단합니다(*추가 정보 → 실행*이 적용되지 않음). 대신 Python 환경에서 실행하세요: [docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-smart-app-control). 코드 서명(Authenticode)은 macOS 공증과 동일한 인증서 확보에 연계되어 후속으로 진행됩니다.
 
 **바이너리 크기:** linux-x86_64 배포판은 약 146MB입니다 (바이너리 자체와 내장 `lib/` 모듈, 파일시스템으로 함께 배포되는 `jsonschema_specifications` / `referencing` 동반 디렉토리 포함). 이는 100MB 목표를 초과하며, 크기 축소 지렛대는 PyOxidizer 0.4x + CPython 3.12 업그레이드로 후속 작업으로 추적 중입니다. 동반 디렉토리 없이 바이너리만 이동하면 부팅 시 `No module named 'referencing._cores'` 오류가 발생하니 주의하세요.
 

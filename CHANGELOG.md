@@ -5,6 +5,16 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `install.sh` (Linux/macOS) now also downloads and checksum-verifies `mnemosyne-<platform>.dist.tar.gz` and unpacks its companion directories (`lib/`, `anyio/`, `referencing/`, `jsonschema_specifications/`) next to the binary. Before this, an installer-provided binary failed `mcp serve` with `No module named 'anyio'`. The installer refuses to overwrite an existing companion directory without `--force`, and rejects archives with absolute or `..` paths.
+- Installer help and header now state the real default install directory (`$HOME/.local/bin`).
+
+### Documentation
+- Windows Smart App Control (SAC) is documented as the cause of "blocked by an application control policy" for the unsigned EXE, with a verified Python-environment workaround. The README and MANUAL no longer advise SmartScreen's "Run anyway", which does not apply to SAC. MANUAL's platform table lists the Windows EXE as supported.
+- Uninstall instructions now remove the Linux/macOS companion directories.
+
 ## [0.12.1] - 2026-09-12
 
 ### Fixed
