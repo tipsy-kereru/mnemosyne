@@ -18,10 +18,14 @@
 #   1. Detect OS (uname -s) + arch (uname -m).
 #   2. Map to a release-asset tag: linux-x86_64, linux-aarch64,
 #      darwin-arm64, darwin-x86_64. (windows is handled by install.ps1.)
-#   3. Fetch mnemosyne-<tag> + SHA256SUMS.txt from the latest GitHub Release.
-#   4. Verify sha256; abort on mismatch (non-zero exit).
-#   5. Install to ${MNEMOSYNE_INSTALL_DIR:-/usr/local/bin}/mnemosyne
-#      (chmod +x). Refuse overwrite unless --force / MNEMOSYNE_FORCE=1.
+#   3. Fetch mnemosyne-<tag>, mnemosyne-<tag>.dist.tar.gz + SHA256SUMS.txt
+#      from the latest GitHub Release.
+#   4. Verify sha256 of both downloads; abort on mismatch (non-zero exit).
+#   5. Install to ${MNEMOSYNE_INSTALL_DIR:-$HOME/.local/bin}/mnemosyne
+#      (chmod +x) and unpack the companion directories from the tarball
+#      (lib/, anyio/, referencing/, jsonschema_specifications/) next to it.
+#      The binary cannot run 'mcp serve' without them. Refuse overwrite of
+#      the binary or any companion directory unless --force / MNEMOSYNE_FORCE=1.
 #   6. On darwin, print the unsigned-binary xattr workaround (R-PKG-005).
 set -eu
 
@@ -40,9 +44,9 @@ for arg in "$@"; do
         -h|--help)
             cat <<EOF
 Usage: install.sh [--force]
-  --force         Overwrite an existing mnemosyne binary.
+  --force         Overwrite an existing mnemosyne binary and companion directories.
 Environment:
-  MNEMOSYNE_INSTALL_DIR  Install directory (default: /usr/local/bin)
+  MNEMOSYNE_INSTALL_DIR  Install directory (default: \$HOME/.local/bin)
   MNEMOSYNE_FORCE=1      Same as --force.
 EOF
             exit 0
@@ -111,9 +115,51 @@ fetch() {
     fi
 }
 
+# Verify file $1 against its entry named $2 in the SHA256SUMS.txt at $3.
+verify_asset() {
+    file="$1"
+    name="$2"
+    sums="$3"
+    # Tolerate the leading "./" that GNU sha256sum emits when fed "./name"
+    # paths (the release workflow's find produces these); match a space or a
+    # slash immediately before the asset name.
+    expected="$(grep "[ /]${name}\$" "${sums}" | awk '{print $1}' | head -1)"
+    if [ -z "${expected}" ]; then
+        err "no checksum entry for ${name} in SHA256SUMS.txt"
+        return 1
+    fi
+    hasher="$(hash_cmd)" || return 1
+    # shellcheck disable=SC2086
+    actual="$(eval "${hasher}" "${file}" | awk '{print $1}')"
+    if [ "${actual}" != "${expected}" ]; then
+        err "checksum mismatch for ${name}"
+        err "  expected: ${expected}"
+        err "  actual:   ${actual}"
+        return 1
+    fi
+    log "checksum OK (${name}: ${expected})"
+}
+
+# Print the top-level entry names of the companion tarball $1, one per line.
+# Rejects archives that could write outside INSTALL_DIR or use unusual names.
+companion_names() {
+    entries="$(tar -tzf "$1")" || { err "cannot read ${1##*/}"; return 1; }
+    if printf '%s\n' "${entries}" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+        err "unsafe path in ${1##*/}"
+        return 1
+    fi
+    names="$(printf '%s\n' "${entries}" | cut -d/ -f1 | sort -u)"
+    if printf '%s\n' "${names}" | grep -Evq '^[A-Za-z0-9_][A-Za-z0-9._-]*$'; then
+        err "unexpected entry name in ${1##*/}"
+        return 1
+    fi
+    printf '%s\n' "${names}"
+}
+
 main() {
     platform="$(detect_platform)" || exit 1
     asset="mnemosyne-${platform}"
+    dist_asset="${asset}.dist.tar.gz"
     bin_path="${INSTALL_DIR}/mnemosyne"
 
     log "detected platform: ${platform}"
@@ -127,32 +173,26 @@ main() {
     tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t mnemosyne)"
     trap 'rm -rf "${tmpdir}"' EXIT
     bin_tmp="${tmpdir}/${asset}"
+    dist_tmp="${tmpdir}/${dist_asset}"
     sums_tmp="${tmpdir}/SHA256SUMS.txt"
 
-    log "fetching ${asset} + SHA256SUMS.txt"
+    log "fetching ${asset}, ${dist_asset} + SHA256SUMS.txt"
     fetch "${BASE_URL}/${asset}" "${bin_tmp}" || { err "download failed for ${asset}"; exit 1; }
+    fetch "${BASE_URL}/${dist_asset}" "${dist_tmp}" || { err "download failed for ${dist_asset}"; exit 1; }
     fetch "${BASE_URL}/SHA256SUMS.txt" "${sums_tmp}" || { err "download failed for SHA256SUMS.txt"; exit 1; }
 
-    # Extract the expected hash for this asset from SHA256SUMS.txt.
-    # Tolerate the leading "./" that GNU sha256sum emits when fed "./name"
-    # paths (the release workflow's find produces these); match a space or a
-    # slash immediately before the asset name.
-    expected="$(grep "[ /]${asset}\$" "${sums_tmp}" | awk '{print $1}' | head -1)"
-    if [ -z "${expected}" ]; then
-        err "no checksum entry for ${asset} in SHA256SUMS.txt"
-        exit 1
-    fi
+    verify_asset "${bin_tmp}" "${asset}" "${sums_tmp}" || exit 1
+    verify_asset "${dist_tmp}" "${dist_asset}" "${sums_tmp}" || exit 1
+    names="$(companion_names "${dist_tmp}")" || exit 1
 
-    hasher="$(hash_cmd)" || exit 1
-    # shellcheck disable=SC2086
-    actual="$(eval "${hasher}" "${bin_tmp}" | awk '{print $1}')"
-    if [ "${actual}" != "${expected}" ]; then
-        err "checksum mismatch for ${asset}"
-        err "  expected: ${expected}"
-        err "  actual:   ${actual}"
-        exit 1
+    if [ "${FORCE}" != "1" ]; then
+        for name in ${names}; do
+            if [ -e "${INSTALL_DIR}/${name}" ]; then
+                err "refusing to overwrite existing ${INSTALL_DIR}/${name} (pass --force or MNEMOSYNE_FORCE=1)"
+                exit 1
+            fi
+        done
     fi
-    log "checksum OK (${expected})"
 
     if [ ! -d "${INSTALL_DIR}" ]; then
         mkdir -p "${INSTALL_DIR}" 2>/dev/null || {
@@ -166,9 +206,13 @@ main() {
         exit 1
     fi
 
+    # Companions first: a failed unpack must not leave a binary that boots
+    # but cannot serve MCP.
+    tar -xzf "${dist_tmp}" -C "${INSTALL_DIR}" || { err "failed to unpack ${dist_asset}"; exit 1; }
     mv "${bin_tmp}" "${bin_path}"
     chmod +x "${bin_path}"
     log "installed: ${bin_path}"
+    log "companions: $(printf '%s' "${names}" | tr '\n' ' ')(in ${INSTALL_DIR})"
 
     case "${platform}" in
         darwin-*)
