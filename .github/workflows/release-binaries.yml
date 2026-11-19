@@ -51,7 +51,9 @@ jobs:
       matrix:
         include:
           - platform: linux-x86_64
-            runner: ubuntu-latest
+            # Pinned: the binary links the builder's glibc. ubuntu-latest moved to
+            # glibc 2.42, whose binary does not start on Ubuntu 24.04 (glibc 2.39).
+            runner: ubuntu-24.04
             target_triple: x86_64-unknown-linux-gnu
             asset_name: mnemosyne-linux-x86_64
           - platform: darwin-arm64
