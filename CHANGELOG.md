@@ -5,6 +5,11 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-11-19
+
+### Fixed
+- Release workflow builds darwin-arm64 on `macos-15`. GitHub retired the `macos-14` runner image on 2026-11-02, so the `v0.12.2` tag build failed before starting and no `v0.12.2` release was published. The `v0.12.2` changes (below) ship in this release.
+
 ## [0.12.2] - 2026-11-19
 
 ### Fixed

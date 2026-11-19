@@ -55,7 +55,7 @@ jobs:
             target_triple: x86_64-unknown-linux-gnu
             asset_name: mnemosyne-linux-x86_64
           - platform: darwin-arm64
-            runner: macos-14
+            runner: macos-15
             target_triple: aarch64-apple-darwin
             asset_name: mnemosyne-darwin-arm64
     # Windows is a separate native PyInstaller job below. Linux arm64 and
