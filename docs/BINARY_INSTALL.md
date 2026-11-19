@@ -42,7 +42,7 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 | Platform            | Asset                          | Status      | Notes |
 |---------------------|--------------------------------|-------------|-------|
 | linux-x86_64        | `mnemosyne-linux-x86_64`       | GA          | Built natively on `ubuntu-latest`. |
-| darwin-arm64        | `mnemosyne-darwin-arm64`       | GA          | Native on `macos-14`. Unsigned (see below). |
+| darwin-arm64        | `mnemosyne-darwin-arm64`       | GA          | Native on `macos-15`. Unsigned (see below). |
 | windows-x86_64      | `mnemosyne-windows-x86_64.exe` | Supported   | Native Windows CI; CPython 3.11 + PyInstaller 6.22.2. No Python installation required. |
 | darwin-x86_64       | —                              | not shipped | Removed from matrix (slow macos-13 build blocked release). Re-add when stable. |
 | linux-aarch64       | —                              | not shipped | PyOxidizer cross-compile exec-format limitation. Needs native arm64 runner. |
@@ -97,7 +97,7 @@ MCP server and CLI behave the same as the EXE and use the same data directory
 ```powershell
 uv venv "$env:USERPROFILE\.venvs\mnemosyne" --python 3.12
 uv pip install --python "$env:USERPROFILE\.venvs\mnemosyne\Scripts\python.exe" `
-  "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne@v0.12.2"
+  "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne@v0.12.3"
 & "$env:USERPROFILE\.venvs\mnemosyne\Scripts\mnemosyne.exe" --version
 ```
 
