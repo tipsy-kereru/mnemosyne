@@ -97,7 +97,7 @@ MCP server and CLI behave the same as the EXE and use the same data directory
 ```powershell
 uv venv "$env:USERPROFILE\.venvs\mnemosyne" --python 3.12
 uv pip install --python "$env:USERPROFILE\.venvs\mnemosyne\Scripts\python.exe" `
-  "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne@v0.12.1"
+  "mnemosyne-kg @ git+https://github.com/tipsy-kereru/mnemosyne@v0.12.2"
 & "$env:USERPROFILE\.venvs\mnemosyne\Scripts\mnemosyne.exe" --version
 ```
 

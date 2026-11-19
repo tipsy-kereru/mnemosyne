@@ -5,7 +5,7 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.2] - 2026-11-19
 
 ### Fixed
 - `install.sh` (Linux/macOS) now also downloads and checksum-verifies `mnemosyne-<platform>.dist.tar.gz` and unpacks its companion directories (`lib/`, `anyio/`, `referencing/`, `jsonschema_specifications/`) next to the binary. Before this, an installer-provided binary failed `mcp serve` with `No module named 'anyio'`. The installer refuses to overwrite an existing companion directory without `--force`, and rejects archives with absolute or `..` paths.
