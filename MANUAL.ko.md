@@ -78,7 +78,7 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
 
 | 플랫폼         | 상태        | 비고 |
 |----------------|-------------|-------|
-| linux-x86_64   | GA          | `ubuntu-latest`에서 빌드. |
+| linux-x86_64   | GA          | `ubuntu-24.04`에서 빌드. glibc 2.38 이상 필요. |
 | darwin-arm64   | GA          | `macos-15`에서 빌드. 미서명 — 아래 참고. |
 | windows-x86_64 | 제공        | v0.12.1부터 자체 완결형 PyInstaller EXE. Smart App Control이 차단함 — 아래 참고. pip 설치(§2.2)는 동작. |
 | darwin-x86_64  | 미제공      | 매트릭스에서 제거 (빌드 지연). 안정화 시 재추가. |

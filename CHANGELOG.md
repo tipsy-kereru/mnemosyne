@@ -5,6 +5,11 @@ All notable changes to the Mnemosyne Knowledge Graph project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.4] - 2026-11-19
+
+### Fixed
+- The Linux release binary is built on `ubuntu-24.04` instead of `ubuntu-latest`. `ubuntu-latest` now carries glibc 2.42, so the `v0.12.3` `mnemosyne-linux-x86_64` required `GLIBC_2.42` and did not start on Ubuntu 24.04 (glibc 2.39). The binary needs glibc 2.38 or newer again, as in `v0.12.1`.
+
 ## [0.12.3] - 2026-11-19
 
 ### Fixed

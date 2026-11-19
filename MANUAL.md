@@ -87,7 +87,7 @@ unless `--force` / `MNEMOSYNE_FORCE=1`.
 
 | Platform       | Status      | Notes |
 |----------------|-------------|-------|
-| linux-x86_64   | GA          | Built on `ubuntu-latest`. |
+| linux-x86_64   | GA          | Built on `ubuntu-24.04`; needs glibc 2.38 or newer. |
 | darwin-arm64   | GA          | Built on `macos-15`. Unsigned — see below. |
 | windows-x86_64 | Supported   | Self-contained PyInstaller EXE since v0.12.1. Smart App Control blocks it — see below; the pip install (§2.2) works. |
 | darwin-x86_64  | not shipped | Removed from matrix (slow build). Re-add when stable. |
