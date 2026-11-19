@@ -89,7 +89,7 @@ unless `--force` / `MNEMOSYNE_FORCE=1`.
 |----------------|-------------|-------|
 | linux-x86_64   | GA          | Built on `ubuntu-latest`. |
 | darwin-arm64   | GA          | Built on `macos-14`. Unsigned — see below. |
-| windows-x86_64 | not shipped | PyOxidizer 0.24 `_socket` DLL load failure (ISSUE-0010). Use pip install (§2.2). |
+| windows-x86_64 | Supported   | Self-contained PyInstaller EXE since v0.12.1. Smart App Control blocks it — see below; the pip install (§2.2) works. |
 | darwin-x86_64  | not shipped | Removed from matrix (slow build). Re-add when stable. |
 | linux-aarch64  | not shipped | Cross-compile limitation. Needs native arm64 runner. |
 
@@ -102,9 +102,13 @@ attribute once:
 xattr -d com.apple.quarantine /usr/local/bin/mnemosyne
 ```
 
-**Windows unsigned binary:** SmartScreen may show an "unrecognized app"
-warning. Click *More info → Run anyway*. Code-signing (Authenticode) is
-deferred behind the same certificate gating as macOS notarization.
+**Windows unsigned binary:** the EXE is not Authenticode-signed. SmartScreen
+may show an "unrecognized app" warning, and Windows 11 **Smart App Control**
+blocks it outright with no per-file override (*Run anyway* does not apply).
+Run mnemosyne from a Python environment instead; see
+[docs/BINARY_INSTALL.md](docs/BINARY_INSTALL.md#windows-smart-app-control).
+Code-signing (Authenticode) is deferred behind the same certificate gating as
+macOS notarization.
 
 **Binary size:** the linux-x86_64 distribution is ~146 MB (binary plus
 embedded `lib/` modules and filesystem-shipped `jsonschema_specifications`

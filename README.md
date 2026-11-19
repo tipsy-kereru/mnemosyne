@@ -82,8 +82,11 @@ iwr https://github.com/tipsy-kereru/mnemosyne/releases/latest/download/install.p
   Windows ships a self-contained EXE; Linux arm64 and macOS x86_64 are not shipped.
   See [binary installation details](docs/BINARY_INSTALL.md#windows-build-and-runtime).
 - macOS/Windows binaries are **unsigned**. macOS Gatekeeper block → run once:
-  `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`. Windows SmartScreen
-  → "More info → Run anyway".
+  `xattr -d com.apple.quarantine /usr/local/bin/mnemosyne`.
+- Windows 11 **Smart App Control** blocks the unsigned EXE, and SmartScreen's
+  "Run anyway" does not apply to it. Run mnemosyne from a Python environment
+  instead; see
+  [Windows Smart App Control](docs/BINARY_INSTALL.md#windows-smart-app-control).
 - Binary size varies by platform; see the release assets. Windows uses PyInstaller; Linux/macOS use PyOxidizer with companion runtime files.
 - SLM (GLiNER2) and PDF parsing are **optional extras, not yet shipped as
   sidecar extensions** — the `mnemosyne extension install` registry repos are
