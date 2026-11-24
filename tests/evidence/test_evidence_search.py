@@ -962,3 +962,16 @@ def test_authoritative_paths_still_invalidate_on_edit_delete_and_revocation(worl
     _config(world, [grant("alpha-app", s["alpha"], "r", "revoked")])
     revoked = fresh(world, "alpha-app")
     assert revoked["status"] == "unauthorized" and revoked["freshness"]["token"] is None
+
+
+def test_hard_linked_store_cannot_prove_idleness(world, tmp_path):
+    other = tmp_path / "other-name.db"
+    try:
+        os.link(world.db, other)
+    except (OSError, NotImplementedError):
+        pytest.skip("hard links unavailable")
+    response = run(world, "alpha-app")
+    assert "a-budget" in ids(response)
+    assert_bypass(response, "store_identity_unverified")
+    other.unlink()
+    assert token(world)

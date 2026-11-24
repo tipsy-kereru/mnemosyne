@@ -283,6 +283,10 @@ def open_snapshot(path: Path, deadline: Deadline, wal_writers: bool = False) -> 
         bypass = "live_store_snapshot_unpublished"
     elif not wal_writers:
         bypass = "writer_mode_unattested"
+    elif st.st_nlink != 1:
+        # Another hard link would give a writer its own -wal/-shm namespace, so
+        # "no side files here" would say nothing about writers using that name.
+        bypass = "store_identity_unverified"
     else:
         try:
             digest = _main_digest(canonical, uri_base)

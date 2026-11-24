@@ -121,6 +121,7 @@ fresh one. The data token costs one pass over the bound scope's rows.
 |---|---|---|
 | `live_store_snapshot_unpublished` | private copy (`-wal` content, `-shm` or `-journal` present) | the copy may include a commit not yet published to source readers, or miss one; mtime/header change detection is best effort |
 | `writer_mode_unattested` | `immutable`, config lacks `store_writers: "wal"` | a MEMORY/OFF-journal writer can dirty the main file with no side file, so an idle store cannot be proven idle |
+| `store_identity_unverified` | `immutable`, main file has more than one hard link | a writer using another link name would have its own `-wal`/`-shm`, so absence of side files here proves nothing |
 | `store_too_large_to_verify` | `immutable`, main file over 256 MiB | the content digest that backs the proof cannot be taken |
 | `<status>:<reason>` | any error | no evidence was produced |
 
@@ -138,7 +139,7 @@ fresh one. The data token costs one pass over the bound scope's rows.
   publication cannot be proven, such responses are never cacheable (see above).
 * A store with no side files is read with `immutable=1` and is cacheable only when the operator
   attests WAL-only writers. Under that attestation an open writer always shows as `-wal`/`-shm`, so
-  no side files means no writer, and the proof is clock-independent: file state (size, mtime, side
+  no side files (on a file with a single hard link) means no writer, and the proof is clock-independent: file state (size, mtime, side
   files) is compared before and after the read and, additionally, a SHA-256 of the whole main file
   taken through SQLite before and after must match (a rewrite that preserves size and mtime is
   caught; the read then fails with `store_changed_during_read`). The digest costs two extra reads of
