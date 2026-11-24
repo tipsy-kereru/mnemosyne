@@ -19,12 +19,17 @@ option.
   "version": 1,
   "store": "knowledge.db",
   "effective_caller": "meeting-assistant",
+  "store_writers": "wal",
   "grants": [
     {"grant_id": "g-1", "caller": "meeting-assistant", "app_project": "weekly-sync",
      "scope_id": "<scope id in the store>", "status": "active"}
   ]
 }
 ```
+
+`store_writers: "wal"` is optional operator attestation that every process writing the store uses WAL
+journaling (as Mnemosyne's `KnowledgeGraph` does), never `journal_mode=MEMORY`/`OFF`. It is what
+allows an idle store to be proven idle (see Freshness); without it evidence is never cacheable.
 
 `store` is resolved relative to the configuration file. The file is strictly validated (unknown keys,
 duplicate `grant_id`, null/empty IDs, unknown `status` all deny everything), and on POSIX it must not
@@ -90,7 +95,7 @@ A missing store creates nothing, not even parent directories.
 
 Every response has `freshness`. A cacheable success holds `cacheable: true` and `token`, the SHA-256 of
 
-* the authorization token: caller, app project, bound scope, active grant IDs, store path;
+* the authorization token: caller, app project, bound scope, active grant IDs, store path, writer attestation;
 * the data token: digest of every searchable row of the bound scope (ID, type, name, properties,
   version, updated_at), the scope row, and the scope's lifecycle source set, computed in the same
   read snapshot as the results.
@@ -115,7 +120,8 @@ fresh one. The data token costs one pass over the bound scope's rows.
 | `bypass_reason` | Snapshot | Why freshness is unprovable |
 |---|---|---|
 | `live_store_snapshot_unpublished` | private copy (`-wal` content, `-shm` or `-journal` present) | the copy may include a commit not yet published to source readers, or miss one; mtime/header change detection is best effort |
-| `recent_write_unprovable` | `immutable`, main file modified < 2.5 s ago (or mtime in the future) | a further write could carry an indistinguishable timestamp |
+| `writer_mode_unattested` | `immutable`, config lacks `store_writers: "wal"` | a MEMORY/OFF-journal writer can dirty the main file with no side file, so an idle store cannot be proven idle |
+| `store_too_large_to_verify` | `immutable`, main file over 256 MiB | the content digest that backs the proof cannot be taken |
 | `<status>:<reason>` | any error | no evidence was produced |
 
 ## Limitations
@@ -130,11 +136,14 @@ fresh one. The data token costs one pass over the bound scope's rows.
   copy may contain a complete commit that concurrent source readers have not yet been shown (never
   a torn one); if the writer then fails before syncing, that commit could be lost. Because source
   publication cannot be proven, such responses are never cacheable (see above).
-* A store with no side files is read with `immutable=1`. It is cacheable only when its main file
-  has been quiet for 2.5 s (longer than any filesystem timestamp granularity) before the read and
-  its file state is unchanged after it; that proves any later write is distinguishable. The one
-  case this cannot rule out is a non-WAL store written with `journal_mode=MEMORY`/`OFF` that is
-  mid-transaction yet untouched on disk for more than 2.5 s; Mnemosyne itself writes with WAL.
+* A store with no side files is read with `immutable=1` and is cacheable only when the operator
+  attests WAL-only writers. Under that attestation an open writer always shows as `-wal`/`-shm`, so
+  no side files means no writer, and the proof is clock-independent: file state (size, mtime, side
+  files) is compared before and after the read and, additionally, a SHA-256 of the whole main file
+  taken through SQLite before and after must match (a rewrite that preserves size and mtime is
+  caught; the read then fails with `store_changed_during_read`). The digest costs two extra reads of
+  the main file. The attestation is only as good as the operator's word; without it nothing about an
+  idle store is cacheable.
 * Rows excluded from search (tombstoned) still participate in the data token, so editing them
   invalidates caches conservatively.
 * Authorization is only as trustworthy as the provider configuration file's filesystem permissions.

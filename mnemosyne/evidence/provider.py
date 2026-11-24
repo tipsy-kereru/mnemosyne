@@ -15,12 +15,19 @@ Schema (``version`` 1)::
       "version": 1,
       "store": "knowledge.db",              # relative to this file
       "effective_caller": "meeting-assistant",
+      "store_writers": "wal",                # optional attestation, see below
       "grants": [
         {"grant_id": "g-1", "caller": "meeting-assistant",
          "app_project": "weekly-sync", "scope_id": "scope-weekly",
          "status": "active"}                 # or "revoked"
       ]
     }
+
+``store_writers: "wal"`` is the operator's attestation that every process that
+writes the store uses WAL journaling (as Mnemosyne's ``KnowledgeGraph`` does),
+never ``journal_mode=MEMORY/OFF``, so an open writer is always visible as
+``-wal``/``-shm`` side files. Without it a store can never be proven idle, and
+evidence responses are not cacheable (``writer_mode_unattested``).
 """
 
 from __future__ import annotations
@@ -40,7 +47,8 @@ MAX_IDENT_CHARS = 256
 STATUS_ACTIVE = "active"
 STATUS_REVOKED = "revoked"
 
-_TOP_KEYS = {"version", "store", "effective_caller", "grants"}
+_TOP_KEYS = {"version", "store", "effective_caller", "grants", "store_writers"}
+WRITERS_WAL = "wal"
 _GRANT_KEYS = {"grant_id", "caller", "app_project", "scope_id", "status"}
 
 
@@ -76,6 +84,7 @@ class ProviderConfig:
     store_path: Path
     effective_caller: str
     grants: Tuple[Grant, ...]
+    wal_writers: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +96,7 @@ class Binding:
     scope_id: str
     grant_ids: Tuple[str, ...]
     store_path: Path
+    wal_writers: bool = False
 
 
 def _no_duplicates(pairs: list) -> dict:
@@ -186,7 +196,13 @@ def load_provider_config(path: "str | os.PathLike[str] | None") -> ProviderConfi
             raise ProviderConfigError("provider_config_invalid", "duplicate grant_id")
         seen_ids.add(grant.grant_id)
         grants.append(grant)
-    return ProviderConfig(store_path=store_path, effective_caller=caller, grants=tuple(grants))
+    writers = raw.get("store_writers")
+    if writers is not None and writers != WRITERS_WAL:
+        raise ProviderConfigError("provider_config_invalid", "unknown store_writers attestation")
+    return ProviderConfig(
+        store_path=store_path, effective_caller=caller, grants=tuple(grants),
+        wal_writers=writers == WRITERS_WAL,
+    )
 
 
 def resolve_binding(config: ProviderConfig, app_project: str) -> Binding:
@@ -215,6 +231,7 @@ def resolve_binding(config: ProviderConfig, app_project: str) -> Binding:
         scope_id=next(iter(scopes)),
         grant_ids=tuple(sorted(g.grant_id for g in active)),
         store_path=config.store_path,
+        wal_writers=config.wal_writers,
     )
 
 
@@ -227,6 +244,7 @@ def authorization_token(binding: Binding) -> str:
             "scope_id": binding.scope_id,
             "grants": list(binding.grant_ids),
             "store": str(binding.store_path),
+            "wal_writers": binding.wal_writers,
         },
         sort_keys=True,
         separators=(",", ":"),

@@ -34,10 +34,11 @@ Every response carries ``freshness``. ``freshness.token`` is a SHA-256 over
   change this scope's evidence.
 
 Only a snapshot whose publication state is provable is cacheable: a store with
-no side files whose main file was quiet for ``IMMUTABLE_QUIET_SECONDS`` before
-the read. Private-copy snapshots (live, crashed or journaled stores) and recent
-writes return evidence with ``cacheable: false``, a null token and a
-``bypass_reason``.
+no side files, whose operator attested WAL-only writers (``store_writers`` in
+the provider configuration), and whose main-file content digest is identical
+before and after the read. Private-copy snapshots (live, crashed or journaled
+stores), unattested writer modes and unverifiable (oversized) stores return
+evidence with ``cacheable: false``, a null token and a ``bypass_reason``.
 
 A client may serve a cached result for ``(query, limits)`` only if a fresh call
 of the ``freshness`` operation returns ``status == "ok"``, ``cacheable`` true,
@@ -617,7 +618,7 @@ def _execute(
     snapshot: Optional[Snapshot] = None
     try:
         deadline.check()
-        snapshot = open_snapshot(binding.store_path, deadline)
+        snapshot = open_snapshot(binding.store_path, deadline, binding.wal_writers)
         read = _scoped_read(snapshot, binding, request if with_query else None, deadline)
         verify_unchanged(snapshot)
         snapshot_bypass = snapshot.bypass_reason

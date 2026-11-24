@@ -32,6 +32,7 @@ when closed. So the access mode is chosen from the side files of the canonical
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sqlite3
@@ -51,8 +52,6 @@ _HEADER_BYTES = 32
 _SIDE_FILES = ("-wal", "-journal")
 
 _clock = time.monotonic
-_wall = time.time
-IMMUTABLE_QUIET_SECONDS = 2.5
 
 REQUIRED_COLUMNS = {
     "entities": {
@@ -92,6 +91,7 @@ class Snapshot:
     fingerprint: Fingerprint
     cleanup: Optional[Callable[[], None]] = None
     bypass_reason: Optional[str] = None  # set when freshness is unprovable for this snapshot
+    main_digest: Optional[str] = None  # content digest of the main file (immutable mode)
 
 
 class Deadline:
@@ -229,7 +229,7 @@ def _private_copy(
     return conn, cleanup
 
 
-def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
+def open_snapshot(path: Path, deadline: Deadline, wal_writers: bool = False) -> Snapshot:
     """Open ``path`` read-only without creating or modifying any file in its directory."""
     try:
         canonical = path.resolve()
@@ -278,16 +278,34 @@ def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
             cleanup()
         raise
     bypass: Optional[str] = None
+    digest: Optional[str] = None
     if mode == SNAPSHOT_COPY:
         bypass = "live_store_snapshot_unpublished"
+    elif not wal_writers:
+        bypass = "writer_mode_unattested"
     else:
-        main_mtime = fingerprint[0][2]
-        # A later write must be distinguishable from the one we saw: require the
-        # main file to have been quiet for longer than any filesystem timestamp
-        # granularity (FAT: 2 s) before this read began.
-        if main_mtime is None or _wall() - main_mtime / 1e9 < IMMUTABLE_QUIET_SECONDS:
-            bypass = "recent_write_unprovable"
-    return Snapshot(conn, mode, canonical, fingerprint, cleanup, bypass)
+        try:
+            digest = _main_digest(canonical, uri_base)
+        except BaseException:
+            conn.close()
+            raise
+        if digest is None:
+            bypass = "store_too_large_to_verify"
+    return Snapshot(conn, mode, canonical, fingerprint, cleanup, bypass, digest)
+
+
+def _main_digest(canonical: Path, uri_base: str) -> Optional[str]:
+    """SHA-256 of the main file's bytes, read through SQLite; None if it cannot be verified."""
+    if not hasattr(sqlite3.Connection, "serialize") or _main_key(canonical)[0] > MAX_COPY_BYTES:
+        return None
+    try:
+        src = sqlite3.connect(uri_base + "?mode=ro&immutable=1", uri=True)
+        try:
+            return hashlib.sha256(src.serialize()).hexdigest()
+        finally:
+            src.close()
+    except sqlite3.Error as exc:
+        raise translate_error(exc) from None
 
 
 def close_snapshot(snapshot: Snapshot) -> None:
@@ -303,8 +321,18 @@ def close_snapshot(snapshot: Snapshot) -> None:
 
 
 def verify_unchanged(snapshot: Snapshot) -> None:
-    """An immutable read is only valid if no writer touched the store meanwhile."""
-    if snapshot.mode == SNAPSHOT_IMMUTABLE and _fingerprint(snapshot.path) != snapshot.fingerprint:
+    """An immutable read is only valid if no writer touched the store meanwhile.
+
+    File state (size, mtime, side files) is compared first; when a content digest
+    was taken it is compared too, so a rewrite that preserved size and mtime is
+    still caught.
+    """
+    if snapshot.mode != SNAPSHOT_IMMUTABLE:
+        return
+    changed = _fingerprint(snapshot.path) != snapshot.fingerprint
+    if not changed and snapshot.main_digest is not None:
+        changed = _main_digest(snapshot.path, snapshot.path.as_uri()) != snapshot.main_digest
+    if changed:
         raise StoreUnavailable(
             "store_changed_during_read", "the store changed while it was being read"
         )

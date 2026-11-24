@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -19,7 +20,7 @@ from mnemosyne.evidence import store as store_mod
 from mnemosyne.graph.knowledge_graph import KnowledgeGraph
 from mnemosyne.graph.lifecycle import LifecycleStore
 from tests.evidence.helpers import (
-    World, age, build_world, grant, put, tree_state, write_config,
+    World, build_world, grant, put, tree_state, write_config,
 )
 
 
@@ -609,7 +610,6 @@ def test_late_expiry_never_returns_success(world, monkeypatch):
 
 
 def token(world: World, app: str = "alpha-app") -> str:
-    age(world.db)  # authoritative path: the store has been quiet since its last edit
     response = fresh(world, app)
     assert response["status"] == "ok" and response["freshness"]["cacheable"] is True
     return response["freshness"]["token"]
@@ -857,43 +857,65 @@ def assert_bypass(response: Dict[str, Any], reason: str) -> None:
     assert fresh_block["bypass_reason"] == reason
 
 
-def test_recent_write_cannot_be_proven_fresh_so_caching_is_bypassed(world):
-    conn = sqlite3.connect(world.db)
-    conn.execute("UPDATE entities SET version = version WHERE id = 'a-budget'")
-    conn.commit()
-    conn.close()
-    recent = run(world, "alpha-app")
-    assert "a-budget" in ids(recent)
-    assert_bypass(recent, "recent_write_unprovable")
-    assert_bypass(fresh(world, "alpha-app"), "recent_write_unprovable")
-    age(world.db)
-    assert token(world)  # authoritative again once the store has been quiet
+def test_unattested_writer_mode_is_never_cacheable(world):
+    write_config(world.config, world.db, [grant("alpha-app", world.scopes["alpha"])],
+                 attest_wal=False)
+    assert "a-budget" in ids(run(world, "alpha-app"))
+    assert_bypass(run(world, "alpha-app"), "writer_mode_unattested")
+    assert_bypass(fresh(world, "alpha-app"), "writer_mode_unattested")
+    write_config(world.config, world.db, [grant("alpha-app", world.scopes["alpha"])])
+    assert token(world)  # the operator attestation is what makes it provable
 
 
-def test_quiet_window_boundary_uses_wall_clock(world, monkeypatch):
-    mtime = world.db.stat().st_mtime
-    monkeypatch.setattr(store_mod, "_wall", lambda: mtime + store_mod.IMMUTABLE_QUIET_SECONDS - 0.5)
-    assert_bypass(run(world, "alpha-app"), "recent_write_unprovable")
-    monkeypatch.setattr(store_mod, "_wall", lambda: mtime + store_mod.IMMUTABLE_QUIET_SECONDS + 0.5)
-    assert run(world, "alpha-app")["freshness"]["cacheable"] is True
-    monkeypatch.setattr(store_mod, "_wall", lambda: mtime - 100)  # mtime in the future
-    assert_bypass(run(world, "alpha-app"), "recent_write_unprovable")
+def test_unverifiable_oversized_store_bypasses_caching(world, monkeypatch):
+    monkeypatch.setattr(store_mod, "MAX_COPY_BYTES", 1024)
+    response = run(world, "alpha-app")
+    assert "a-budget" in ids(response)
+    assert_bypass(response, "store_too_large_to_verify")
+
+
+def test_rewrite_that_preserves_size_and_mtime_is_caught_by_content_digest(world, monkeypatch):
+    original = search_mod._scoped_read
+
+    def tamper(*args, **kwargs):
+        result = original(*args, **kwargs)
+        stat = world.db.stat()
+        with open(world.db, "r+b") as handle:  # header application_id: same size, still valid
+            handle.seek(68)
+            handle.write(b"\x01")
+        os.utime(world.db, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        return result
+
+    monkeypatch.setattr(search_mod, "_scoped_read", tamper)
+    response = run(world, "alpha-app")
+    assert (response["status"], response["reason"]) == ("unavailable", "store_changed_during_read")
+    assert response["freshness"]["cacheable"] is False
+
+
+def test_recent_writes_and_other_scope_edits_do_not_depend_on_wall_clock(world):
+    t = token(world)
+    kg = KnowledgeGraph(str(world.db))
+    put(kg, "beta-new", "Beta new", world.scopes["beta"], summary="budget")
+    kg.close()  # a write that just happened, in another scope
+    assert token(world) == t  # still authoritative and unchanged for alpha
+    kg = KnowledgeGraph(str(world.db))
+    put(kg, "alpha-new", "Alpha new", world.scopes["alpha"], summary="budget")
+    kg.close()
+    assert token(world) != t  # an immediate in-scope edit is authoritatively detected
 
 
 def test_live_writer_results_are_returned_but_never_cacheable(world):
     live = KnowledgeGraph(str(world.db))
     try:
         put(live, "live-1", "Live budget", world.scopes["alpha"], summary="uncheckpointed budget")
-        age(world.db)
         search = run(world, "alpha-app", "uncheckpointed")
         assert ids(search) == {"live-1"}
         assert_bypass(search, "live_store_snapshot_unpublished")
         assert_bypass(fresh(world, "alpha-app"), "live_store_snapshot_unpublished")
-        assert_bypass(run(world, "alpha-app", "no-such-term-anywhere"),
+        assert_bypass(run(world, "alpha-app", "zzzqqq"),
                       "live_store_snapshot_unpublished")  # no_matches bypasses too
     finally:
         live.close()
-    age(world.db)
     assert token(world)  # writer gone, store quiet: authoritative again
 
 
@@ -905,7 +927,6 @@ def test_journaled_and_crashed_wal_stores_are_never_cacheable(tmp_path):
     conn.execute("UPDATE entities SET version = version WHERE id = 'a-budget'")
     conn.commit()
     conn.close()
-    age(w.db)
     assert_bypass(run(w, "alpha-app"), "live_store_snapshot_unpublished")
 
     w2 = build_world(tmp_path / "crashed")
@@ -916,7 +937,6 @@ def test_journaled_and_crashed_wal_stores_are_never_cacheable(tmp_path):
     shutil.copy(w2.db, copy / "knowledge.db")
     shutil.copy(str(w2.db) + "-wal", copy / "knowledge.db-wal")
     live.close()
-    age(copy / "knowledge.db")
     cfg = write_config(copy / "p.json", copy / "knowledge.db", [grant("a", w2.scopes["alpha"])])
     response = search_evidence(cfg, {"app_project": "a", "query": "pending"})
     assert ids(response) == {"pending"}
