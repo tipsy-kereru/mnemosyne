@@ -40,6 +40,22 @@ def fresh(world: World, app: str) -> Dict[str, Any]:
     return evidence_freshness(world.config, {"app_project": app})
 
 
+def mode_of(db: Path) -> str:
+    snap = store_mod.open_snapshot(db, store_mod.Deadline(5000))
+    try:
+        return snap.mode
+    finally:
+        store_mod.close_snapshot(snap)
+
+
+def stored_version(world: World, entity_id: str) -> int:
+    conn = sqlite3.connect(world.db)
+    try:
+        return conn.execute("SELECT version FROM entities WHERE id = ?", (entity_id,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
 # --- scoping -----------------------------------------------------------------
 
 
@@ -248,7 +264,7 @@ def test_lifecycle_provenance_and_stable_citations(world):
     assert first["results"] == again["results"]
     top = next(r for r in first["results"] if r["citation"]["entity_id"] == "a-decision")
     assert top["citation"] == {"id": "entity:a-decision", "entity_id": "a-decision",
-                               "entity_version": top["citation"]["entity_version"],
+                               "entity_version": stored_version(world, "a-decision"),
                                "source_ids": ["alpha-meeting"]}
     assert top["provenance"] == [{"source_id": "alpha-meeting", "revision": 1,
                                   "location": "app://alpha-meeting", "locator": "00:12:30"}]
@@ -401,28 +417,22 @@ def test_search_writes_nothing_to_a_cleanly_closed_wal_store(world):
 
 
 def test_search_creates_no_sidecars_and_reads_immutable_snapshot(world):
-    response = run(world, "alpha-app")
-    assert response["freshness"]["data"]["snapshot"] == "immutable"
+    assert run(world, "alpha-app")["status"] == "ok"
+    assert mode_of(world.db) == "immutable"
     assert sorted(p.name for p in world.db.parent.iterdir()) == ["knowledge.db"]
 
 
-def test_search_with_live_writer_changes_no_store_bytes(world):
+def test_search_with_live_writer_changes_nothing_in_the_store_directory(world):
     live = KnowledgeGraph(str(world.db))  # keeps WAL + shm alive
     try:
         put(live, "live-1", "Live budget", world.scopes["alpha"], summary="uncheckpointed budget")
-        names = sorted(p.name for p in world.db.parent.iterdir())
-        assert {"knowledge.db-wal", "knowledge.db-shm"} <= set(names)
-        shm = world.db.parent / "knowledge.db-shm"
-        shm_size = shm.stat().st_size
-        digests = {n: (world.db.parent / n).read_bytes() for n in names if not n.endswith("-shm")}
+        assert {"knowledge.db-wal", "knowledge.db-shm"} <= {p.name for p in world.db.parent.iterdir()}
+        assert mode_of(world.db) == "private-copy"
+        before = tree_state(world.root)  # includes -wal and -shm bytes and mtimes
         response = run(world, "alpha-app", "uncheckpointed")
-        assert response["freshness"]["data"]["snapshot"] == "wal-shared"
-        assert ids(response) == {"live-1"}
-        assert sorted(p.name for p in world.db.parent.iterdir()) == names
-        for n, data in digests.items():
-            assert (world.db.parent / n).read_bytes() == data
-        # The volatile -shm index may record read marks, but never grows or is replaced.
-        assert shm.stat().st_size == shm_size
+        fresh(world, "alpha-app")
+        assert ids(response) == {"live-1"}  # committed-but-uncheckpointed data is visible
+        assert tree_state(world.root) == before
     finally:
         live.close()
 
@@ -435,7 +445,7 @@ def test_idle_rollback_journal_store_is_read_without_writes(tmp_path):
     before = tree_state(w.root)
     response = run(w, "alpha-app")
     assert response["status"] == "ok"
-    assert response["freshness"]["data"]["snapshot"] == "immutable"
+    assert mode_of(w.db) == "immutable"
     assert tree_state(w.root) == before
 
 
@@ -452,7 +462,7 @@ def test_clean_persisted_journal_is_not_mistaken_for_a_hot_journal(tmp_path):
     before = tree_state(w.root)
     response = run(w, "alpha-app")
     assert response["status"] == "ok"
-    assert response["freshness"]["data"]["snapshot"] == "rollback-journal"
+    assert mode_of(w.db) == "rollback-journal"
     assert tree_state(w.root) == before
 
 
@@ -486,7 +496,7 @@ def test_hot_rollback_journal_needs_recovery_and_is_not_touched(tmp_path):
     assert tree_state(w.root) == before
 
 
-def test_wal_content_without_shm_needs_recovery_and_is_not_touched(tmp_path):
+def test_wal_content_without_shm_is_read_from_a_private_copy_and_store_is_untouched(tmp_path):
     w = build_world(tmp_path)
     live = KnowledgeGraph(str(w.db))
     put(live, "pending", "Pending budget", w.scopes["alpha"], summary="pending write")
@@ -498,8 +508,51 @@ def test_wal_content_without_shm_needs_recovery_and_is_not_touched(tmp_path):
     cfg = write_config(copy / "p.json", copy / "knowledge.db", [grant("a", w.scopes["alpha"])])
     before = tree_state(copy)
     response = search_evidence(cfg, {"app_project": "a", "query": "pending"})
-    assert (response["status"], response["reason"]) == ("unavailable", "store_recovery_required")
-    assert tree_state(copy) == before
+    assert response["status"] == "ok" and ids(response) == {"pending"}
+    assert tree_state(copy) == before and not Path(str(copy / "knowledge.db") + "-shm").exists()
+
+
+def test_private_copy_that_keeps_changing_is_busy_not_inconsistent(world, monkeypatch):
+    live = KnowledgeGraph(str(world.db))
+    try:
+        put(live, "x", "X", world.scopes["alpha"], summary="y")
+        counter = iter(range(10_000))
+        monkeypatch.setattr(store_mod, "_main_key", lambda path: (next(counter), 0))
+        response = run(world, "alpha-app")
+        assert (response["status"], response["reason"]) == ("unavailable", "store_busy")
+    finally:
+        live.close()
+
+
+def test_oversized_live_store_is_refused_not_written_around(world, monkeypatch):
+    live = KnowledgeGraph(str(world.db))
+    try:
+        monkeypatch.setattr(store_mod, "MAX_COPY_BYTES", 1024)
+        response = run(world, "alpha-app")
+        assert (response["status"], response["reason"]) == ("unavailable", "store_too_large")
+    finally:
+        live.close()
+
+
+def test_private_copy_is_removed_after_each_search(world, tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(store_mod.tempfile, "tempdir", str(scratch))
+    live = KnowledgeGraph(str(world.db))
+    try:
+        assert run(world, "alpha-app")["status"] == "ok"
+        assert list(scratch.iterdir()) == []
+    finally:
+        live.close()
+
+
+def test_immutable_uri_refuses_to_create_a_vanished_store(tmp_path):
+    gone = tmp_path / "gone.db"
+    with pytest.raises(sqlite3.OperationalError):
+        sqlite3.connect(gone.resolve().as_uri() + "?mode=ro&immutable=1", uri=True).execute(
+            "SELECT 1 FROM sqlite_master"
+        )
+    assert not gone.exists()
 
 
 def test_store_change_during_immutable_read_is_detected(world):
@@ -529,7 +582,7 @@ def test_symlinked_store_uses_the_target_side_files(world, tmp_path):
         put(live, "via-link", "Via link", world.scopes["alpha"], summary="unmistakableword")
         response = run(world, "alpha-app", "unmistakableword")
         assert ids(response) == {"via-link"}
-        assert response["freshness"]["data"]["snapshot"] == "wal-shared"
+        assert mode_of(world.db) == "private-copy"
     finally:
         live.close()
 
@@ -635,7 +688,7 @@ def test_deleting_a_source_without_evidence_still_changes_token(world):
 
 def test_freshness_does_not_expose_store_wide_counters(world):
     data = fresh(world, "alpha-app")["freshness"]["data"]
-    assert set(data) == {"token", "basis", "snapshot"}
+    assert set(data) == {"token", "basis"}
 
 
 def test_other_scope_changes_do_not_change_token(world):
@@ -725,3 +778,48 @@ def test_untrusted_optional_args_are_not_required_in_requests(world):
     assert response["bounds"]["limit"] == 5
     assert response["bounds"]["max_excerpt_chars"] == 400
 
+
+
+def test_legacy_backing_membership_is_part_of_the_freshness_token(world):
+    alpha = world.scopes["alpha"]
+    kg = KnowledgeGraph(str(world.db))
+    put(kg, "legacy-x", "Legacy x", alpha, summary="legacywording")
+    kg.close()
+    before = token(world)
+    kg = KnowledgeGraph(str(world.db))
+    req = _source(kg, "adopt-x", 1, alpha)
+    store = LifecycleStore(kg)
+    store.apply({"action": "observe", **req})
+    tok = {k: req[k] for k in ("source_id", "revision", "source_version", "content_hash",
+                               "extractor_version", "ontology_version")}
+    store.apply({"action": "replace", **tok, "job_id": "adopt-x-1", "complete": True,
+                 "entities": [{"id": "legacy-x", "type": "note", "name": "Legacy x",
+                               "properties": {"summary": "legacywording"}}],
+                 "relations": [], "checkpoint": {"cursor": 1}})
+    kg.close()
+    conn = sqlite3.connect(world.db)
+    backed = conn.execute("SELECT COUNT(*) FROM lifecycle_legacy WHERE target_id='legacy-x'").fetchone()
+    conn.close()
+    assert backed[0] == 1
+    assert token(world) != before
+    # Membership alone (nothing else in the scope changes) moves the token too.
+    mid = token(world)
+    conn = sqlite3.connect(world.db)
+    conn.execute("DELETE FROM lifecycle_legacy WHERE target_id='legacy-x'")
+    conn.commit()
+    conn.close()
+    assert token(world) != mid
+
+
+def test_response_byte_budget_cuts_results_and_reports_truncation(tmp_path, monkeypatch):
+    w = build_world(tmp_path)
+    kg = KnowledgeGraph(str(w.db))
+    for i in range(20):
+        put(kg, f"big-{i}", f"Big {i}", w.scopes["alpha"], summary="budget " + "x" * 900)
+    kg.close()
+    monkeypatch.setattr(search_mod, "_RESULT_BUDGET_BYTES", 3000)
+    response = run(w, "alpha-app", limit=20, max_excerpt_chars=1200)
+    assert response["bounds"]["truncated"] is True
+    assert 0 < len(response["results"]) < 20
+    assert sum(len(json.dumps(r, ensure_ascii=False).encode()) for r in response["results"]) <= 3000
+    assert response["bounds"]["total_matches"] >= 20

@@ -4,41 +4,47 @@ Nothing here may create, migrate, checkpoint, or otherwise write the store.
 ``KnowledgeGraph(...)`` is deliberately NOT used: its constructor creates the
 database, runs schema migrations, and switches journal modes.
 
-SQLite caveat handled here: opening a WAL-mode database with ``mode=ro`` still
-creates the ``-wal``/``-shm`` side files when they are absent, which is a write
-to the store directory, and ``PRAGMA journal_mode`` on an ``immutable`` WAL
-database does the same. So the mode is chosen from the side files alone, using
-ONE canonical path:
+SQLite caveats handled here. Opening a WAL-mode database with ``mode=ro``
+creates the ``-wal``/``-shm`` side files when they are absent, and a live WAL
+reader records read marks in the shared ``-shm`` file; both are writes to the
+store directory. ``PRAGMA journal_mode`` cannot be used to tell the modes apart
+(``immutable=1`` reports ``delete`` for WAL databases) and a raw read of the
+database file on POSIX would drop other in-process connections' advisory locks
+when closed. So the access mode is chosen from the side files of the canonical
+(symlink-resolved) path alone:
 
-* no side files -> ``immutable=1`` (touches nothing; covers a cleanly closed WAL
-  store and an idle rollback-journal store). A writer appearing during the read
-  is detected by comparing file state taken before mode selection with the state
-  after the read, and reported as ``store_changed_during_read``.
-* live ``-wal`` and ``-shm`` -> ``mode=ro``. Nothing is created and
-  database/WAL bytes are never modified. SQLite itself records WAL read marks in
-  the volatile ``-shm`` index (it holds no store data and is rebuilt by SQLite);
-  that cannot be avoided for a live WAL reader.
-* ``-wal`` content or ``-shm`` without its partner -> ``store_recovery_required``;
-  recovery is a write.
-* a ``-journal`` -> ``mode=ro``; a hot journal makes SQLite refuse the read,
-  reported as ``store_recovery_required``; a clean persisted journal reads fine.
-
-No raw file descriptor is ever opened on the database file: on POSIX, closing an
-unrelated descriptor drops other connections' advisory locks.
+* no side files -> ``mode=ro&immutable=1`` (touches nothing; covers a cleanly
+  closed WAL store and an idle rollback-journal store). A writer appearing
+  during the read is detected by comparing file state taken before mode
+  selection with the state after the read (``store_changed_during_read``).
+* ``-wal`` content and/or ``-shm`` (a live or crashed WAL store) -> a private
+  snapshot: the main file (via an immutable SQLite connection's ``serialize``)
+  and the ``-wal`` bytes are copied into a temporary directory and read there,
+  so SQLite's recovery and read marks happen on the copy. The copy is retried
+  if the main file changes or the WAL restarts while copying. The store
+  directory is never written.
+* a ``-journal`` -> ``mode=ro``; SQLite refuses a hot journal (reported as
+  ``store_recovery_required``) and honours locks otherwise.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 SNAPSHOT_IMMUTABLE = "immutable"
-SNAPSHOT_WAL = "wal-shared"
+SNAPSHOT_COPY = "private-copy"
 SNAPSHOT_ROLLBACK = "rollback-journal"
+
+MAX_COPY_BYTES = 256 * 1024 * 1024
+_COPY_ATTEMPTS = 3
+_WAL_HEADER = 32
 
 _clock = time.monotonic
 
@@ -55,6 +61,8 @@ LIFECYCLE_COLUMNS = {
     },
     "lifecycle_legacy": {"kind", "target_id"},
 }
+
+Fingerprint = Tuple[Tuple[str, Optional[int], Optional[int]], ...]
 
 
 class StoreUnavailable(Exception):
@@ -75,7 +83,8 @@ class Snapshot:
     conn: sqlite3.Connection
     mode: str
     path: Path
-    fingerprint: Tuple[Tuple[str, Optional[int], Optional[int]], ...]
+    fingerprint: Fingerprint
+    cleanup: Optional[Callable[[], None]] = None
 
 
 class Deadline:
@@ -93,7 +102,7 @@ class Deadline:
         return max(0, int((self._end - _clock()) * 1000))
 
 
-def _fingerprint(path: Path) -> Tuple[Tuple[str, Optional[int], Optional[int]], ...]:
+def _fingerprint(path: Path) -> Fingerprint:
     out: list[Tuple[str, Optional[int], Optional[int]]] = []
     for suffix in ("", "-wal", "-shm", "-journal"):
         try:
@@ -111,8 +120,67 @@ def _size(path: str) -> Optional[int]:
         return None
 
 
+def _main_key(path: Path) -> Tuple[int, int]:
+    st = os.stat(path)
+    return st.st_size, st.st_mtime_ns
+
+
+def _read_wal(wal_path: str) -> bytes:
+    try:
+        with open(wal_path, "rb") as handle:
+            data = handle.read(MAX_COPY_BYTES + 1)
+    except FileNotFoundError:
+        return b""
+    return data
+
+
+def _private_copy(canonical: Path, uri_base: str, deadline: Deadline) -> Snapshot:
+    base = str(canonical)
+    for _ in range(_COPY_ATTEMPTS):
+        deadline.check()
+        main_before = _main_key(canonical)
+        src = sqlite3.connect(uri_base + "?mode=ro&immutable=1", uri=True)
+        try:
+            main_bytes = src.serialize()
+        finally:
+            src.close()
+        wal_bytes = _read_wal(base + "-wal")
+        if len(main_bytes) + len(wal_bytes) > MAX_COPY_BYTES:
+            raise StoreUnavailable(
+                "store_too_large", "the live store is too large to snapshot without writing to it"
+            )
+        stable = (
+            _main_key(canonical) == main_before
+            and _read_wal(base + "-wal")[:_WAL_HEADER] == wal_bytes[:_WAL_HEADER]
+        )
+        if stable:
+            break
+    else:
+        raise StoreUnavailable("store_busy", "the store kept changing while it was snapshotted")
+
+    tmp = tempfile.mkdtemp(prefix="mnemosyne-evidence-")
+
+    def cleanup() -> None:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    try:
+        snap = Path(tmp) / "snapshot.db"
+        snap.write_bytes(main_bytes)
+        if wal_bytes:
+            Path(str(snap) + "-wal").write_bytes(wal_bytes)
+        conn = sqlite3.connect(
+            str(snap), timeout=max(0.05, deadline.remaining_ms() / 1000.0), isolation_level=None
+        )
+    except (OSError, sqlite3.Error):
+        cleanup()
+        raise StoreUnavailable(
+            "store_unreadable", "the store snapshot could not be prepared"
+        ) from None
+    return Snapshot(conn, SNAPSHOT_COPY, canonical, _fingerprint(canonical), cleanup)
+
+
 def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
-    """Open ``path`` read-only without creating or modifying any file."""
+    """Open ``path`` read-only without creating or modifying any file in its directory."""
     try:
         canonical = path.resolve()
         st = os.stat(canonical)
@@ -131,25 +199,24 @@ def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
     uri_base = canonical.as_uri()
     base = str(canonical)
     wal, shm, journal = (_size(base + suffix) for suffix in ("-wal", "-shm", "-journal"))
-    if journal:
-        # SQLite decides: a clean (e.g. PERSIST, zeroed) journal reads normally,
-        # a hot one makes the read-only open fail with a recovery error.
-        mode, uri = SNAPSHOT_ROLLBACK, uri_base + "?mode=ro"
-    elif wal is not None and shm is not None:
-        mode, uri = SNAPSHOT_WAL, uri_base + "?mode=ro"
-    elif wal or shm is not None:
-        raise StoreUnavailable(
-            "store_recovery_required", "WAL content exists without a matching shared-memory index"
-        )
-    else:
-        # No side files: nothing is mid-flight. Read the main file untouched.
-        mode, uri = SNAPSHOT_IMMUTABLE, uri_base + "?immutable=1"
-
+    cleanup: Optional[Callable[[], None]] = None
     conn: Optional[sqlite3.Connection] = None
     try:
-        conn = sqlite3.connect(
-            uri, uri=True, timeout=max(0.05, deadline.remaining_ms() / 1000.0), isolation_level=None
-        )
+        if journal:
+            mode = SNAPSHOT_ROLLBACK
+            conn = sqlite3.connect(
+                uri_base + "?mode=ro", uri=True, isolation_level=None,
+                timeout=max(0.05, deadline.remaining_ms() / 1000.0),
+            )
+        elif wal or shm is not None:
+            copy = _private_copy(canonical, uri_base, deadline)
+            mode, conn, cleanup = copy.mode, copy.conn, copy.cleanup
+        else:
+            mode = SNAPSHOT_IMMUTABLE
+            conn = sqlite3.connect(
+                uri_base + "?mode=ro&immutable=1", uri=True, isolation_level=None,
+                timeout=max(0.05, deadline.remaining_ms() / 1000.0),
+            )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA query_only=ON")
         _install_deadline(conn, deadline)
@@ -157,8 +224,16 @@ def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
     except sqlite3.Error as exc:
         if conn is not None:
             conn.close()
+        if cleanup is not None:
+            cleanup()
         raise translate_error(exc) from None
-    return Snapshot(conn=conn, mode=mode, path=canonical, fingerprint=fingerprint)
+    except BaseException:
+        if conn is not None:
+            conn.close()
+        if cleanup is not None:
+            cleanup()
+        raise
+    return Snapshot(conn, mode, canonical, fingerprint, cleanup)
 
 
 def close_snapshot(snapshot: Snapshot) -> None:
@@ -169,18 +244,13 @@ def close_snapshot(snapshot: Snapshot) -> None:
         pass
     finally:
         snapshot.conn.close()
+        if snapshot.cleanup is not None:
+            snapshot.cleanup()
 
 
 def verify_unchanged(snapshot: Snapshot) -> None:
-    """The mode chosen at open time must still describe the store after the read."""
-    now = _fingerprint(snapshot.path)
-    if snapshot.mode == SNAPSHOT_IMMUTABLE:
-        changed = now != snapshot.fingerprint
-    elif snapshot.mode == SNAPSHOT_WAL:
-        changed = now[1][1] is None or now[2][1] is None  # -wal/-shm disappeared
-    else:
-        changed = False
-    if changed:
+    """An immutable read is only valid if no writer touched the store meanwhile."""
+    if snapshot.mode == SNAPSHOT_IMMUTABLE and _fingerprint(snapshot.path) != snapshot.fingerprint:
         raise StoreUnavailable(
             "store_changed_during_read", "the store changed while it was being read"
         )

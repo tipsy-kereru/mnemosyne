@@ -216,7 +216,7 @@ def _flatten(value: Any, path: str, out: List[Tuple[str, str]], depth: int) -> N
                 continue
             _flatten(value[key], f"{path}.{key}" if path else str(key), out, depth + 1)
     elif depth < 4 and isinstance(value, list):
-        for index, item in enumerate(value[:200]):
+        for index, item in enumerate(value):
             _flatten(item, f"{path}[{index}]", out, depth + 1)
 
 
@@ -259,7 +259,7 @@ def _verified_evidence(
     if not isinstance(evidence, list):
         return []
     out = []
-    for item in evidence[:200]:
+    for item in evidence:
         if (
             isinstance(item, Mapping)
             and isinstance(item.get("source_id"), str)
@@ -438,6 +438,13 @@ def _scoped_read(
             ):
                 sources.add(src[0])
                 _feed(digest, "source", *tuple(src))
+            for legacy in conn.execute(
+                "SELECT l.target_id FROM lifecycle_legacy l JOIN entities e "
+                "ON e.id = l.target_id AND e.scope_id = ? WHERE l.kind = 'entity' "
+                "ORDER BY l.target_id",
+                (binding.scope_id,),
+            ):
+                _feed(digest, "legacy", legacy[0])
             verifier = _Verifier(conn, binding.scope_id, sources)
 
         read = _ScopedRead(data_token="", doc_count=0)
@@ -466,6 +473,7 @@ def _scoped_read(
             counts: Dict[str, float] = {}
             length = 0.0
             for seg in segments:
+                deadline.check()
                 for token in tokenize(seg.text):
                     counts[token] = counts.get(token, 0.0) + seg.weight
                     length += seg.weight
@@ -605,11 +613,14 @@ def _execute(
         read = _scoped_read(snapshot, binding, request if with_query else None, deadline)
         verify_unchanged(snapshot)
         deadline.check()
-        mode = snapshot.mode
     except SearchTimeout:
         return _error(operation, STATUS_TIMEOUT, "deadline_exceeded", "the search timed out")
     except StoreUnavailable as exc:
         return _error(operation, STATUS_UNAVAILABLE, exc.reason, exc.message)
+    except OSError:
+        return _error(
+            operation, STATUS_UNAVAILABLE, "store_unreadable", "the knowledge store is not accessible"
+        )
     finally:
         if snapshot is not None:
             close_snapshot(snapshot)
@@ -632,7 +643,6 @@ def _execute(
             "data": {
                 "token": read.data_token,
                 "basis": "exact-scope-content-digest",
-                "snapshot": mode,
             },
             "validated_at": _now(),
         },
@@ -650,6 +660,8 @@ def _execute(
             "returned": len(read.results),
             "truncated": read.truncated,
         }
+    if deadline.expired():
+        return _error(operation, STATUS_TIMEOUT, "deadline_exceeded", "the search timed out")
     return response
 
 

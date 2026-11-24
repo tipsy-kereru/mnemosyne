@@ -119,8 +119,11 @@ def load_provider_config(path: "str | os.PathLike[str] | None") -> ProviderConfi
     cfg_path = Path(path)
     try:
         # One descriptor for the checks and the read, so the file cannot be
-        # swapped between validation and use.
-        with open(cfg_path, "rb") as handle:
+        # swapped between validation and use. Non-blocking open so a FIFO or
+        # device cannot hang the caller before the type check.
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        fd = os.open(cfg_path, flags)
+        with os.fdopen(fd, "rb") as handle:
             st = os.fstat(handle.fileno())
             if not stat.S_ISREG(st.st_mode):
                 raise ProviderConfigError(

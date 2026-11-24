@@ -57,7 +57,7 @@ the bound scope. Unverifiable entries are dropped before ranking.
 `status`: `ok`, `no_matches`, `unauthorized`, `unavailable`, `timeout`, `invalid_request`.
 `unavailable` reasons: `store_missing`, `store_uninitialized`, `store_unreadable`,
 `store_schema_unsupported`, `scope_unavailable`, `store_busy`, `store_recovery_required`,
-`store_changed_during_read`. `timeout` reason: `deadline_exceeded`.
+`store_too_large`, `store_changed_during_read`. `timeout` reason: `deadline_exceeded`.
 
 Each result: `rank`, `score`, `citation` (`id` = `entity:<entity id>`, `entity_id`,
 `entity_version`, `source_ids`), `type`, `name`, `excerpt`, `excerpt_field`, `excerpt_sha256`,
@@ -70,16 +70,16 @@ entries per result; response results are cut to fit 64 KiB (`bounds.truncated`).
 
 ## Non-mutating store access
 
-Opening a WAL database with `mode=ro` creates `-wal`/`-shm` files when absent (and
-`PRAGMA journal_mode` on an `immutable` WAL database does too), so the mode is chosen from the side
-files of the canonical (symlink-resolved) path alone, never from a raw file read:
+Opening a WAL database with `mode=ro` creates `-wal`/`-shm` files when absent, a live WAL reader
+writes read marks into `-shm`, and `PRAGMA journal_mode` cannot detect WAL under `immutable=1`. A raw
+read of the database file would also drop other in-process connections' POSIX advisory locks. So the
+access mode is chosen from the side files of the canonical (symlink-resolved) path alone:
 
-| Side files | Mode | `freshness.data.snapshot` |
+| Side files | Access | Notes |
 |---|---|---|
-| none | `immutable=1`; nothing is touched; a writer appearing during the read is detected and reported as `store_changed_during_read` | `immutable` |
-| `-wal` and `-shm` | `mode=ro` with WAL snapshot isolation | `wal-shared` |
-| `-journal` | `mode=ro`; SQLite refuses a hot journal | `rollback-journal` |
-| `-wal` content or `-shm` without its partner, or a hot journal | `store_recovery_required` (recovery would be a write) | n/a |
+| none | `mode=ro&immutable=1`; nothing is touched | a writer appearing during the read is detected and reported as `store_changed_during_read` |
+| `-wal` content and/or `-shm` | private copy of main file + WAL in a temporary directory, removed after the read | the store directory, including `-shm`, is never written; recovery runs on the copy |
+| `-journal` | `mode=ro` | SQLite refuses a hot journal (`store_recovery_required`); a clean persisted journal reads normally |
 
 A missing store creates nothing, not even parent directories.
 
@@ -94,8 +94,9 @@ Every response has `freshness`. On success it holds `cacheable: true` and `token
 
 The store-wide lifecycle generation is deliberately neither reported nor hashed: it moves on writes
 to other scopes, so exposing it would leak cross-project activity. The lifecycle source set for the
-scope contributes each source's revision, applied revision, state and applied digest, so deleting a
-source changes the token even if it carried no excerpts.
+scope contributes each source's revision, applied revision, state and applied digest, and the set of
+entities with a scoped `lifecycle_legacy` backing record contributes its membership, so deleting a
+source or changing legacy backing changes the token even when no excerpt text changes.
 
 Client rule for a small in-memory cache keyed by `(app_project, query, limits)`: reuse an entry only
 if a fresh `freshness` call returns `status == "ok"`, `cacheable == true`, and the same `token`.
@@ -106,16 +107,18 @@ cache. The data token costs one pass over the bound scope's rows.
 
 ## Limitations
 
-* Entities only; relations are not searched.
+* Entities only; relations are not searched. Property text nested deeper than 4 levels is not
+  searched.
 * Cost is linear in the size of the bound scope (bounded by `timeout_ms`; expiry at any stage,
-  including after the last excerpt, returns `timeout`, never a late success).
+  including cleanup before the response is returned, yields `timeout`, never a late success).
 * Local filesystem paths only; UNC/network store paths are reported `store_unreadable`.
-* For a live WAL store (`-wal` and `-shm` present) SQLite itself records read marks in the volatile
-  `-shm` index. Database and WAL bytes, and the set of files, are never changed, but the `-shm`
-  content is not byte-stable across a read. This is inherent to reading a live WAL database; the only
-  alternative is refusing to read while a writer is open.
-* A writer that starts during an `immutable` read is detected by file-state comparison (size and
-  mtime of the database and side files), which is best effort at filesystem timestamp resolution.
-  If side files vanish between mode selection and open in `wal-shared` mode, SQLite may recreate
-  them; this narrow race is only detected when they are missing after the read.
+* A live (or crashed) WAL store is read from a private copy of the database and WAL bytes. Copies
+  are limited to 256 MiB (`store_too_large` above that) and retried while the main file changes
+  (`store_busy` if it never settles). Timestamp-based change detection is best effort at filesystem
+  timestamp resolution.
+* An idle store with no side files is read with `immutable=1`; a writer appearing mid-read is
+  detected by file-state comparison, and a non-WAL store written with an in-memory journal cannot be
+  proven idle by files alone.
+* Rows excluded from search (tombstoned) still participate in the data token, so editing them
+  invalidates caches conservatively.
 * Authorization is only as trustworthy as the provider configuration file's filesystem permissions.
