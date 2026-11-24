@@ -88,7 +88,7 @@ A missing store creates nothing, not even parent directories.
 
 ## Freshness contract (`mnemosyne.evidence-freshness/1`)
 
-Every response has `freshness`. On success it holds `cacheable: true` and `token`, the SHA-256 of
+Every response has `freshness`. A cacheable success holds `cacheable: true` and `token`, the SHA-256 of
 
 * the authorization token: caller, app project, bound scope, active grant IDs, store path;
 * the data token: digest of every searchable row of the bound scope (ID, type, name, properties,
@@ -104,9 +104,19 @@ source or changing legacy backing changes the token even when no excerpt text ch
 Client rule for a small in-memory cache keyed by `(app_project, query, limits)`: reuse an entry only
 if a fresh `freshness` call returns `status == "ok"`, `cacheable == true`, and the same `token`.
 Edits, deletions, lifecycle replacement/deactivation, and grant changes (scope rebinding or a new
-grant ID) change the token. Every non-`ok`/`no_matches` response, and any response with
-`cacheable == false` (always with `token: null` and a `bypass_reason`), means: evict and bypass the
-cache. The data token costs one pass over the bound scope's rows.
+grant ID) change the token. Any response with `cacheable == false` (always with `token: null`,
+`authorization: null`, `data: null` and a `bypass_reason`), and every non-`ok`/`no_matches`
+response, means: evict and bypass the cache. `search` and `freshness` may return `status: "ok"`
+with evidence but `cacheable: false`; the evidence is a consistent snapshot, not an authoritatively
+fresh one. The data token costs one pass over the bound scope's rows.
+
+**When a success is not cacheable** (fail closed; `bypass_reason`):
+
+| `bypass_reason` | Snapshot | Why freshness is unprovable |
+|---|---|---|
+| `live_store_snapshot_unpublished` | private copy (`-wal` content, `-shm` or `-journal` present) | the copy may include a commit not yet published to source readers, or miss one; mtime/header change detection is best effort |
+| `recent_write_unprovable` | `immutable`, main file modified < 2.5 s ago (or mtime in the future) | a further write could carry an indistinguishable timestamp |
+| `<status>:<reason>` | any error | no evidence was produced |
 
 ## Limitations
 
@@ -118,12 +128,13 @@ cache. The data token costs one pass over the bound scope's rows.
 * A live, crashed, or journaled store is read from a private copy (whole main file and side files,
   so cost and the 256 MiB cap depend on the entire database, including other projects). A private
   copy may contain a complete commit that concurrent source readers have not yet been shown (never
-  a torn one); if the writer then fails before syncing, that commit could be lost, so evidence from
-  it is consistent with its token but not yet durable. The token changes on the next read if so.
-  Timestamp-based change detection is best effort at filesystem timestamp resolution.
-* An idle store with no side files is read with `immutable=1`; a writer appearing mid-read is
-  detected by file-state comparison, and a non-WAL store written with an in-memory journal cannot be
-  proven idle by files alone.
+  a torn one); if the writer then fails before syncing, that commit could be lost. Because source
+  publication cannot be proven, such responses are never cacheable (see above).
+* A store with no side files is read with `immutable=1`. It is cacheable only when its main file
+  has been quiet for 2.5 s (longer than any filesystem timestamp granularity) before the read and
+  its file state is unchanged after it; that proves any later write is distinguishable. The one
+  case this cannot rule out is a non-WAL store written with `journal_mode=MEMORY`/`OFF` that is
+  mid-transaction yet untouched on disk for more than 2.5 s; Mnemosyne itself writes with WAL.
 * Rows excluded from search (tombstoned) still participate in the data token, so editing them
   invalidates caches conservatively.
 * Authorization is only as trustworthy as the provider configuration file's filesystem permissions.

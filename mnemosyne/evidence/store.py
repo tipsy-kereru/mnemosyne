@@ -51,6 +51,8 @@ _HEADER_BYTES = 32
 _SIDE_FILES = ("-wal", "-journal")
 
 _clock = time.monotonic
+_wall = time.time
+IMMUTABLE_QUIET_SECONDS = 2.5
 
 REQUIRED_COLUMNS = {
     "entities": {
@@ -89,6 +91,7 @@ class Snapshot:
     path: Path
     fingerprint: Fingerprint
     cleanup: Optional[Callable[[], None]] = None
+    bypass_reason: Optional[str] = None  # set when freshness is unprovable for this snapshot
 
 
 class Deadline:
@@ -274,7 +277,17 @@ def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
         if cleanup is not None:
             cleanup()
         raise
-    return Snapshot(conn, mode, canonical, fingerprint, cleanup)
+    bypass: Optional[str] = None
+    if mode == SNAPSHOT_COPY:
+        bypass = "live_store_snapshot_unpublished"
+    else:
+        main_mtime = fingerprint[0][2]
+        # A later write must be distinguishable from the one we saw: require the
+        # main file to have been quiet for longer than any filesystem timestamp
+        # granularity (FAT: 2 s) before this read began.
+        if main_mtime is None or _wall() - main_mtime / 1e9 < IMMUTABLE_QUIET_SECONDS:
+            bypass = "recent_write_unprovable"
+    return Snapshot(conn, mode, canonical, fingerprint, cleanup, bypass)
 
 
 def close_snapshot(snapshot: Snapshot) -> None:

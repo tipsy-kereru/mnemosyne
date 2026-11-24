@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -92,12 +94,19 @@ def build_world(tmp_path: Path, noise: int = 0) -> World:
             put(kg, f"gn-{i}", f"global noise {i}", None, summary="budget filler")
     finally:
         kg.close()
+    age(db)
     scopes = {"alpha": alpha, "beta": beta, "topic": topic, "sibling": sibling}
     config = write_config(
         root / "provider.json", db,
         [grant("alpha-app", alpha), grant("beta-app", beta), grant("topic-app", topic)],
     )
     return World(root, db, scopes, config)
+
+
+def age(db: Path, seconds: int = 3600) -> None:
+    """Make the main store file look quiet (test-side only, never done by search)."""
+    old = time.time_ns() - seconds * 1_000_000_000
+    os.utime(db, ns=(old, old))
 
 
 def tree_state(root: Path) -> Dict[str, Any]:

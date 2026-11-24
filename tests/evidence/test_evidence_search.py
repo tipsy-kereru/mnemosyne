@@ -19,7 +19,7 @@ from mnemosyne.evidence import store as store_mod
 from mnemosyne.graph.knowledge_graph import KnowledgeGraph
 from mnemosyne.graph.lifecycle import LifecycleStore
 from tests.evidence.helpers import (
-    World, build_world, grant, put, tree_state, write_config,
+    World, age, build_world, grant, put, tree_state, write_config,
 )
 
 
@@ -609,6 +609,7 @@ def test_late_expiry_never_returns_success(world, monkeypatch):
 
 
 def token(world: World, app: str = "alpha-app") -> str:
+    age(world.db)  # authoritative path: the store has been quiet since its last edit
     response = fresh(world, app)
     assert response["status"] == "ok" and response["freshness"]["cacheable"] is True
     return response["freshness"]["token"]
@@ -843,3 +844,101 @@ def test_private_copy_is_removed_even_when_opening_fails_midway(world, tmp_path,
         assert list(scratch.iterdir()) == []
     finally:
         live.close()
+
+
+# --- fail-closed caching for unprovable snapshots -------------------------------------------
+
+
+def assert_bypass(response: Dict[str, Any], reason: str) -> None:
+    fresh_block = response["freshness"]
+    assert response["status"] in {"ok", "no_matches"}  # evidence is still returned
+    assert fresh_block["cacheable"] is False and fresh_block["token"] is None
+    assert fresh_block["authorization"] is None and fresh_block["data"] is None
+    assert fresh_block["bypass_reason"] == reason
+
+
+def test_recent_write_cannot_be_proven_fresh_so_caching_is_bypassed(world):
+    conn = sqlite3.connect(world.db)
+    conn.execute("UPDATE entities SET version = version WHERE id = 'a-budget'")
+    conn.commit()
+    conn.close()
+    recent = run(world, "alpha-app")
+    assert "a-budget" in ids(recent)
+    assert_bypass(recent, "recent_write_unprovable")
+    assert_bypass(fresh(world, "alpha-app"), "recent_write_unprovable")
+    age(world.db)
+    assert token(world)  # authoritative again once the store has been quiet
+
+
+def test_quiet_window_boundary_uses_wall_clock(world, monkeypatch):
+    mtime = world.db.stat().st_mtime
+    monkeypatch.setattr(store_mod, "_wall", lambda: mtime + store_mod.IMMUTABLE_QUIET_SECONDS - 0.5)
+    assert_bypass(run(world, "alpha-app"), "recent_write_unprovable")
+    monkeypatch.setattr(store_mod, "_wall", lambda: mtime + store_mod.IMMUTABLE_QUIET_SECONDS + 0.5)
+    assert run(world, "alpha-app")["freshness"]["cacheable"] is True
+    monkeypatch.setattr(store_mod, "_wall", lambda: mtime - 100)  # mtime in the future
+    assert_bypass(run(world, "alpha-app"), "recent_write_unprovable")
+
+
+def test_live_writer_results_are_returned_but_never_cacheable(world):
+    live = KnowledgeGraph(str(world.db))
+    try:
+        put(live, "live-1", "Live budget", world.scopes["alpha"], summary="uncheckpointed budget")
+        age(world.db)
+        search = run(world, "alpha-app", "uncheckpointed")
+        assert ids(search) == {"live-1"}
+        assert_bypass(search, "live_store_snapshot_unpublished")
+        assert_bypass(fresh(world, "alpha-app"), "live_store_snapshot_unpublished")
+        assert_bypass(run(world, "alpha-app", "no-such-term-anywhere"),
+                      "live_store_snapshot_unpublished")  # no_matches bypasses too
+    finally:
+        live.close()
+    age(world.db)
+    assert token(world)  # writer gone, store quiet: authoritative again
+
+
+def test_journaled_and_crashed_wal_stores_are_never_cacheable(tmp_path):
+    w = build_world(tmp_path / "persist")
+    conn = sqlite3.connect(w.db)
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("PRAGMA journal_mode=PERSIST")
+    conn.execute("UPDATE entities SET version = version WHERE id = 'a-budget'")
+    conn.commit()
+    conn.close()
+    age(w.db)
+    assert_bypass(run(w, "alpha-app"), "live_store_snapshot_unpublished")
+
+    w2 = build_world(tmp_path / "crashed")
+    live = KnowledgeGraph(str(w2.db))
+    put(live, "pending", "Pending budget", w2.scopes["alpha"], summary="pending write")
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    shutil.copy(w2.db, copy / "knowledge.db")
+    shutil.copy(str(w2.db) + "-wal", copy / "knowledge.db-wal")
+    live.close()
+    age(copy / "knowledge.db")
+    cfg = write_config(copy / "p.json", copy / "knowledge.db", [grant("a", w2.scopes["alpha"])])
+    response = search_evidence(cfg, {"app_project": "a", "query": "pending"})
+    assert ids(response) == {"pending"}
+    assert_bypass(response, "live_store_snapshot_unpublished")
+
+
+def test_authoritative_paths_still_invalidate_on_edit_delete_and_revocation(world):
+    s = world.scopes
+    t0 = token(world)
+    kg = KnowledgeGraph(str(world.db))
+    entity = kg.get_entity("a-budget")
+    entity.properties["summary"] = "The budget was rejected"
+    kg.update_entity(entity)
+    kg.close()
+    t1 = token(world)
+    assert t1 != t0
+    conn = sqlite3.connect(world.db)
+    conn.execute("DELETE FROM entities WHERE id = 'a-risk'")
+    conn.commit()
+    conn.close()
+    t2 = token(world)
+    assert t2 not in {t0, t1}
+    _config(world, [grant("alpha-app", s["alpha"], "r", "revoked")])
+    revoked = fresh(world, "alpha-app")
+    assert revoked["status"] == "unauthorized" and revoked["freshness"]["token"] is None

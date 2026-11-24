@@ -29,9 +29,15 @@ Every response carries ``freshness``. ``freshness.token`` is a SHA-256 over
 * the data token: a digest of every row of the bound scope that search can see
   (ID, type, name, properties, version, updated_at), the scope row, the
   lifecycle source set for the scope. It is computed inside the same read
-  snapshot as the results. The store-wide lifecycle generation is reported for
-  diagnostics but deliberately excluded: it also moves on writes to other
-  scopes, which cannot change this scope's evidence.
+  snapshot as the results. The store-wide lifecycle generation is neither
+  reported nor hashed: it also moves on writes to other scopes, which cannot
+  change this scope's evidence.
+
+Only a snapshot whose publication state is provable is cacheable: a store with
+no side files whose main file was quiet for ``IMMUTABLE_QUIET_SECONDS`` before
+the read. Private-copy snapshots (live, crashed or journaled stores) and recent
+writes return evidence with ``cacheable: false``, a null token and a
+``bypass_reason``.
 
 A client may serve a cached result for ``(query, limits)`` only if a fresh call
 of the ``freshness`` operation returns ``status == "ok"``, ``cacheable`` true,
@@ -614,6 +620,7 @@ def _execute(
         snapshot = open_snapshot(binding.store_path, deadline)
         read = _scoped_read(snapshot, binding, request if with_query else None, deadline)
         verify_unchanged(snapshot)
+        snapshot_bypass = snapshot.bypass_reason
         deadline.check()
     except SearchTimeout:
         return _error(operation, STATUS_TIMEOUT, "deadline_exceeded", "the search timed out")
@@ -636,18 +643,22 @@ def _execute(
         "reason": None,
         "message": None,
         "results": read.results,
-        "freshness": {
-            "contract": FRESHNESS_CONTRACT,
-            "cacheable": True,
-            "bypass_reason": None,
-            "token": combined,
-            "authorization": {"token": auth_token, "basis": "provider-config-grant"},
-            "data": {
-                "token": read.data_token,
-                "basis": "exact-scope-content-digest",
-            },
-            "validated_at": _now(),
-        },
+        "freshness": (
+            _freshness_error(snapshot_bypass)
+            if snapshot_bypass
+            else {
+                "contract": FRESHNESS_CONTRACT,
+                "cacheable": True,
+                "bypass_reason": None,
+                "token": combined,
+                "authorization": {"token": auth_token, "basis": "provider-config-grant"},
+                "data": {
+                    "token": read.data_token,
+                    "basis": "exact-scope-content-digest",
+                },
+                "validated_at": _now(),
+            }
+        ),
     }
     if with_query:
         if not read.results and read.total_matches == 0:
