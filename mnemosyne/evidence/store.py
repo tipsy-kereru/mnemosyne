@@ -13,18 +13,20 @@ database file on POSIX would drop other in-process connections' advisory locks
 when closed. So the access mode is chosen from the side files of the canonical
 (symlink-resolved) path alone:
 
-* no side files -> ``mode=ro&immutable=1`` (touches nothing; covers a cleanly
-  closed WAL store and an idle rollback-journal store). A writer appearing
-  during the read is detected by comparing file state taken before mode
-  selection with the state after the read (``store_changed_during_read``).
-* ``-wal`` content and/or ``-shm`` (a live or crashed WAL store) -> a private
+* no side files (or only an empty ``-wal``) -> ``mode=ro&immutable=1`` (touches
+  nothing; covers a cleanly closed WAL store and an idle rollback-journal
+  store). A writer appearing during the read is detected by comparing file
+  state taken before mode selection with the state after the read
+  (``store_changed_during_read``).
+* any live state (``-wal`` content, ``-shm`` or ``-journal``) -> a private
   snapshot: the main file (via an immutable SQLite connection's ``serialize``)
-  and the ``-wal`` bytes are copied into a temporary directory and read there,
-  so SQLite's recovery and read marks happen on the copy. The copy is retried
-  if the main file changes or the WAL restarts while copying. The store
-  directory is never written.
-* a ``-journal`` -> ``mode=ro``; SQLite refuses a hot journal (reported as
-  ``store_recovery_required``) and honours locks otherwise.
+  and the side files' bytes are copied into a temporary directory and read
+  there, so SQLite's WAL recovery, hot-journal rollback and read marks happen
+  on the copy. The copy is retried if the main file or a side-file header
+  changes while copying. The original is only ever opened ``immutable``, so its
+  directory is never written. A copy may include a commit frame that source
+  readers have not yet been shown; that is a durably committed state, never a
+  torn one (torn frames fail their checksum and are ignored).
 """
 
 from __future__ import annotations
@@ -40,11 +42,11 @@ from typing import Callable, Optional, Tuple
 
 SNAPSHOT_IMMUTABLE = "immutable"
 SNAPSHOT_COPY = "private-copy"
-SNAPSHOT_ROLLBACK = "rollback-journal"
 
 MAX_COPY_BYTES = 256 * 1024 * 1024
 _COPY_ATTEMPTS = 3
-_WAL_HEADER = 32
+_HEADER_BYTES = 32
+_SIDE_FILES = ("-wal", "-journal")
 
 _clock = time.monotonic
 
@@ -125,35 +127,64 @@ def _main_key(path: Path) -> Tuple[int, int]:
     return st.st_size, st.st_mtime_ns
 
 
-def _read_wal(wal_path: str) -> bytes:
+def _side_state(base: str) -> dict[str, Optional[bytes]]:
+    """Existence and header bytes of each side file (cheap restart/commit detector)."""
+    out: dict[str, Optional[bytes]] = {}
+    for suffix in _SIDE_FILES:
+        try:
+            with open(base + suffix, "rb") as handle:
+                out[suffix] = handle.read(_HEADER_BYTES)
+        except FileNotFoundError:
+            out[suffix] = None
+    return out
+
+
+def _read_bounded(path: str, budget: int) -> Optional[bytes]:
     try:
-        with open(wal_path, "rb") as handle:
-            data = handle.read(MAX_COPY_BYTES + 1)
+        size = os.stat(path).st_size
     except FileNotFoundError:
-        return b""
-    return data
+        return None
+    if size > budget:
+        raise StoreUnavailable(
+            "store_too_large", "the live store is too large to snapshot without writing to it"
+        )
+    with open(path, "rb") as handle:
+        return handle.read(size)
 
 
-def _private_copy(canonical: Path, uri_base: str, deadline: Deadline) -> Snapshot:
+def _private_copy(
+    canonical: Path, uri_base: str, deadline: Deadline
+) -> Tuple[sqlite3.Connection, Callable[[], None]]:
+    """Copy the main file and side files to a temp dir; return (connection, cleanup)."""
+    if not hasattr(sqlite3.Connection, "serialize"):
+        raise StoreUnavailable(
+            "store_snapshot_unsupported", "this SQLite build cannot snapshot a live store"
+        )
     base = str(canonical)
+    main_bytes = b""
+    side_bytes: dict[str, bytes] = {}
     for _ in range(_COPY_ATTEMPTS):
         deadline.check()
         main_before = _main_key(canonical)
+        if main_before[0] > MAX_COPY_BYTES:  # checked from stat, before any allocation
+            raise StoreUnavailable(
+                "store_too_large", "the live store is too large to snapshot without writing to it"
+            )
+        sides_before = _side_state(base)
         src = sqlite3.connect(uri_base + "?mode=ro&immutable=1", uri=True)
         try:
             main_bytes = src.serialize()
         finally:
             src.close()
-        wal_bytes = _read_wal(base + "-wal")
-        if len(main_bytes) + len(wal_bytes) > MAX_COPY_BYTES:
-            raise StoreUnavailable(
-                "store_too_large", "the live store is too large to snapshot without writing to it"
-            )
-        stable = (
-            _main_key(canonical) == main_before
-            and _read_wal(base + "-wal")[:_WAL_HEADER] == wal_bytes[:_WAL_HEADER]
-        )
-        if stable:
+        budget = MAX_COPY_BYTES - len(main_bytes)
+        side_bytes = {}
+        for suffix in _SIDE_FILES:
+            data = _read_bounded(base + suffix, budget)
+            if data is not None:
+                side_bytes[suffix] = data
+                budget -= len(data)
+        deadline.check()
+        if _main_key(canonical) == main_before and _side_state(base) == sides_before:
             break
     else:
         raise StoreUnavailable("store_busy", "the store kept changing while it was snapshotted")
@@ -163,20 +194,21 @@ def _private_copy(canonical: Path, uri_base: str, deadline: Deadline) -> Snapsho
     def cleanup() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    conn: Optional[sqlite3.Connection] = None
     try:
         snap = Path(tmp) / "snapshot.db"
         snap.write_bytes(main_bytes)
-        if wal_bytes:
-            Path(str(snap) + "-wal").write_bytes(wal_bytes)
+        for suffix, data in side_bytes.items():
+            Path(str(snap) + suffix).write_bytes(data)
         conn = sqlite3.connect(
             str(snap), timeout=max(0.05, deadline.remaining_ms() / 1000.0), isolation_level=None
         )
-    except (OSError, sqlite3.Error):
+    except BaseException:
+        if conn is not None:
+            conn.close()
         cleanup()
-        raise StoreUnavailable(
-            "store_unreadable", "the store snapshot could not be prepared"
-        ) from None
-    return Snapshot(conn, SNAPSHOT_COPY, canonical, _fingerprint(canonical), cleanup)
+        raise
+    return conn, cleanup
 
 
 def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
@@ -202,15 +234,9 @@ def open_snapshot(path: Path, deadline: Deadline) -> Snapshot:
     cleanup: Optional[Callable[[], None]] = None
     conn: Optional[sqlite3.Connection] = None
     try:
-        if journal:
-            mode = SNAPSHOT_ROLLBACK
-            conn = sqlite3.connect(
-                uri_base + "?mode=ro", uri=True, isolation_level=None,
-                timeout=max(0.05, deadline.remaining_ms() / 1000.0),
-            )
-        elif wal or shm is not None:
-            copy = _private_copy(canonical, uri_base, deadline)
-            mode, conn, cleanup = copy.mode, copy.conn, copy.cleanup
+        if wal or shm is not None or journal is not None:
+            mode = SNAPSHOT_COPY
+            conn, cleanup = _private_copy(canonical, uri_base, deadline)
         else:
             mode = SNAPSHOT_IMMUTABLE
             conn = sqlite3.connect(

@@ -427,11 +427,12 @@ def test_search_with_live_writer_changes_nothing_in_the_store_directory(world):
     try:
         put(live, "live-1", "Live budget", world.scopes["alpha"], summary="uncheckpointed budget")
         assert {"knowledge.db-wal", "knowledge.db-shm"} <= {p.name for p in world.db.parent.iterdir()}
-        assert mode_of(world.db) == "private-copy"
-        before = tree_state(world.root)  # includes -wal and -shm bytes and mtimes
+        before = tree_state(world.root)  # includes -wal and -shm bytes and mtimes; before ANY open
         response = run(world, "alpha-app", "uncheckpointed")
         fresh(world, "alpha-app")
         assert ids(response) == {"live-1"}  # committed-but-uncheckpointed data is visible
+        assert tree_state(world.root) == before
+        assert mode_of(world.db) == "private-copy"
         assert tree_state(world.root) == before
     finally:
         live.close()
@@ -462,7 +463,7 @@ def test_clean_persisted_journal_is_not_mistaken_for_a_hot_journal(tmp_path):
     before = tree_state(w.root)
     response = run(w, "alpha-app")
     assert response["status"] == "ok"
-    assert mode_of(w.db) == "rollback-journal"
+    assert mode_of(w.db) == "private-copy"
     assert tree_state(w.root) == before
 
 
@@ -481,7 +482,7 @@ os._exit(0)
 """
 
 
-def test_hot_rollback_journal_needs_recovery_and_is_not_touched(tmp_path):
+def test_hot_rollback_journal_is_recovered_on_a_private_copy_and_store_is_untouched(tmp_path):
     w = build_world(tmp_path)
     conn = sqlite3.connect(w.db)
     conn.execute("PRAGMA journal_mode=DELETE")
@@ -491,9 +492,10 @@ def test_hot_rollback_journal_needs_recovery_and_is_not_touched(tmp_path):
     if not journal.exists() or journal.stat().st_size == 0:
         pytest.skip("could not leave a hot journal on this platform")
     before = tree_state(w.root)
-    response = run(w, "alpha-app")
-    assert (response["status"], response["reason"]) == ("unavailable", "store_recovery_required")
-    assert tree_state(w.root) == before
+    response = run(w, "alpha-app", limit=20)
+    assert response["status"] == "ok"
+    assert ids(response) == {"a-budget", "a-risk", "a-decision"}  # last committed state
+    assert tree_state(w.root) == before and journal.exists()
 
 
 def test_wal_content_without_shm_is_read_from_a_private_copy_and_store_is_untouched(tmp_path):
@@ -823,3 +825,21 @@ def test_response_byte_budget_cuts_results_and_reports_truncation(tmp_path, monk
     assert 0 < len(response["results"]) < 20
     assert sum(len(json.dumps(r, ensure_ascii=False).encode()) for r in response["results"]) <= 3000
     assert response["bounds"]["total_matches"] >= 20
+
+
+def test_private_copy_is_removed_even_when_opening_fails_midway(world, tmp_path, monkeypatch):
+    scratch = tmp_path / "scratch2"
+    scratch.mkdir()
+    monkeypatch.setattr(store_mod.tempfile, "tempdir", str(scratch))
+
+    def boom(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(store_mod, "_install_deadline", boom)
+    live = KnowledgeGraph(str(world.db))
+    try:
+        response = run(world, "alpha-app")
+        assert (response["status"], response["reason"]) == ("unavailable", "store_unreadable")
+        assert list(scratch.iterdir()) == []
+    finally:
+        live.close()

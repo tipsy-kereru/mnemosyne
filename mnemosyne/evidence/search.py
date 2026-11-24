@@ -403,12 +403,13 @@ class _ScopedRead:
     truncated: bool = False
 
 
-def _isolation() -> Tuple[str, List[str]]:
+def _isolation(alias: str = "") -> Tuple[str, List[str]]:
     from mnemosyne.graph.knowledge_graph import ISOLATED_SOURCE_CHANNELS
 
     channels = sorted(ISOLATED_SOURCE_CHANNELS)
     marks = ",".join("?" * len(channels))
-    return f"(source_channel IS NULL OR source_channel NOT IN ({marks}))", channels
+    column = f"{alias}.source_channel" if alias else "source_channel"
+    return f"({column} IS NULL OR {column} NOT IN ({marks}))", channels
 
 
 def _scoped_read(
@@ -438,11 +439,12 @@ def _scoped_read(
             ):
                 sources.add(src[0])
                 _feed(digest, "source", *tuple(src))
+            legacy_iso, legacy_params = _isolation("e")
             for legacy in conn.execute(
                 "SELECT l.target_id FROM lifecycle_legacy l JOIN entities e "
-                "ON e.id = l.target_id AND e.scope_id = ? WHERE l.kind = 'entity' "
-                "ORDER BY l.target_id",
-                (binding.scope_id,),
+                "ON e.id = l.target_id AND e.scope_id = ? "
+                f"WHERE l.kind = 'entity' AND {legacy_iso} ORDER BY l.target_id",
+                [binding.scope_id, *legacy_params],
             ):
                 _feed(digest, "legacy", legacy[0])
             verifier = _Verifier(conn, binding.scope_id, sources)

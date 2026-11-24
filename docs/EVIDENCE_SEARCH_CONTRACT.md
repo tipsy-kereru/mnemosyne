@@ -56,8 +56,8 @@ the bound scope. Unverifiable entries are dropped before ranking.
 
 `status`: `ok`, `no_matches`, `unauthorized`, `unavailable`, `timeout`, `invalid_request`.
 `unavailable` reasons: `store_missing`, `store_uninitialized`, `store_unreadable`,
-`store_schema_unsupported`, `scope_unavailable`, `store_busy`, `store_recovery_required`,
-`store_too_large`, `store_changed_during_read`. `timeout` reason: `deadline_exceeded`.
+`store_schema_unsupported`, `scope_unavailable`, `store_busy`, `store_too_large`,
+`store_snapshot_unsupported`, `store_changed_during_read`. `timeout` reason: `deadline_exceeded`.
 
 Each result: `rank`, `score`, `citation` (`id` = `entity:<entity id>`, `entity_id`,
 `entity_version`, `source_ids`), `type`, `name`, `excerpt`, `excerpt_field`, `excerpt_sha256`,
@@ -77,9 +77,12 @@ access mode is chosen from the side files of the canonical (symlink-resolved) pa
 
 | Side files | Access | Notes |
 |---|---|---|
-| none | `mode=ro&immutable=1`; nothing is touched | a writer appearing during the read is detected and reported as `store_changed_during_read` |
-| `-wal` content and/or `-shm` | private copy of main file + WAL in a temporary directory, removed after the read | the store directory, including `-shm`, is never written; recovery runs on the copy |
-| `-journal` | `mode=ro` | SQLite refuses a hot journal (`store_recovery_required`); a clean persisted journal reads normally |
+| none (or an empty `-wal`) | `mode=ro&immutable=1`; nothing is touched | a writer appearing during the read is detected and reported as `store_changed_during_read` |
+| `-wal` content, `-shm`, or `-journal` | private copy of the main file and side files in a temporary directory, removed after the read | the store directory, including `-shm`, is never written; WAL recovery and hot-journal rollback run on the copy, yielding the last committed state |
+
+The original file is only ever opened `immutable`. Copies are retried while the main file or a side
+file header changes, refused above 256 MiB (`store_too_large`, decided from `stat` before any read),
+and unsupported on SQLite builds without `serialize` (`store_snapshot_unsupported`).
 
 A missing store creates nothing, not even parent directories.
 
@@ -112,10 +115,10 @@ cache. The data token costs one pass over the bound scope's rows.
 * Cost is linear in the size of the bound scope (bounded by `timeout_ms`; expiry at any stage,
   including cleanup before the response is returned, yields `timeout`, never a late success).
 * Local filesystem paths only; UNC/network store paths are reported `store_unreadable`.
-* A live (or crashed) WAL store is read from a private copy of the database and WAL bytes. Copies
-  are limited to 256 MiB (`store_too_large` above that) and retried while the main file changes
-  (`store_busy` if it never settles). Timestamp-based change detection is best effort at filesystem
-  timestamp resolution.
+* A live, crashed, or journaled store is read from a private copy (whole main file and side files,
+  so cost and the 256 MiB cap depend on the entire database, including other projects). A private
+  copy may contain a commit that concurrent source readers have not yet been shown, never a torn
+  one. Timestamp-based change detection is best effort at filesystem timestamp resolution.
 * An idle store with no side files is read with `immutable=1`; a writer appearing mid-read is
   detected by file-state comparison, and a non-WAL store written with an in-memory journal cannot be
   proven idle by files alone.
