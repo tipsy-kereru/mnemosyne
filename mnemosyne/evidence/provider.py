@@ -89,6 +89,15 @@ class Binding:
     store_path: Path
 
 
+def _no_duplicates(pairs: list) -> dict:
+    out: dict = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate key")
+        out[key] = value
+    return out
+
+
 def _ident(value: Any, field: str) -> str:
     if (
         not isinstance(value, str)
@@ -109,26 +118,36 @@ def load_provider_config(path: "str | os.PathLike[str] | None") -> ProviderConfi
         raise ProviderConfigError("provider_config_missing", "no provider configuration supplied")
     cfg_path = Path(path)
     try:
-        st = cfg_path.stat()
+        # One descriptor for the checks and the read, so the file cannot be
+        # swapped between validation and use.
+        with open(cfg_path, "rb") as handle:
+            st = os.fstat(handle.fileno())
+            if not stat.S_ISREG(st.st_mode):
+                raise ProviderConfigError(
+                    "provider_config_invalid", "provider configuration is not a file"
+                )
+            if st.st_size > MAX_CONFIG_BYTES:
+                raise ProviderConfigError(
+                    "provider_config_invalid", "provider configuration too large"
+                )
+            if os.name == "posix" and st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                raise ProviderConfigError(
+                    "provider_config_invalid", "provider configuration is group/world writable"
+                )
+            data = handle.read(MAX_CONFIG_BYTES + 1)
     except FileNotFoundError:
         raise ProviderConfigError(
             "provider_config_missing", "provider configuration not found"
         ) from None
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise ProviderConfigError(
-            "provider_config_invalid", f"provider configuration unreadable: {exc.strerror}"
+            "provider_config_invalid", f"provider configuration unreadable: {type(exc).__name__}"
         ) from None
-    if not stat.S_ISREG(st.st_mode):
-        raise ProviderConfigError("provider_config_invalid", "provider configuration is not a file")
-    if st.st_size > MAX_CONFIG_BYTES:
+    if len(data) > MAX_CONFIG_BYTES:
         raise ProviderConfigError("provider_config_invalid", "provider configuration too large")
-    if os.name == "posix" and st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        raise ProviderConfigError(
-            "provider_config_invalid", "provider configuration is group/world writable"
-        )
     try:
-        raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+        raw = json.loads(data.decode("utf-8"), object_pairs_hook=_no_duplicates)
+    except (UnicodeDecodeError, ValueError):
         raise ProviderConfigError(
             "provider_config_invalid", "provider configuration is not valid JSON"
         ) from None
@@ -137,7 +156,7 @@ def load_provider_config(path: "str | os.PathLike[str] | None") -> ProviderConfi
     if raw.get("version") != CONFIG_VERSION or isinstance(raw.get("version"), bool):
         raise ProviderConfigError("provider_config_invalid", "unsupported configuration version")
     store = raw.get("store")
-    if not isinstance(store, str) or not store:
+    if not isinstance(store, str) or not store or "\x00" in store:
         raise ProviderConfigError("provider_config_invalid", "store must be a nonempty path")
     store_path = Path(store).expanduser()
     if not store_path.is_absolute():

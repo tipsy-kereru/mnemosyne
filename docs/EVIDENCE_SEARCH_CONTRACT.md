@@ -47,8 +47,10 @@ tombstoned entities excluded). Global (`NULL`), parent, child, and sibling scope
 Ranking is BM25 computed over that candidate set alone (document count, document frequency, and
 average length come from the bound scope), so other scopes cannot influence scores or order. The
 FTS index is not used and never rebuilt. Query terms match whole tokens by prefix (substring for
-CJK). Excerpts and provenance come from the same rows; lifecycle provenance entries are kept only
-if their `source_id` belongs to `lifecycle_sources` of the bound scope.
+CJK). Excerpts and provenance come from the same rows; a provenance entry (and its excerpt text) is
+used only if its `source_id` belongs to `lifecycle_sources` of the bound scope, or is the reserved
+`legacy:unattributed` marker on an entity that has a `lifecycle_legacy` backing record and lives in
+the bound scope. Unverifiable entries are dropped before ranking.
 
 ## Response
 
@@ -68,11 +70,18 @@ entries per result; response results are cut to fit 64 KiB (`bounds.truncated`).
 
 ## Non-mutating store access
 
-Opening a WAL database with `mode=ro` creates `-wal`/`-shm` files when absent, so the store is
-opened as follows: WAL with no side files -> `immutable=1` (nothing is touched; a writer appearing
-mid-read is detected and reported as `store_changed_during_read`); WAL with live `-wal` and `-shm`
--> `mode=ro` (WAL snapshot isolation); `-wal` content without `-shm`, or a hot `-journal`
--> `store_recovery_required` (recovery would be a write). `freshness.data.snapshot` reports the mode.
+Opening a WAL database with `mode=ro` creates `-wal`/`-shm` files when absent (and
+`PRAGMA journal_mode` on an `immutable` WAL database does too), so the mode is chosen from the side
+files of the canonical (symlink-resolved) path alone, never from a raw file read:
+
+| Side files | Mode | `freshness.data.snapshot` |
+|---|---|---|
+| none | `immutable=1`; nothing is touched; a writer appearing during the read is detected and reported as `store_changed_during_read` | `immutable` |
+| `-wal` and `-shm` | `mode=ro` with WAL snapshot isolation | `wal-shared` |
+| `-journal` | `mode=ro`; SQLite refuses a hot journal | `rollback-journal` |
+| `-wal` content or `-shm` without its partner, or a hot journal | `store_recovery_required` (recovery would be a write) | n/a |
+
+A missing store creates nothing, not even parent directories.
 
 ## Freshness contract (`mnemosyne.evidence-freshness/1`)
 
@@ -83,8 +92,10 @@ Every response has `freshness`. On success it holds `cacheable: true` and `token
   version, updated_at), the scope row, and the scope's lifecycle source set, computed in the same
   read snapshot as the results.
 
-The store-wide lifecycle generation is reported (`data.lifecycle_generation`) but excluded from the
-token because it also moves on writes to other scopes.
+The store-wide lifecycle generation is deliberately neither reported nor hashed: it moves on writes
+to other scopes, so exposing it would leak cross-project activity. The lifecycle source set for the
+scope contributes each source's revision, applied revision, state and applied digest, so deleting a
+source changes the token even if it carried no excerpts.
 
 Client rule for a small in-memory cache keyed by `(app_project, query, limits)`: reuse an entry only
 if a fresh `freshness` call returns `status == "ok"`, `cacheable == true`, and the same `token`.
@@ -96,7 +107,15 @@ cache. The data token costs one pass over the bound scope's rows.
 ## Limitations
 
 * Entities only; relations are not searched.
-* Cost is linear in the size of the bound scope (bounded by `timeout_ms`).
-* A writer that starts during an `immutable` read is detected by file-state comparison, which is
-  best effort for sub-timestamp-resolution races.
+* Cost is linear in the size of the bound scope (bounded by `timeout_ms`; expiry at any stage,
+  including after the last excerpt, returns `timeout`, never a late success).
+* Local filesystem paths only; UNC/network store paths are reported `store_unreadable`.
+* For a live WAL store (`-wal` and `-shm` present) SQLite itself records read marks in the volatile
+  `-shm` index. Database and WAL bytes, and the set of files, are never changed, but the `-shm`
+  content is not byte-stable across a read. This is inherent to reading a live WAL database; the only
+  alternative is refusing to read while a writer is open.
+* A writer that starts during an `immutable` read is detected by file-state comparison (size and
+  mtime of the database and side files), which is best effort at filesystem timestamp resolution.
+  If side files vanish between mode selection and open in `wal-shared` mode, SQLite may recreate
+  them; this narrow race is only detected when they are missing after the read.
 * Authorization is only as trustworthy as the provider configuration file's filesystem permissions.

@@ -145,10 +145,11 @@ def parse_request(raw: Any, *, with_query: bool) -> EvidenceRequest:
     allowed = _SEARCH_KEYS if with_query else _FRESHNESS_KEYS
     unknown = sorted(str(k) for k in raw if k not in allowed)
     if unknown:
+        shown = ", ".join(name[:40] for name in unknown[:5])
+        more = f" (+{len(unknown) - 5} more)" if len(unknown) > 5 else ""
         raise InvalidRequest(
-            "unsupported request fields: "
-            + ", ".join(unknown)
-            + " (scope and caller come only from the provider configuration)"
+            f"unsupported request fields: {shown}{more}"
+            " (scope and caller come only from the provider configuration)"
         )
     app_project = raw.get("app_project")
     if (
@@ -219,34 +220,63 @@ def _flatten(value: Any, path: str, out: List[Tuple[str, str]], depth: int) -> N
             _flatten(item, f"{path}[{index}]", out, depth + 1)
 
 
+class _Verifier:
+    """Proves that a provenance entry belongs to the bound scope.
+
+    A lifecycle source is trusted only if ``lifecycle_sources`` lists it for the
+    bound scope. The reserved legacy source is trusted only for an entity that
+    has a ``lifecycle_legacy`` backing record AND lives in the bound scope.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, scope_id: str, sources: Set[str]) -> None:
+        self._conn = conn
+        self._scope_id = scope_id
+        self._sources = sources
+        self._legacy: Dict[str, bool] = {}
+
+    def allows(self, entity_id: str, source_id: str) -> bool:
+        if source_id in self._sources:
+            return True
+        if source_id != _LEGACY_SOURCE:
+            return False
+        if entity_id not in self._legacy:
+            row = self._conn.execute(
+                "SELECT 1 FROM lifecycle_legacy l JOIN entities e ON e.id = l.target_id "
+                "WHERE l.kind = 'entity' AND l.target_id = ? AND e.scope_id = ?",
+                (entity_id, self._scope_id),
+            ).fetchone()
+            self._legacy[entity_id] = row is not None
+        return self._legacy[entity_id]
+
+
 def _verified_evidence(
-    props: Mapping[str, Any], verified_sources: Optional[Set[str]]
+    entity_id: str, props: Mapping[str, Any], verifier: Optional[_Verifier]
 ) -> List[Mapping[str, Any]]:
     """Evidence entries whose source is provably in the bound scope."""
-    if verified_sources is None:
+    if verifier is None:
         return []
     evidence = props.get("evidence")
     if not isinstance(evidence, list):
         return []
     out = []
-    for item in evidence:
+    for item in evidence[:200]:
         if (
             isinstance(item, Mapping)
             and isinstance(item.get("source_id"), str)
-            and (item["source_id"] in verified_sources or item["source_id"] == _LEGACY_SOURCE)
+            and verifier.allows(entity_id, item["source_id"])
         ):
             out.append(item)
     return out
 
 
 def _segments(
-    name: str, props: Mapping[str, Any], verified_sources: Optional[Set[str]]
+    entity_id: str, name: str, props: Mapping[str, Any], verifier: Optional[_Verifier]
 ) -> List[_Segment]:
     segments = [_Segment("name", name, _NAME_WEIGHT)]
     leaves: List[Tuple[str, str]] = []
     _flatten(props, "", leaves, 0)
     segments.extend(_Segment(f"properties.{p}", t, 1) for p, t in leaves)
-    for index, item in enumerate(_verified_evidence(props, verified_sources)):
+    for index, item in enumerate(_verified_evidence(entity_id, props, verifier)):
         excerpt = item.get("excerpt")
         if isinstance(excerpt, str) and excerpt.strip():
             segments.append(_Segment(f"evidence[{index}].excerpt", excerpt, 1))
@@ -324,10 +354,10 @@ def _clip(value: Any, limit: int = MAX_FIELD_CHARS) -> Optional[str]:
 
 
 def _provenance(
-    props: Mapping[str, Any], verified_sources: Optional[Set[str]]
+    entity_id: str, props: Mapping[str, Any], verifier: Optional["_Verifier"]
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     entries: List[Dict[str, Any]] = []
-    for item in _verified_evidence(props, verified_sources):
+    for item in _verified_evidence(entity_id, props, verifier):
         revision = item.get("revision")
         entries.append(
             {
@@ -366,7 +396,6 @@ def _now() -> str:
 @dataclass
 class _ScopedRead:
     data_token: str
-    lifecycle_generation: Optional[int]
     doc_count: int
     matches: List[_Match] = field(default_factory=list)
     results: List[Dict[str, Any]] = field(default_factory=list)
@@ -398,22 +427,20 @@ def _scoped_read(
         for column in sorted(scope_row.keys()):
             _feed(digest, "scope", column, scope_row[column])
 
-        generation: Optional[int] = None
-        verified: Optional[Set[str]] = None
-        if has_lifecycle:
-            gen_row = conn.execute("SELECT generation FROM lifecycle_state WHERE id = 1").fetchone()
-            generation = gen_row[0] if gen_row else None
-            verified = set()
-            for src in conn.execute(
-                "SELECT source_id, revision FROM lifecycle_sources WHERE scope_id = ? "
-                "ORDER BY source_id",
-                (binding.scope_id,),
-            ):
-                verified.add(src[0])
-                _feed(digest, "source", src[0], src[1])
-
+        verifier: Optional[_Verifier] = None
         iso_sql, iso_params = _isolation()
-        read = _ScopedRead(data_token="", lifecycle_generation=generation, doc_count=0)
+        if has_lifecycle:
+            sources: Set[str] = set()
+            for src in conn.execute(
+                "SELECT source_id, revision, applied_revision, state, applied_digest "
+                f"FROM lifecycle_sources WHERE scope_id = ? AND {iso_sql} ORDER BY source_id",
+                [binding.scope_id, *iso_params],
+            ):
+                sources.add(src[0])
+                _feed(digest, "source", *tuple(src))
+            verifier = _Verifier(conn, binding.scope_id, sources)
+
+        read = _ScopedRead(data_token="", doc_count=0)
         terms = request.terms if request else ()
         total_len = 0.0
         df = [0] * len(terms)
@@ -434,7 +461,7 @@ def _scoped_read(
             props = _parse_properties(row["properties"])
             if "tombstoned_at" in props:
                 continue
-            segments = _segments(str(row["name"]), props, verified)
+            segments = _segments(str(row["id"]), str(row["name"]), props, verifier)
             read.doc_count += 1
             counts: Dict[str, float] = {}
             length = 0.0
@@ -465,14 +492,18 @@ def _scoped_read(
         n = read.doc_count
         idf = [math.log(1.0 + (n - d + 0.5) / (d + 0.5)) for d in df]
         scored: List[Tuple[float, str]] = []
-        for match in read.matches:
+        for count, match in enumerate(read.matches):
+            if count & 255 == 0:
+                deadline.check()
             score = 0.0
             for i, freq in enumerate(match.tf):
                 if freq:
                     denom = freq + _K1 * (1 - _B + _B * (match.length / avg))
                     score += idf[i] * (freq * (_K1 + 1)) / denom
             scored.append((score, match.entity_id))
+        deadline.check()
         scored.sort(key=lambda item: (-item[0], item[1]))
+        deadline.check()
         assert request is not None
 
         used = 0
@@ -486,10 +517,13 @@ def _scoped_read(
             if row is None:  # cannot happen inside one snapshot; never emit unscoped data
                 continue
             props = _parse_properties(row["properties"])
+            entity_row_id = str(row["id"])
             label, excerpt = _best_excerpt(
-                _segments(str(row["name"]), props, verified), terms, request.max_excerpt_chars
+                _segments(entity_row_id, str(row["name"]), props, verifier),
+                terms,
+                request.max_excerpt_chars,
             )
-            provenance, source_ids = _provenance(props, verified)
+            provenance, source_ids = _provenance(entity_row_id, props, verifier)
             item = {
                 "rank": rank,
                 "score": round(score, 6),
@@ -570,6 +604,7 @@ def _execute(
         snapshot = open_snapshot(binding.store_path, deadline)
         read = _scoped_read(snapshot, binding, request if with_query else None, deadline)
         verify_unchanged(snapshot)
+        deadline.check()
         mode = snapshot.mode
     except SearchTimeout:
         return _error(operation, STATUS_TIMEOUT, "deadline_exceeded", "the search timed out")
@@ -597,7 +632,6 @@ def _execute(
             "data": {
                 "token": read.data_token,
                 "basis": "exact-scope-content-digest",
-                "lifecycle_generation": read.lifecycle_generation,
                 "snapshot": mode,
             },
             "validated_at": _now(),
