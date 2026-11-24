@@ -141,7 +141,8 @@ fresh one. The data token costs one pass over the bound scope's rows.
   publication cannot be proven, such responses are never cacheable (see above).
 * A store with no side files is read with `immutable=1` and is cacheable only when the operator
   attests WAL-only writers. Under that attestation an open writer always shows as `-wal`/`-shm`, so
-  no side files (on a file with a single hard link) means no writer, and the proof is clock-independent: file state (size, mtime, side
+  no side files (on a file with a single hard link, re-checked after the read: a link appearing
+  mid-read fails as `store_changed_during_read`) means no writer, and the proof is clock-independent: file state (size, mtime, side
   files) is compared before and after the read and, additionally, a SHA-256 of the whole main file
   taken through SQLite before and after must match (a rewrite that preserves size and mtime is
   caught; the read then fails with `store_changed_during_read`). The digest costs two extra reads of

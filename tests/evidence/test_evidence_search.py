@@ -975,3 +975,22 @@ def test_hard_linked_store_cannot_prove_idleness(world, tmp_path):
     assert_bypass(response, "store_identity_unverified")
     other.unlink()
     assert token(world)
+
+
+def test_link_appearing_during_the_read_is_not_returned_as_cacheable(world, tmp_path, monkeypatch):
+    other = tmp_path / "late-link.db"
+    original = search_mod._scoped_read
+
+    def link_late(*args, **kwargs):
+        result = original(*args, **kwargs)
+        try:
+            os.link(world.db, other)
+        except (OSError, NotImplementedError):
+            pytest.skip("hard links unavailable")
+        return result
+
+    monkeypatch.setattr(search_mod, "_scoped_read", link_late)
+    response = run(world, "alpha-app")
+    assert (response["status"], response["reason"]) == ("unavailable", "store_changed_during_read")
+    assert response["results"] == [] and response["freshness"]["cacheable"] is False
+    assert response["freshness"]["token"] is None

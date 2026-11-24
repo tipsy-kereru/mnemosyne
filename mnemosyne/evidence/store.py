@@ -335,6 +335,10 @@ def verify_unchanged(snapshot: Snapshot) -> None:
         return
     changed = _fingerprint(snapshot.path) != snapshot.fingerprint
     if not changed and snapshot.main_digest is not None:
+        # Cacheability assumed a single-link identity at open; a link added since
+        # would give a writer its own -wal/-shm namespace.
+        changed = os.stat(snapshot.path).st_nlink != 1
+    if not changed and snapshot.main_digest is not None:
         changed = _main_digest(snapshot.path, snapshot.path.as_uri()) != snapshot.main_digest
     if changed:
         raise StoreUnavailable(
