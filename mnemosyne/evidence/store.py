@@ -25,8 +25,9 @@ when closed. So the access mode is chosen from the side files of the canonical
   on the copy. The copy is retried if the main file or a side-file header
   changes while copying. The original is only ever opened ``immutable``, so its
   directory is never written. A copy may include a commit frame that source
-  readers have not yet been shown; that is a durably committed state, never a
-  torn one (torn frames fail their checksum and are ignored).
+  readers have not yet been shown: a complete, checksum-valid transaction that a
+  recovering opener would also see, though a writer that then fails before
+  syncing could still lose it. Torn frames fail their checksum and are ignored.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -192,7 +194,20 @@ def _private_copy(
     tmp = tempfile.mkdtemp(prefix="mnemosyne-evidence-")
 
     def cleanup() -> None:
-        shutil.rmtree(tmp, ignore_errors=True)
+        def retry(func: Callable[..., object], target: str, _exc: object) -> None:
+            # Never leave a whole-store copy behind: make it writable, empty it, then drop it.
+            try:
+                os.chmod(target, 0o700)
+                if os.path.isfile(target):
+                    os.truncate(target, 0)
+                func(target)
+            except OSError:
+                pass
+
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(tmp, onexc=retry)
+        else:
+            shutil.rmtree(tmp, onerror=retry)
 
     conn: Optional[sqlite3.Connection] = None
     try:

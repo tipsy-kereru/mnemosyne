@@ -117,8 +117,10 @@ cache. The data token costs one pass over the bound scope's rows.
 * Local filesystem paths only; UNC/network store paths are reported `store_unreadable`.
 * A live, crashed, or journaled store is read from a private copy (whole main file and side files,
   so cost and the 256 MiB cap depend on the entire database, including other projects). A private
-  copy may contain a commit that concurrent source readers have not yet been shown, never a torn
-  one. Timestamp-based change detection is best effort at filesystem timestamp resolution.
+  copy may contain a complete commit that concurrent source readers have not yet been shown (never
+  a torn one); if the writer then fails before syncing, that commit could be lost, so evidence from
+  it is consistent with its token but not yet durable. The token changes on the next read if so.
+  Timestamp-based change detection is best effort at filesystem timestamp resolution.
 * An idle store with no side files is read with `immutable=1`; a writer appearing mid-read is
   detected by file-state comparison, and a non-WAL store written with an in-memory journal cannot be
   proven idle by files alone.
