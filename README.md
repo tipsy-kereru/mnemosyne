@@ -259,6 +259,7 @@ mnemosyne wiki doctor
 | `mnemosyne mcp serve` | Start MCP server for AI agent integration |
 | `mnemosyne-slack <subcommand>` | Manually collect and search public Slack channels (isolated store) |
 | `mnemosyne lifecycle <command>` | Versioned evidence, approved corrections, reversible visibility, and recovery |
+| `mnemosyne evidence <search\|freshness>` | Read-only, exact-scope, cited evidence search with a cache-freshness token |
 
 ### Source lifecycle API
 
@@ -407,6 +408,22 @@ corrections, and visibility records; rebuild the wiki at the restored location.
 
 Synthetic regression suite: `python -m pytest tests/test_lifecycle.py -q`.
 Live source connectors and chat authorization remain separate integration work.
+
+### Read-only evidence search
+
+```bash
+mnemosyne evidence search --provider-config provider.json --app-project weekly-sync --query "budget approval"
+mnemosyne evidence freshness --provider-config provider.json --app-project weekly-sync
+```
+
+Returns bounded, ranked, cited excerpts from exactly one scope. The store, the
+effective caller, and the app-project-to-scope grants come only from the trusted
+provider configuration; a request cannot name a scope. Global, parent, child and
+sibling scopes are never read. The command never creates, migrates, indexes or
+writes the store and persists nothing. `freshness` returns an authorization+data
+token for safe in-memory caching. Exit codes: 0 ok/no matches, 2 invalid, 3
+unauthorized, 4 unavailable, 5 timeout. Full contract:
+[docs/EVIDENCE_SEARCH_CONTRACT.md](docs/EVIDENCE_SEARCH_CONTRACT.md).
 
 ### `mnemosyne-slack` (isolated Slack store)
 

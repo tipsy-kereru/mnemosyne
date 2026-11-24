@@ -797,6 +797,9 @@ def build_parser() -> argparse.ArgumentParser:
     from mnemosyne.graph.lifecycle_cli import register_parser as register_lifecycle_parser
     register_lifecycle_parser(subparsers)
 
+    from mnemosyne.evidence.cli import register_parser as register_evidence_parser
+    register_evidence_parser(subparsers)
+
     # -- serve group --
     serve = _new_parser(
         subparsers, "serve",
