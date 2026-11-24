@@ -25,8 +25,9 @@ Schema (``version`` 1)::
 
 ``store_writers: "wal"`` is the operator's attestation that every process that
 writes the store uses WAL journaling (as Mnemosyne's ``KnowledgeGraph`` does),
-never ``journal_mode=MEMORY/OFF``, so an open writer is always visible as
-``-wal``/``-shm`` side files. Without it a store can never be proven idle, and
+never ``journal_mode=MEMORY/OFF``, and open it through the same path and
+directory view (no bind or alternate mounts), so an open writer is always
+visible as ``-wal``/``-shm`` side files beside the configured store. Without it a store can never be proven idle, and
 evidence responses are not cacheable (``writer_mode_unattested``).
 """
 

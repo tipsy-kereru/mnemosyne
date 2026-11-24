@@ -28,7 +28,9 @@ option.
 ```
 
 `store_writers: "wal"` is optional operator attestation that every process writing the store uses WAL
-journaling (as Mnemosyne's `KnowledgeGraph` does), never `journal_mode=MEMORY`/`OFF`. It is what
+journaling (as Mnemosyne's `KnowledgeGraph` does), never `journal_mode=MEMORY`/`OFF`, and that all
+writers open the store through the same path and directory view (no bind mounts or alternate
+mounts that would hide their `-wal`/`-shm`). Extra hard links are detected and bypassed. It is what
 allows an idle store to be proven idle (see Freshness); without it evidence is never cacheable.
 
 `store` is resolved relative to the configuration file. The file is strictly validated (unknown keys,
